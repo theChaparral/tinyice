@@ -35,6 +35,7 @@ Traditional streaming servers can be complex to configure and resource-heavy. Ti
 ## Features
 
 -   **Zero-Downtime Updates**: Support for `SO_REUSEPORT` allows starting a new version of TinyIce while the old one is still running, ensuring no service interruption.
+-   **Stream Health Monitoring**: Real-time detection of downstream packet loss and buffer skips, displayed as a health percentage in the dashboard.
 -   **High-Performance Distribution**: Shared circular buffer architecture designed for 100,000+ concurrent listeners per stream.
 -   **Icecast2 Compatible**: Works with standard source clients (BUTT, OBS, Mixxx, LadioCast) and players (VLC, web browsers).
 -   **Approval Workflow**: New streams are hidden by default until approved by an administrator.
@@ -46,6 +47,7 @@ Traditional streaming servers can be complex to configure and resource-heavy. Ti
 -   **Dynamic Management**: Add, update, disable, or remove mount points, users, and relays on the fly.
 -   **IP Banning**: Instantly block malicious IPs or entire network ranges using **CIDR support** (e.g., `1.2.3.0/24`).
 -   **Detailed Audit Logging**: Comprehensive logging of admin logins and encoder authentication results for better security monitoring.
+-   **Advanced Monitoring**: Built-in debug mode (`?debug`) to track system RAM and goroutine counts in real-time.
 -   **Legacy API**: Support for `/status-json.xsl` for compatibility with existing Icecast tools.
 -   **Now Playing Metadata**: Real-time display of song titles pushed from broadcast software or pulled from relays.
 
@@ -81,7 +83,7 @@ TinyIce uses a JSON configuration file (`tinyice.json`). Below are the available
     "port": "8000",
     "base_url": "https://radio.example.com",
     "page_title": "TinyIce",
-    "page_subtitle": "Live streaming network powered by Go",
+    "page_subtitle": "Live Streaming Server powered by Go",
     "use_https": true,
     "auto_https": true,
     "https_port": "443",
