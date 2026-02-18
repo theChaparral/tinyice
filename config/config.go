@@ -2,8 +2,8 @@ package config
 
 import (
 	"encoding/json"
-	"os"
 	"golang.org/x/crypto/bcrypt"
+	"os"
 )
 
 const (
@@ -19,9 +19,9 @@ type User struct {
 }
 
 type RelayConfig struct {
-	URL       string `json:"url"`       // e.g. http://master:8000/stream
-	Mount     string `json:"mount"`     // Local mount point
-	Password  string `json:"password"`  // If the master requires one
+	URL       string `json:"url"`      // e.g. http://master:8000/stream
+	Mount     string `json:"mount"`    // Local mount point
+	Password  string `json:"password"` // If the master requires one
 	BurstSize int    `json:"burst_size"`
 	Enabled   bool   `json:"enabled"`
 }
@@ -36,37 +36,37 @@ type Config struct {
 	Port                  string            `json:"port"`
 	DefaultSourcePassword string            `json:"default_source_password"`
 	Mounts                map[string]string `json:"mounts"` // Legacy global mounts
-	
+
 	// New Advanced Settings
 	AdvancedMounts map[string]*MountSettings `json:"advanced_mounts"`
 	Relays         []*RelayConfig            `json:"relays"`
 	BannedIPs      []string                  `json:"banned_ips"`
 
-	AdminPassword         string            `json:"admin_password"`
-	AdminUser             string            `json:"admin_user"`
-	Location              string            `json:"location"`
-	AdminEmail            string            `json:"admin_email"`
-	BaseURL               string            `json:"base_url"` // e.g. https://radio.example.com
-	HostName              string            `json:"hostname"`
-	ConfigPath            string            `json:"-"`
-	LowLatencyMode        bool              `json:"low_latency_mode"`
-	MaxListeners          int               `json:"max_listeners"`
-	DisabledMounts        map[string]bool   `json:"disabled_mounts"`
-	VisibleMounts         map[string]bool   `json:"visible_mounts"` // map[mount]is_visible
+	AdminPassword  string          `json:"admin_password"`
+	AdminUser      string          `json:"admin_user"`
+	Location       string          `json:"location"`
+	AdminEmail     string          `json:"admin_email"`
+	BaseURL        string          `json:"base_url"` // e.g. https://radio.example.com
+	HostName       string          `json:"hostname"`
+	ConfigPath     string          `json:"-"`
+	LowLatencyMode bool            `json:"low_latency_mode"`
+	MaxListeners   int             `json:"max_listeners"`
+	DisabledMounts map[string]bool `json:"disabled_mounts"`
+	VisibleMounts  map[string]bool `json:"visible_mounts"` // map[mount]is_visible
 
 	// UI Customization
 	PageTitle    string `json:"page_title"`
 	PageSubtitle string `json:"page_subtitle"`
 
 	// HTTPS Configuration
-	UseHTTPS   bool     `json:"use_https"`
-	AutoHTTPS  bool     `json:"auto_https"` // ACME
-	HTTPSPort  string   `json:"https_port"`
-	CertFile   string   `json:"cert_file"`
-	KeyFile    string   `json:"key_file"`
-	ACMEEmail  string   `json:"acme_email"`
-	ACMEDirectoryURL string `json:"acme_directory_url"` // Support for custom CAs (Step-CA, etc)
-	Domains    []string `json:"domains"`
+	UseHTTPS         bool     `json:"use_https"`
+	AutoHTTPS        bool     `json:"auto_https"` // ACME
+	HTTPSPort        string   `json:"https_port"`
+	CertFile         string   `json:"cert_file"`
+	KeyFile          string   `json:"key_file"`
+	ACMEEmail        string   `json:"acme_email"`
+	ACMEDirectoryURL string   `json:"acme_directory_url"` // Support for custom CAs (Step-CA, etc)
+	Domains          []string `json:"domains"`
 
 	// Directory Listing (YP)
 	DirectoryListing bool   `json:"directory_listing"`
@@ -102,20 +102,42 @@ func LoadConfig(path string) (*Config, error) {
 
 	config.ConfigPath = path
 
-	if config.BindHost == "" { config.BindHost = "0.0.0.0" }
-	if config.Port == "" { config.Port = "8000" }
-	if config.AdminUser == "" { config.AdminUser = "admin" }
-	if config.Mounts == nil { config.Mounts = make(map[string]string) }
-	if config.MaxListeners == 0 { config.MaxListeners = 100 }
-	if config.DisabledMounts == nil { config.DisabledMounts = make(map[string]bool) }
-	if config.VisibleMounts == nil { config.VisibleMounts = make(map[string]bool) }
-	if config.Users == nil { config.Users = make(map[string]*User) }
-	if config.AdvancedMounts == nil { config.AdvancedMounts = make(map[string]*MountSettings) }
-	if config.Relays == nil { config.Relays = make([]*RelayConfig, 0) }
+	if config.BindHost == "" {
+		config.BindHost = "0.0.0.0"
+	}
+	if config.Port == "" {
+		config.Port = "8000"
+	}
+	if config.AdminUser == "" {
+		config.AdminUser = "admin"
+	}
+	if config.Mounts == nil {
+		config.Mounts = make(map[string]string)
+	}
+	if config.MaxListeners == 0 {
+		config.MaxListeners = 100
+	}
+	if config.DisabledMounts == nil {
+		config.DisabledMounts = make(map[string]bool)
+	}
+	if config.VisibleMounts == nil {
+		config.VisibleMounts = make(map[string]bool)
+	}
+	if config.Users == nil {
+		config.Users = make(map[string]*User)
+	}
+	if config.AdvancedMounts == nil {
+		config.AdvancedMounts = make(map[string]*MountSettings)
+	}
+	if config.Relays == nil {
+		config.Relays = make([]*RelayConfig, 0)
+	}
 	for _, r := range config.Relays {
 		r.Enabled = true // Logic: if they are in config and we just loaded, we default to enabled for migration
 	}
-	if config.BannedIPs == nil { config.BannedIPs = make([]string, 0) }
+	if config.BannedIPs == nil {
+		config.BannedIPs = make([]string, 0)
+	}
 
 	// Migration/Backward compatibility: Ensure AdminUser is in Users map as superadmin
 	if config.AdminUser != "" && config.Users[config.AdminUser] == nil {
@@ -127,10 +149,18 @@ func LoadConfig(path string) (*Config, error) {
 		}
 	}
 
-	if config.PageTitle == "" { config.PageTitle = "TinyIce" }
-	if config.PageSubtitle == "" { config.PageSubtitle = "Live Streaming Server powered by Go" }
-	if config.HTTPSPort == "" { config.HTTPSPort = "443" }
-	if config.DirectoryServer == "" { config.DirectoryServer = "http://dir.xiph.org/cgi-bin/yp-cgi" }
+	if config.PageTitle == "" {
+		config.PageTitle = "TinyIce"
+	}
+	if config.PageSubtitle == "" {
+		config.PageSubtitle = "Live Streaming Server powered by Go"
+	}
+	if config.HTTPSPort == "" {
+		config.HTTPSPort = "443"
+	}
+	if config.DirectoryServer == "" {
+		config.DirectoryServer = "http://dir.xiph.org/cgi-bin/yp-cgi"
+	}
 
 	return config, nil
 }

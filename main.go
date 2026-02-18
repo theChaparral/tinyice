@@ -11,8 +11,8 @@ import (
 	"strings"
 
 	"github.com/sirupsen/logrus"
-	"github.com/syso/tinyice/config"
-	"github.com/syso/tinyice/server"
+	"github.com/DatanoiseTV/tinyice/config"
+	"github.com/DatanoiseTV/tinyice/server"
 )
 
 var (
@@ -57,7 +57,7 @@ func initLogging() {
 		if err != nil {
 			logrus.Fatalf("Failed to open log file %s: %v", *logFile, err)
 		}
-		// MultiWriter to log to both file and stdout if needed, 
+		// MultiWriter to log to both file and stdout if needed,
 		// but standard practice for "background" is just file.
 		// Let's stick to the file if provided.
 		logrus.SetOutput(f)
@@ -100,7 +100,7 @@ func main() {
 
 	if _, err := os.Stat(*configPath); os.IsNotExist(err) {
 		logrus.Info("Config file not found, generating secure defaults...")
-		
+
 		defaultSourcePass := generateRandomString(12)
 		liveMountPass := generateRandomString(12)
 		adminPass := generateRandomString(12)
@@ -126,13 +126,13 @@ func main() {
 					Mounts:   make(map[string]string),
 				},
 			},
-			HostName:      "localhost",
-			Location:      "Earth",
-			AdminEmail:    "admin@localhost",
-			PageTitle:     "TinyIce",
-			PageSubtitle:  "Live streaming network powered by Go",
-			UseHTTPS:      false,
-			HTTPSPort:     "443",
+			HostName:     "localhost",
+			Location:     "Earth",
+			AdminEmail:   "admin@localhost",
+			PageTitle:    "TinyIce",
+			PageSubtitle: "Live streaming network powered by Go",
+			UseHTTPS:     false,
+			HTTPSPort:    "443",
 		}
 
 		data, _ := json.MarshalIndent(defaultCfg, "", "    ")

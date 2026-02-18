@@ -133,13 +133,21 @@ func (rm *RelayManager) performPull(ctx context.Context, inst *RelayInstance) {
 
 	// Metadata
 	name := resp.Header.Get("Ice-Name")
-	if name == "" { name = resp.Header.Get("Icy-Name") }
+	if name == "" {
+		name = resp.Header.Get("Icy-Name")
+	}
 	desc := resp.Header.Get("Ice-Description")
-	if desc == "" { desc = resp.Header.Get("Icy-Description") }
+	if desc == "" {
+		desc = resp.Header.Get("Icy-Description")
+	}
 	genre := resp.Header.Get("Ice-Genre")
-	if genre == "" { genre = resp.Header.Get("Icy-Genre") }
+	if genre == "" {
+		genre = resp.Header.Get("Icy-Genre")
+	}
 	bitrate := resp.Header.Get("Ice-Bitrate")
-	if bitrate == "" { bitrate = resp.Header.Get("Icy-Br") }
+	if bitrate == "" {
+		bitrate = resp.Header.Get("Icy-Br")
+	}
 
 	// Check for ICY metadata interval
 	var metaInt int
@@ -159,11 +167,16 @@ func (rm *RelayManager) pullSimple(ctx context.Context, body io.Reader, stream *
 	buf := make([]byte, 8192)
 	for {
 		select {
-		case <-ctx.Done(): return
+		case <-ctx.Done():
+			return
 		default:
 			n, err := body.Read(buf)
-			if n > 0 { stream.Broadcast(buf[:n], rm.relay) }
-			if err != nil { return }
+			if n > 0 {
+				stream.Broadcast(buf[:n], rm.relay)
+			}
+			if err != nil {
+				return
+			}
 		}
 	}
 }
@@ -172,25 +185,32 @@ func (rm *RelayManager) pullWithMetadata(ctx context.Context, body io.Reader, st
 	audioBuf := make([]byte, metaInt)
 	for {
 		select {
-		case <-ctx.Done(): return
+		case <-ctx.Done():
+			return
 		default:
 			// 1. Read Audio Data
 			_, err := io.ReadFull(body, audioBuf)
-			if err != nil { return }
+			if err != nil {
+				return
+			}
 			stream.Broadcast(audioBuf, rm.relay)
 
 			// 2. Read Metadata Length Byte
 			var metaLenByte [1]byte
 			_, err = io.ReadFull(body, metaLenByte[:])
-			if err != nil { return }
-			
+			if err != nil {
+				return
+			}
+
 			metaLen := int(metaLenByte[0]) * 16
 			if metaLen > 0 {
 				// 3. Read Metadata String
 				metaBuf := make([]byte, metaLen)
 				_, err = io.ReadFull(body, metaBuf)
-				if err != nil { return }
-				
+				if err != nil {
+					return
+				}
+
 				// Parse StreamTitle='Artist - Title';
 				metaStr := string(metaBuf)
 				if strings.Contains(metaStr, "StreamTitle='") {

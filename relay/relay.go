@@ -28,7 +28,7 @@ type Stream struct {
 
 	listeners map[string]chan []byte // Map of listener ID to their data channel
 	mu        sync.RWMutex
-	
+
 	// Burst buffer (simple ring buffer or just a slice of recent chunks)
 	// We'll store the last N chunks for simplicity to start with.
 	burstBuffer [][]byte
@@ -38,38 +38,31 @@ type Stream struct {
 // Relay manages all active streams
 
 type Relay struct {
+	Streams map[string]*Stream
 
-	Streams    map[string]*Stream
-
-	mu         sync.RWMutex
+	mu sync.RWMutex
 
 	LowLatency bool
 
-	BytesIn    int64
+	BytesIn int64
 
-	BytesOut   int64
+	BytesOut int64
 
-	History    *HistoryManager
-
+	History *HistoryManager
 }
-
-
 
 func NewRelay(lowLatency bool, history *HistoryManager) *Relay {
 
 	return &Relay{
 
-		Streams:    make(map[string]*Stream),
+		Streams: make(map[string]*Stream),
 
 		LowLatency: lowLatency,
 
-		History:    history,
-
+		History: history,
 	}
 
 }
-
-
 
 // GetOrCreateStream returns an existing stream or creates a new one
 func (r *Relay) GetOrCreateStream(mount string) *Stream {
@@ -107,7 +100,7 @@ func (r *Relay) GetOrCreateStream(mount string) *Stream {
 func (r *Relay) RemoveStream(mount string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	
+
 	if s, ok := r.Streams[mount]; ok {
 		s.Close()
 		delete(r.Streams, mount)
@@ -164,7 +157,7 @@ func (s *Stream) Broadcast(data []byte, relay *Relay) {
 	// Make a copy of data to avoid race conditions if the source reuses the buffer
 	chunk := make([]byte, len(data))
 	copy(chunk, data)
-	
+
 	if s.burstSize > 0 {
 		if len(s.burstBuffer) >= s.burstSize {
 			// Remove oldest
@@ -198,7 +191,7 @@ func (s *Stream) Subscribe(id string) (<-chan []byte, [][]byte) {
 	defer s.mu.Unlock()
 
 	// Buffer channel to avoid immediate blocking
-	ch := make(chan []byte, 100) 
+	ch := make(chan []byte, 100)
 	s.listeners[id] = ch
 
 	// Return current burst buffer to send immediately
@@ -208,7 +201,6 @@ func (s *Stream) Subscribe(id string) (<-chan []byte, [][]byte) {
 
 	return ch, currentBurst
 }
-
 
 // Unsubscribe removes a listener
 func (s *Stream) Unsubscribe(id string) {
@@ -361,4 +353,3 @@ func (r *Relay) Snapshot() []StreamStats {
 
 	return streams
 }
-
