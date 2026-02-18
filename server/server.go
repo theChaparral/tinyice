@@ -69,6 +69,16 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/metrics", s.handleMetrics)
 
 	addr := s.Config.BindHost + ":" + s.Config.Port
+
+	// Start Background Tasks before blocking listeners
+	if s.Config.DirectoryListing {
+		go s.directoryReportingTask()
+	}
+
+	// Start Pull Relays
+	for _, rc := range s.Config.Relays {
+		s.RelayM.StartRelay(rc.URL, rc.Mount, rc.Password, rc.BurstSize)
+	}
 	
 	if !s.Config.UseHTTPS {
 		logrus.Infof("Starting TinyIce on %s (HTTP)", addr)
@@ -132,15 +142,6 @@ func (s *Server) Start() error {
 			logrus.Fatalf("HTTP server failed: %v", err)
 		}
 	}()
-
-	if s.Config.DirectoryListing {
-		go s.directoryReportingTask()
-	}
-
-	// Start Pull Relays
-	for _, rc := range s.Config.Relays {
-		s.RelayM.StartRelay(rc.URL, rc.Mount, rc.Password, rc.BurstSize)
-	}
 
 	logrus.Infof("Starting HTTPS server on %s", httpsAddr)
 	if certManager != nil {
