@@ -14,6 +14,7 @@
         body { font-family: 'Inter', system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); margin: 0; line-height: 1.5; overflow: hidden; }
         .app-container { display: flex; height: 100vh; width: 100vw; }
         aside { background: var(--surface); border-right: 1px solid var(--border); padding: 2rem; display: flex; flex-direction: column; width: 280px; height: 100vh; box-sizing: border-box; flex-shrink: 0; }
+        .logo-img { width: 100%; max-width: 180px; margin-bottom: 2rem; display: block; }
         main { flex: 1; padding: 2.5rem; height: 100vh; overflow-y: auto; box-sizing: border-box; min-width: 0; }
         .logo { font-size: 1.5rem; font-weight: 800; color: var(--primary); margin-bottom: 2rem; display: flex; align-items: center; gap: 0.5rem; }
         .logo span { font-weight: 200; color: var(--text-dim); }
@@ -62,7 +63,9 @@
 <body>
     <div class="app-container">
         <aside>
-            <a href="/" style="text-decoration: none;"><div class="logo">TinyIce <span>Admin</span></div></a>
+            <a href="/" style="text-decoration: none;">
+                <img src="/assets/logo.png" alt="TinyIce" class="logo-img">
+            </a>
             <div id="sidebar-nav">
                 <button class="nav-link active" onclick="showTab('tab-overview')">Dashboard</button>
                 <button class="nav-link" onclick="showTab('tab-stations')">Your Stations</button>

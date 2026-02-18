@@ -21,6 +21,9 @@ import (
 //go:embed all:templates
 var templateFS embed.FS
 
+//go:embed all:assets
+var assetFS embed.FS
+
 type Server struct {
 	Config *config.Config
 	Relay  *relay.Relay
@@ -75,6 +78,7 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/events", s.handlePublicEvents)
 	mux.HandleFunc("/status-json.xsl", s.handleLegacyStats)
 	mux.HandleFunc("/metrics", s.handleMetrics)
+	mux.Handle("/assets/", http.StripPrefix("/assets/", http.FileServer(http.FS(assetFS))))
 	return mux
 }
 

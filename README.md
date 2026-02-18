@@ -1,5 +1,7 @@
 # TinyIce ❄️
 
+![TinyIce Logo](assets/logo.png)
+
 **Run it, and you've got a ready Icecast server in seconds.**
 
 > **Notice**: This is a side project. Use it at your own risk. While it implements security best practices, it has not undergone an independent audit.
