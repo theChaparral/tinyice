@@ -208,12 +208,17 @@ func (s *Server) handlePlaylist(w http.ResponseWriter, r *http.Request) {
 	st, ok := s.Relay.GetStream(mount)
 	if !ok { http.NotFound(w, r); return }
 
-	proto := "http://"
-	if s.Config.UseHTTPS || r.Header.Get("X-Forwarded-Proto") == "https" { proto = "https://" }
+	baseURL := s.Config.BaseURL
+	if baseURL == "" {
+		proto := "http://"
+		if s.Config.UseHTTPS || r.Header.Get("X-Forwarded-Proto") == "https" { proto = "https://" }
+		baseURL = proto + r.Host
+	}
+	baseURL = strings.TrimSuffix(baseURL, "/")
 	
 	w.Header().Set("Content-Type", "audio/x-mpegurl")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s%s\"", st.Name, ext))
-	fmt.Fprintf(w, "#EXTM3U\n#EXTINF:-1,%s\n%s%s%s\n", st.Name, proto, r.Host, mount)
+	fmt.Fprintf(w, "#EXTM3U\n#EXTINF:-1,%s\n%s%s\n", st.Name, baseURL, mount)
 }
 
 func (s *Server) isBanned(ip string) bool {

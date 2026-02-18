@@ -46,6 +46,7 @@ type Config struct {
 	AdminUser             string            `json:"admin_user"`
 	Location              string            `json:"location"`
 	AdminEmail            string            `json:"admin_email"`
+	BaseURL               string            `json:"base_url"` // e.g. https://radio.example.com
 	HostName              string            `json:"hostname"`
 	ConfigPath            string            `json:"-"`
 	LowLatencyMode        bool              `json:"low_latency_mode"`

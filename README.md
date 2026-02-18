@@ -73,6 +73,7 @@ TinyIce uses a JSON configuration file (`tinyice.json`). Below are the available
 {
     "bind_host": "0.0.0.0",
     "port": "8000",
+    "base_url": "https://radio.example.com",
     "page_title": "TinyIce",
     "page_subtitle": "Live streaming network powered by Go",
     "use_https": true,
