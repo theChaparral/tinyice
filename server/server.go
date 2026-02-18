@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"embed"
 	"encoding/json"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"sort"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/DatanoiseTV/tinyice/config"
@@ -29,10 +31,11 @@ var templateFS embed.FS
 var assetFS embed.FS
 
 type Server struct {
-	Config *config.Config
-	Relay  *relay.Relay
-	RelayM *relay.RelayManager
-	tmpl   *template.Template
+	Config      *config.Config
+	Relay       *relay.Relay
+	RelayM      *relay.RelayManager
+	tmpl        *template.Template
+	httpServers []*http.Server
 }
 
 func NewServer(cfg *config.Config) *Server {
@@ -87,6 +90,54 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	return mux
 }
 
+func (s *Server) listenWithReuse(network, address string) (net.Listener, error) {
+	lc := net.ListenConfig{
+		Control: func(network, address string, c syscall.RawConn) error {
+			var err error
+			err2 := c.Control(func(fd uintptr) {
+				err = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
+				if err != nil {
+					return
+				}
+				// SO_REUSEPORT is not available on all systems, but we try it
+				// On Linux/Darwin it allows multiple processes to bind to the same port
+				syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, 0x0f, 1) // 0x0f is SO_REUSEPORT on most systems
+			})
+			if err2 != nil {
+				return err2
+			}
+			return err
+		},
+	}
+	return lc.Listen(context.Background(), network, address)
+}
+
+func (s *Server) Shutdown(ctx context.Context) error {
+	logrus.Info("Server shutting down gracefully...")
+	
+	// Stop relays immediately to prevent dual-pulling if a new instance starts
+	s.RelayM.StopAll()
+
+	for _, srv := range s.httpServers {
+		if err := srv.Shutdown(ctx); err != nil {
+			logrus.Errorf("Error during HTTP server shutdown: %v", err)
+		}
+	}
+	return nil
+}
+
+func (s *Server) ReloadConfig(cfg *config.Config) {
+	s.Config = cfg
+	// Re-sync relays
+	s.RelayM.StopAll()
+	for _, rc := range s.Config.Relays {
+		if rc.Enabled {
+			s.RelayM.StartRelay(rc.URL, rc.Mount, rc.Password, rc.BurstSize, s.Config.VisibleMounts[rc.Mount])
+		}
+	}
+	logrus.Info("Configuration reloaded successfully")
+}
+
 func (s *Server) Start() error {
 	mux := s.setupRoutes()
 	addr := s.Config.BindHost + ":" + s.Config.Port
@@ -110,7 +161,13 @@ func (s *Server) Start() error {
 			WriteTimeout: 0,
 			IdleTimeout:  120 * time.Second,
 		}
-		return srv.ListenAndServe()
+		s.httpServers = append(s.httpServers, srv)
+		
+		ln, err := s.listenWithReuse("tcp", addr)
+		if err != nil {
+			return err
+		}
+		return srv.Serve(ln)
 	}
 
 	return s.startHTTPS(mux, addr)
@@ -142,6 +199,7 @@ func (s *Server) startHTTPS(mux *http.ServeMux, addr string) error {
 	if certManager != nil {
 		httpsSrv.TLSConfig = certManager.TLSConfig()
 	}
+	s.httpServers = append(s.httpServers, httpsSrv)
 
 	httpSrv := &http.Server{
 		Addr: addr,
@@ -163,19 +221,29 @@ func (s *Server) startHTTPS(mux *http.ServeMux, addr string) error {
 		ReadTimeout: 10 * time.Second,
 		IdleTimeout: 120 * time.Second,
 	}
+	s.httpServers = append(s.httpServers, httpSrv)
 
 	go func() {
 		logrus.Infof("Starting HTTP listener on %s", addr)
-		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		ln, err := s.listenWithReuse("tcp", addr)
+		if err != nil {
+			logrus.Fatalf("HTTP listen failed: %v", err)
+		}
+		if err := httpSrv.Serve(ln); err != nil && err != http.ErrServerClosed {
 			logrus.Fatalf("HTTP server failed: %v", err)
 		}
 	}()
 
 	logrus.Infof("Starting HTTPS server on %s", httpsAddr)
-	if certManager != nil {
-		return httpsSrv.ListenAndServeTLS("", "")
+	ln, err := s.listenWithReuse("tcp", httpsAddr)
+	if err != nil {
+		return err
 	}
-	return httpsSrv.ListenAndServeTLS(s.Config.CertFile, s.Config.KeyFile)
+	
+	if certManager != nil {
+		return httpsSrv.ServeTLS(ln, "", "")
+	}
+	return httpsSrv.ServeTLS(ln, s.Config.CertFile, s.Config.KeyFile)
 }
 
 func (s *Server) checkAuth(r *http.Request) (*config.User, bool) {

@@ -27,6 +27,19 @@ TinyIce is built around a central **Pub/Sub** engine located in the `relay/` pac
 3.  **Broadcasting**: Data chunks are written to a stream-specific `CircularBuffer`.
 4.  **Zero-Allocation Distribution**: Listeners subscribe by maintaining an offset into the shared buffer. A signal channel triggers a read loop that pumps data directly from the shared memory to the network socket. This significantly reduces memory allocations and garbage collection pressure under high load.
 
+## Zero-Downtime Updates
+
+TinyIce supports zero-downtime binary updates and configuration reloading:
+
+### 1. Binary Updates (`SO_REUSEPORT`)
+The server uses `SO_REUSEADDR` and `SO_REUSEPORT` on its listening sockets. This allows you to start a new instance of TinyIce while the old one is still running. Both processes will temporarily share the incoming traffic. Once the new process is ready, send a `SIGTERM` to the old one to trigger a **Graceful Shutdown**.
+
+### 2. Config Reloading (`SIGHUP`)
+Send a `SIGHUP` signal to the running TinyIce process to reload the `tinyice.json` configuration from disk without dropping any active listeners. This will:
+- Re-read all mount settings and passwords.
+- Re-sync Edge Relays (starting new ones or stopping deleted ones).
+- Update the public UI settings.
+
 ## Key Technical Decisions
 
 ### 1. Pure Go SQLite

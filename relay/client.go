@@ -61,13 +61,44 @@ func (rm *RelayManager) StartRelay(url, mount, password string, burstSize int, v
 }
 
 func (rm *RelayManager) StopRelay(mount string) {
+
 	rm.mu.Lock()
+
 	defer rm.mu.Unlock()
+
+
+
 	if inst, ok := rm.instances[mount]; ok {
+
 		inst.Stop()
+
 		delete(rm.instances, mount)
+
 	}
+
 }
+
+
+
+func (rm *RelayManager) StopAll() {
+
+	rm.mu.Lock()
+
+	defer rm.mu.Unlock()
+
+
+
+	for mount, inst := range rm.instances {
+
+		inst.Stop()
+
+		delete(rm.instances, mount)
+
+	}
+
+}
+
+
 
 func (inst *RelayInstance) Stop() {
 	inst.mu.Lock()

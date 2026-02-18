@@ -34,6 +34,7 @@ Traditional streaming servers can be complex to configure and resource-heavy. Ti
 
 ## Features
 
+-   **Zero-Downtime Updates**: Support for `SO_REUSEPORT` allows starting a new version of TinyIce while the old one is still running, ensuring no service interruption.
 -   **High-Performance Distribution**: Shared circular buffer architecture designed for 100,000+ concurrent listeners per stream.
 -   **Icecast2 Compatible**: Works with standard source clients (BUTT, OBS, Mixxx, LadioCast) and players (VLC, web browsers).
 -   **Approval Workflow**: New streams are hidden by default until approved by an administrator.

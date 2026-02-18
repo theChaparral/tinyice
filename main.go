@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -8,7 +9,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/DatanoiseTV/tinyice/config"
 	"github.com/DatanoiseTV/tinyice/server"
@@ -159,7 +163,37 @@ func main() {
 	}
 
 	srv := server.NewServer(cfg)
-	if err := srv.Start(); err != nil {
-		logrus.Fatalf("Server failed: %v", err)
+	
+	// Signal handling
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+
+	go func() {
+		if err := srv.Start(); err != nil && err.Error() != "http: Server closed" {
+			logrus.Fatalf("Server failed: %v", err)
+		}
+	}()
+
+	for {
+		sig := <-sigs
+		switch sig {
+		case syscall.SIGHUP:
+			logrus.Info("Received SIGHUP, reloading configuration...")
+			newCfg, err := config.LoadConfig(*configPath)
+			if err != nil {
+				logrus.Errorf("Failed to reload config: %v", err)
+				continue
+			}
+			srv.ReloadConfig(newCfg)
+		case syscall.SIGINT, syscall.SIGTERM:
+			logrus.Infof("Received %v, shutting down...", sig)
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			if err := srv.Shutdown(ctx); err != nil {
+				logrus.Errorf("Graceful shutdown failed: %v", err)
+			}
+			logrus.Info("TinyIce stopped")
+			return
+		}
 	}
 }
