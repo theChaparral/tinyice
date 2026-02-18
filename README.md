@@ -6,7 +6,9 @@
 
 TinyIce is a lightweight, high-performance, and secure Icecast2-compatible streaming server written in Go. It is designed to be self-contained, easy to deploy, and provides a modern web interface for both administrators and listeners.
 
-<img width="3024" height="2052" alt="image" src="https://github.com/user-attachments/assets/5fb4bd5f-6f69-404c-ad8f-f83ddc2212ad" />
+<img width="3024" height="1508" alt="image" src="https://github.com/user-attachments/assets/aca35b42-d93c-4ccc-86a1-365121cae74e" />
+<img width="3024" height="1508" alt="image" src="https://github.com/user-attachments/assets/8637a012-0fad-4018-98a5-5abb5d357fde" />
+<img width="3024" height="1508" alt="image" src="https://github.com/user-attachments/assets/4d5f339c-f1dd-49cb-a196-7dc6dad48331" />
 <img width="3024" height="1852" alt="image" src="https://github.com/user-attachments/assets/d3278890-4f5f-4536-aa88-5fd19518ca3d" />
 
 
