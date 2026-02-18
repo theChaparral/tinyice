@@ -271,9 +271,20 @@ func (s *Server) handleAdmin(w http.ResponseWriter, r *http.Request) {
 	if !ok { w.Header().Set("WWW-Authenticate", `Basic realm="TinyIce Admin"`); http.Error(w, "Unauthorized", http.StatusUnauthorized); return }
 	allStreams := s.Relay.Snapshot()
 	var streams []relay.StreamStats
-	for _, st := range allStreams { if s.hasAccess(user, st.MountName) { streams = append(streams, st) } }
+	mountMap := make(map[string]bool)
+	for _, st := range allStreams { if s.hasAccess(user, st.MountName) { streams = append(streams, st); mountMap[st.MountName] = true } }
+	
+	// Collect all possible history sources
+	for m := range user.Mounts { mountMap[m] = true }
+	if user.Role == config.RoleSuperAdmin {
+		for m := range s.Config.Mounts { mountMap[m] = true }
+		for _, rc := range s.Config.Relays { mountMap[rc.Mount] = true }
+	}
+	var allMounts []string
+	for m := range mountMap { allMounts = append(allMounts, m) }
+
 	w.Header().Set("Content-Type", "text/html")
-	data := map[string]interface{}{"Streams": streams, "Config": s.Config, "User": user}
+	data := map[string]interface{}{"Streams": streams, "Config": s.Config, "User": user, "Mounts": allMounts}
 	if err := s.tmpl.ExecuteTemplate(w, "admin.html", data); err != nil { logrus.WithError(err).Error("Template error") }
 }
 

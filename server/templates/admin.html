@@ -53,6 +53,10 @@
         .status-pill.inactive { color: var(--text-dim); background: rgba(255,255,255,0.05); }
         .dot { width: 6px; height: 6px; background: currentColor; border-radius: 50%; }
         .song-title { font-weight: 600; color: var(--warning); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+        .history-sidebar { border-right: 1px solid var(--border); display: flex; flex-direction: column; }
+        .history-mount-btn { padding: 1rem; border: none; background: transparent; color: var(--text-dim); text-align: left; cursor: pointer; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
+        .history-mount-btn:hover { background: var(--surface-hover); color: var(--text); }
+        .history-mount-btn.active { color: var(--primary); background: var(--primary-glow); font-weight: 700; }
     </style>
 </head>
 <body>
@@ -108,19 +112,29 @@
             </div>
             <div id="tab-history" class="tab-content">
                 <section>
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
-                        <h2>Playback History</h2>
-                        <select id="history-mount-select" style="width: 250px;" onchange="loadHistory(this.value)">
-                            <option value="">Select a mount point...</option>
-                            {{range $mount, $p := .User.Mounts}}<option value="{{$mount}}">{{$mount}}</option>{{end}}
-                            {{if eq .User.Role "superadmin"}}{{range $mount, $p := .Config.Mounts}}<option value="{{$mount}}">{{$mount}} (Global)</option>{{end}}{{end}}
-                        </select>
-                    </div>
-                    <div class="card" style="padding: 0; overflow: hidden;">
-                        <table>
-                            <thead><tr><th style="width:70%">Song Title</th><th style="width:30%">Played At</th></tr></thead>
-                            <tbody id="historyBody"><tr><td colspan="2" style="text-align:center; padding:3rem; color:var(--text-dim)">Select a mount point above to view history.</td></tr></tbody>
-                        </table>
+                    <h2>Playback History</h2>
+                    <div class="card" style="padding: 0; display: grid; grid-template-columns: 250px 1fr; min-height: 500px;">
+                        <div class="history-sidebar">
+                            <div style="padding: 1rem; font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase; border-bottom: 1px solid var(--border);">Select Mount</div>
+                            <div id="history-mount-list" style="overflow-y: auto;">
+                                {{range .Mounts}}
+                                <button class="history-mount-btn" onclick="loadHistory('{{.}}', this)">{{.}}</button>
+                                {{else}}
+                                <div style="padding: 2rem; text-align: center; color: var(--text-dim); font-size: 0.8rem;">No mounts configured.</div>
+                                {{end}}
+                            </div>
+                        </div>
+                        <div style="display: flex; flex-direction: column;">
+                            <div style="padding: 1rem; border-bottom: 1px solid var(--border); background: rgba(0,0,0,0.1); font-weight: 600;" id="history-current-mount">Select a mount to view history</div>
+                            <div style="overflow-y: auto; flex-grow: 1;">
+                                <table>
+                                    <thead><tr><th style="width:70%">Song Title</th><th style="width:30%">Played At</th></tr></thead>
+                                    <tbody id="historyBody">
+                                        <tr><td colspan="2" style="text-align:center; padding:5rem; color:var(--text-dim)">History will appear here.</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
                     </div>
                 </section>
             </div>
@@ -141,15 +155,18 @@
     <script>
         function showTab(id, updateHash) { document.querySelectorAll('.tab-content').forEach(function(t) { t.classList.remove('active'); }); document.querySelectorAll('.nav-link').forEach(function(t) { t.classList.remove('active'); }); document.getElementById(id).classList.add('active'); var btn = Array.from(document.querySelectorAll('.nav-link')).find(function(b) { return b.getAttribute('onclick') && b.getAttribute('onclick').indexOf(id) !== -1; }); if (btn) btn.classList.add('active'); if (updateHash !== false) window.location.hash = id; }
         
-        function loadHistory(mount) {
+        function loadHistory(mount, btn) {
             if (!mount) return;
+            document.querySelectorAll('.history-mount-btn').forEach(function(b) { b.classList.remove('active'); });
+            if (btn) btn.classList.add('active');
+            document.getElementById('history-current-mount').innerText = 'History for ' + mount;
             var body = document.getElementById('historyBody');
-            body.innerHTML = '<tr><td colspan="2" style="text-align:center; padding:3rem">Loading history...</td></tr>';
+            body.innerHTML = '<tr><td colspan="2" style="text-align:center; padding:5rem">Loading...</td></tr>';
             fetch('/admin/history?mount=' + encodeURIComponent(mount))
                 .then(function(res) { return res.json(); })
                 .then(function(data) {
                     if (!data || data.length === 0) {
-                        body.innerHTML = '<tr><td colspan="2" style="text-align:center; padding:3rem; color:var(--text-dim)">No history found for this mount.</td></tr>';
+                        body.innerHTML = '<tr><td colspan="2" style="text-align:center; padding:5rem; color:var(--text-dim)">No history found for this mount.</td></tr>';
                         return;
                     }
                     var html = '';
