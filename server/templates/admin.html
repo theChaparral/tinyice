@@ -116,6 +116,10 @@
                         <div class="label" style="font-size: 0.7rem; color: var(--text-dim);">TOTAL LOSS</div>
                         <div class="value" style="font-size: 1.5rem; color: var(--danger);"><span id="debug-loss">0.0</span> MB</div>
                     </div>
+                    <div class="card" style="padding: 1rem; text-align: center; border-color: var(--primary);">
+                        <div class="label" style="font-size: 0.7rem; color: var(--text-dim);">SERVER UPTIME</div>
+                        <div class="value" style="font-size: 1.5rem; color: var(--primary);" id="debug-uptime">0s</div>
+                    </div>
                 </div>
             </section>
             <div id="tab-overview" class="tab-content active">
@@ -222,8 +226,18 @@
             var debugRam = document.getElementById('debug-ram'); var debugGoroutines = document.getElementById('debug-goroutines');
             var debugHeap = document.getElementById('debug-heap'); var debugStack = document.getElementById('debug-stack');
             var debugGC = document.getElementById('debug-gc'); var debugLoss = document.getElementById('debug-loss');
+            var debugUptime = document.getElementById('debug-uptime');
             var isDebug = window.location.search.indexOf('debug') !== -1;
             if (isDebug) document.getElementById('debug-stats').style.display = 'block';
+
+            function formatBytes(bytes, decimals = 2) {
+                if (!+bytes) return '0 Bytes';
+                const k = 1024;
+                const dm = decimals < 0 ? 0 : decimals;
+                const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+                const i = Math.floor(Math.log(bytes) / Math.log(k));
+                return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+            }
 
             function resize() { var rect = canvas.getBoundingClientRect(); canvas.width = rect.width * 2; canvas.height = rect.height * 2; ctx.scale(2, 2); }
             window.addEventListener('resize', resize); resize();
@@ -250,17 +264,17 @@
                 inRateEl.innerText = rIn.toFixed(1); outRateEl.innerText = rOut.toFixed(1); dataIn.shift(); dataIn.push(rIn); dataOut.shift(); dataOut.push(rOut); drawChart();
                 gListeners.innerText = data.total_listeners; gSources.innerText = data.total_sources; 
                 gStreamers.innerText = data.total_streamers; gRelays.innerText = data.total_relays;
-                                gMbIn.innerText = (data.bytes_in / (1024 * 1024)).toFixed(1); gMbOut.innerText = (data.bytes_out / (1024 * 1024)).toFixed(1);
-                                if (debugRam) {
-                                    debugRam.innerText = data.sys_ram;
-                                    debugHeap.innerText = data.heap_alloc;
-                                    debugStack.innerText = data.stack_sys;
-                                    debugGC.innerText = data.num_gc;
-                                    debugGoroutines.innerText = data.goroutines;
-                                    debugLoss.innerText = (data.total_dropped / (1024 * 1024)).toFixed(2);
-                                }
-                                
-                                streamsBody.innerHTML = ''; if (data.streams.length > 0) {
+                                                gMbIn.innerText = (data.bytes_in / (1024 * 1024)).toFixed(2); gMbOut.innerText = (data.bytes_out / (1024 * 1024)).toFixed(2);
+                                                if (debugRam) {
+                                                    debugRam.innerText = formatBytes(data.sys_ram);
+                                                    debugHeap.innerText = formatBytes(data.heap_alloc);
+                                                    debugStack.innerText = formatBytes(data.stack_sys);
+                                                    debugGC.innerText = data.num_gc;
+                                                    debugGoroutines.innerText = data.goroutines;
+                                                    debugLoss.innerText = formatBytes(data.total_dropped);
+                                                    debugUptime.innerText = data.server_uptime;
+                                                }
+                                                                streamsBody.innerHTML = ''; if (data.streams.length > 0) {
                 
                     data.streams.forEach(function(s) {
                         var prev = streamHistory[s.mount] || { in: s.bytes_in, out: s.bytes_out }; var curIn = (s.bytes_in - prev.in) / 1024, curOut = (s.bytes_out - prev.out) / 1024; streamHistory[s.mount] = { in: s.bytes_in, out: s.bytes_out };

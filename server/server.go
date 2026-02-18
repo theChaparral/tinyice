@@ -36,6 +36,7 @@ type Server struct {
 	RelayM      *relay.RelayManager
 	tmpl        *template.Template
 	httpServers []*http.Server
+	startTime   time.Time
 }
 
 func NewServer(cfg *config.Config) *Server {
@@ -52,10 +53,11 @@ func NewServer(cfg *config.Config) *Server {
 
 	r := relay.NewRelay(cfg.LowLatencyMode, hm)
 	return &Server{
-		Config: cfg,
-		Relay:  r,
-		RelayM: relay.NewRelayManager(r),
-		tmpl:   tmpl,
+		Config:    cfg,
+		Relay:     r,
+		RelayM:    relay.NewRelayManager(r),
+		tmpl:      tmpl,
+		startTime: time.Now(),
 	}
 }
 
@@ -1160,23 +1162,43 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 					totalDropped += st.BytesDropped
 				}
 		
-				payload, _ := json.Marshal(map[string]interface{}{
-					"bytes_in":        bi,
-					"bytes_out":       bo,
-					"total_listeners": tl,
-					"total_sources":   len(info),
-					"total_relays":    tr,
-					"total_streamers": ts,
-					"streams":         info,
-					"relays":          relays,
-					"visible_mounts":  s.Config.VisibleMounts,
-					"sys_ram":         m.Sys / 1024 / 1024,
-					"heap_alloc":      m.HeapAlloc / 1024 / 1024,
-					"stack_sys":       m.StackSys / 1024 / 1024,
-					"num_gc":          m.NumGC,
-					"goroutines":      runtime.NumGoroutine(),
-					"total_dropped":   totalDropped,
-				})
+						payload, _ := json.Marshal(map[string]interface{}{
+		
+							"bytes_in":        bi,
+		
+							"bytes_out":       bo,
+		
+							"total_listeners": tl,
+		
+							"total_sources":   len(info),
+		
+							"total_relays":    tr,
+		
+							"total_streamers": ts,
+		
+							"streams":         info,
+		
+							"relays":          relays,
+		
+							"visible_mounts":  s.Config.VisibleMounts,
+		
+							"sys_ram":         m.Sys,
+		
+							"heap_alloc":      m.HeapAlloc,
+		
+							"stack_sys":       m.StackSys,
+		
+							"num_gc":          m.NumGC,
+		
+							"goroutines":      runtime.NumGoroutine(),
+		
+							"total_dropped":   totalDropped,
+		
+							"server_uptime":   time.Since(s.startTime).Round(time.Second).String(),
+		
+						})
+		
+				
 				if _, err := fmt.Fprintf(w, "data: %s\n\n", payload); err != nil {
 			return err
 		}
