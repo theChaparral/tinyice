@@ -75,10 +75,18 @@
         </aside>
         <main>
             <div id="tab-overview" class="tab-content active">
-                                        <div class="stat-cards">
-                                            <div class="stat-card"><div class="label">Listeners</div><div class="value" id="global-listeners">0</div></div>
-                                            <div class="stat-card"><div class="label">Sources</div><div class="value" id="global-sources">0</div></div>
-                                            <div class="stat-card">
+                                                    <div class="stat-cards">
+                                                        <div class="stat-card"><div class="label">Listeners</div><div class="value" id="global-listeners">0</div></div>
+                                                        <div class="stat-card">
+                                                            <div class="label">Active Sources</div>
+                                                            <div class="value" id="global-sources">0</div>
+                                                            <div style="font-size: 0.7rem; color: var(--text-dim); margin-top: 0.5rem;">
+                                                                <span id="stat-streamers" style="color: var(--success)">0</span> STR / 
+                                                                <span id="stat-relays" style="color: var(--warning)">0</span> REL
+                                                            </div>
+                                                        </div>
+                                                        <div class="stat-card">
+                                        
                                                 <div class="label">Global Traffic</div>
                                                 <div class="value" style="font-size: 1.8rem;">
                                                     <span id="global-mb-in" style="color: var(--success)">0.0</span> / 
@@ -152,6 +160,7 @@
             var relaysBody = document.getElementById('relaysBody'); var relayTemplate = document.getElementById('relay-row-template');
             var gListeners = document.getElementById('global-listeners'); var gSources = document.getElementById('global-sources'); 
             var gMbIn = document.getElementById('global-mb-in'); var gMbOut = document.getElementById('global-mb-out');
+            var gStreamers = document.getElementById('stat-streamers'); var gRelays = document.getElementById('stat-relays');
             function resize() { var rect = canvas.getBoundingClientRect(); canvas.width = rect.width * 2; canvas.height = rect.height * 2; ctx.scale(2, 2); }
             window.addEventListener('resize', resize); resize();
             var historyLen = 60; var dataIn = new Array(historyLen).fill(0); var dataOut = new Array(historyLen).fill(0);
@@ -177,9 +186,17 @@
                                 inRateEl.innerText = rIn.toFixed(1); outRateEl.innerText = rOut.toFixed(1);
                                 dataIn.shift(); dataIn.push(rIn); dataOut.shift(); dataOut.push(rOut); drawChart();
                                 
-                                gListeners.innerText = data.total_listeners; 
-                                gSources.innerText = data.total_sources; 
-                                gMbIn.innerText = (data.bytes_in / (1024 * 1024)).toFixed(1);
+                                                gListeners.innerText = data.total_listeners; 
+                                
+                                                gSources.innerText = data.total_sources; 
+                                
+                                                gStreamers.innerText = data.total_streamers;
+                                
+                                                gRelays.innerText = data.total_relays;
+                                
+                                                gMbIn.innerText = (data.bytes_in / (1024 * 1024)).toFixed(1);
+                                
+                                
                                 gMbOut.innerText = (data.bytes_out / (1024 * 1024)).toFixed(1);
                                 
                                 streamsBody.innerHTML = ''; if (data.streams.length > 0) {

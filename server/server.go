@@ -485,12 +485,19 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	type StreamInfo struct { Mount string `json:"mount"`; Name string `json:"name"`; Listeners int `json:"listeners"`; Bitrate string `json:"bitrate"`; Uptime string `json:"uptime"`; ContentType string `json:"type"`; SourceIP string `json:"ip"`; BytesIn int64 `json:"bytes_in"`; BytesOut int64 `json:"bytes_out"`; CurrentSong string `json:"song"` }
 	send := func() {
 		bi, bo := s.Relay.GetMetrics(); allStreams := s.Relay.Snapshot(); tl := 0; var info []StreamInfo
-		for _, st := range allStreams { if s.hasAccess(user, st.MountName) { lc := st.ListenersCount; tl += lc; info = append(info, StreamInfo{Mount: st.MountName, Name: st.Name, Listeners: lc, Bitrate: st.Bitrate, Uptime: st.Uptime, ContentType: st.ContentType, SourceIP: st.SourceIP, BytesIn: st.BytesIn, BytesOut: st.BytesOut, CurrentSong: st.CurrentSong}) } }
+		tr, ts := 0, 0
+		for _, st := range allStreams {
+			if s.hasAccess(user, st.MountName) {
+				lc := st.ListenersCount; tl += lc; 
+				info = append(info, StreamInfo{Mount: st.MountName, Name: st.Name, Listeners: lc, Bitrate: st.Bitrate, Uptime: st.Uptime, ContentType: st.ContentType, SourceIP: st.SourceIP, BytesIn: st.BytesIn, BytesOut: st.BytesOut, CurrentSong: st.CurrentSong})
+				if st.SourceIP == "relay-pull" { tr++ } else { ts++ }
+			}
+		}
 		if user.Role != config.RoleSuperAdmin { var ubi, ubo int64; for _, st := range info { ubi += st.BytesIn; ubo += st.BytesOut }; bi, bo = ubi, ubo }
 		type RelayInfo struct { URL string `json:"url"`; Mount string `json:"mount"`; Active bool `json:"active"` }
 		relays := make([]RelayInfo, len(s.Config.Relays))
 		for i, rc := range s.Config.Relays { relays[i] = RelayInfo{URL: rc.URL, Mount: rc.Mount, Active: false}; if st, ok := s.Relay.GetStream(rc.Mount); ok && st.SourceIP == "relay-pull" { relays[i].Active = true } }
-		payload, _ := json.Marshal(map[string]interface{}{"bytes_in": bi, "bytes_out": bo, "total_listeners": tl, "total_sources": len(info), "streams": info, "relays": relays})
+		payload, _ := json.Marshal(map[string]interface{}{"bytes_in": bi, "bytes_out": bo, "total_listeners": tl, "total_sources": len(info), "total_relays": tr, "total_streamers": ts, "streams": info, "relays": relays})
 		fmt.Fprintf(w, "data: %s\n\n", payload); flusher.Flush()
 	}
 	send()
