@@ -188,11 +188,32 @@ func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 		s.handleSource(w, r)
 		return
 	}
+	if strings.HasSuffix(r.URL.Path, ".m3u8") || strings.HasSuffix(r.URL.Path, ".m3u") {
+		s.handlePlaylist(w, r)
+		return
+	}
 	if r.Method == "GET" && r.URL.Path != "/" && r.URL.Path != "/favicon.ico" && r.URL.Path != "/admin" {
 		s.handleListener(w, r)
 		return
 	}
 	s.handleStatus(w, r)
+}
+
+func (s *Server) handlePlaylist(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Path
+	ext := ".m3u8"
+	if strings.HasSuffix(path, ".m3u") { ext = ".m3u" }
+	mount := strings.TrimSuffix(path, ext)
+	
+	st, ok := s.Relay.GetStream(mount)
+	if !ok { http.NotFound(w, r); return }
+
+	proto := "http://"
+	if s.Config.UseHTTPS || r.Header.Get("X-Forwarded-Proto") == "https" { proto = "https://" }
+	
+	w.Header().Set("Content-Type", "audio/x-mpegurl")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s%s\"", st.Name, ext))
+	fmt.Fprintf(w, "#EXTM3U\n#EXTINF:-1,%s\n%s%s%s\n", st.Name, proto, r.Host, mount)
 }
 
 func (s *Server) isBanned(ip string) bool {

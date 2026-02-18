@@ -36,6 +36,7 @@ Traditional streaming servers can be complex to configure and resource-heavy. Ti
 -   **Stream Relaying**: Act as an edge node by pulling streams from remote servers.
 -   **Dual-Protocol Architecture**: Handles HTTPS for listeners while allowing legacy encoders to stream over plain HTTP.
 -   **Playback Tracking**: View the last 100 songs played per station in the admin dashboard.
+-   **M3U8 Support**: Support for `.m3u8` and `.m3u` playlists for easy integration with external players (VLC, mobile apps).
 -   **Public Directory Listing**: Built-in support for Icecast YP protocol (e.g., `dir.xiph.org`).
 -   **Dynamic Management**: Add, update, disable, or remove mount points, users, and relays on the fly.
 -   **IP Banning**: Instantly block malicious IPs from streaming or listening.
