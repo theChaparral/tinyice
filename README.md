@@ -8,7 +8,6 @@ TinyIce is a lightweight, high-performance, and secure Icecast2-compatible strea
 
 <img width="2048" height="1252" alt="image" src="https://github.com/user-attachments/assets/4de35097-ebf4-4f13-993b-e600ce96de18" />
 
-
 [![Go Report Card](https://goreportcard.com/badge/github.com/DatanoiseTV/tinyice)](https://goreportcard.com/report/github.com/DatanoiseTV/tinyice)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -19,19 +18,21 @@ Traditional streaming servers can be complex to configure and resource-heavy. Ti
 -   **Instant Deployment**: A single binary with all assets (templates, icons) embedded.
 -   **Zero-Config Security**: Unique secure credentials automatically generated on first run.
 -   **Multi-Tenant Ready**: Create multiple admin users who can only manage their own mount points.
--   **Edge-Ready Relaying**: Pull streams from other servers with automatic reconnection and metadata parsing.
+-   **Edge-Ready Relaying**: Pull streams from other servers with automatic reconnection and in-stream ICY metadata parsing.
 -   **Secure & Hardened**: Salted **bcrypt** password hashing, CSRF protection, and HTTP resource hardening.
 -   **Auto-HTTPS**: Built-in support for **ACME (Let's Encrypt)** for zero-configuration SSL certificates.
 -   **Real-time Insights**: SSE-powered dashboards with smooth, hardware-accelerated traffic charts.
+-   **Observability**: Built-in **Prometheus** metrics endpoint and structured logging.
 
 ## Features
 
 -   **Icecast2 Compatible**: Works with standard source clients (BUTT, OBS, Mixxx, LadioCast) and players (VLC, web browsers).
--   **Stream Relaying**: Act as an edge node by pulling streams from remote Icecast/Shoutcast servers. Supports in-stream ICY metadata parsing.
+-   **Stream Relaying**: Act as an edge node by pulling streams from remote servers.
 -   **Dual-Protocol Architecture**: Handles HTTPS for listeners while allowing legacy encoders to stream over plain HTTP.
 -   **Public Directory Listing**: Built-in support for Icecast YP protocol (e.g., `dir.xiph.org`).
 -   **Dynamic Management**: Add, update, disable, or remove mount points, users, and relays on the fly.
 -   **IP Banning**: Instantly block malicious IPs from streaming or listening.
+-   **Legacy API**: Support for `/status-json.xsl` for compatibility with existing Icecast tools.
 -   **Now Playing Metadata**: Real-time display of song titles pushed from broadcast software or pulled from relays.
 
 ## Getting Started
@@ -70,29 +71,9 @@ Point your encoder (e.g., BUTT) to:
 -   `-daemon`: Run in the background.
 -   `-pid-file`: Path to write the process ID.
 
-## Configuration
+## Performance
 
-```json
-{
-    "bind_host": "0.0.0.0",
-    "port": "8000",
-    "page_title": "My Stream Portal",
-    "use_https": true,
-    "auto_https": true,
-    "acme_email": "admin@example.com",
-    "domains": ["radio.example.com"],
-    "directory_listing": true,
-    "relays": [
-        {
-            "url": "https://ice3.somafm.com/live-128-mp3",
-            "mount": "/soma",
-            "burst_size": 20
-        }
-    ],
-    "banned_ips": ["1.2.3.4"],
-    "max_listeners": 100
-}
-```
+See [PERFORMANCE.md](PERFORMANCE.md) for detailed hardware and traffic estimates.
 
 ## License
 
