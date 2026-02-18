@@ -2,7 +2,10 @@
 
 **Run it, and you've got a ready Icecast server in seconds.**
 
-TinyIce is a lightweight, high-performance, and secure Icecast2-compatible streaming server written in Go. It is designed to be self-contained, easy to deploy, and provides a modern web interface for both administrators and listeners.
+> **Notice**: This is a side project. Use it at your own risk. While it implements security best practices, it has not undergone an independent audit.
+
+TinyIce is a lightweight, high-performance, and secure Icecast2-compatible streaming server written in Go.
+ It is designed to be self-contained, easy to deploy, and provides a modern web interface for both administrators and listeners.
 
 ![TinyIce Admin Dashboard](assets/scr1.png)
 ![TinyIce Public View](assets/scr2.png)
