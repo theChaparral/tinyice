@@ -54,6 +54,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/admin/toggle-mount", s.handleToggleMount)
 	mux.HandleFunc("/", s.handleRoot)
 	mux.HandleFunc("/events", s.handlePublicEvents)
+	mux.HandleFunc("/status-json.xsl", s.handleLegacyStats)
 
 	addr := ":" + s.Config.Port
 	
@@ -422,6 +423,67 @@ func (s *Server) handleToggleMount(w http.ResponseWriter, r *http.Request) {
 		logrus.WithFields(logrus.Fields{"mount": mount, "disabled": s.Config.DisabledMounts[mount]}).Info("Admin toggled mount")
 	}
 	http.Redirect(w, r, "/admin", http.StatusSeeOther)
+}
+
+func (s *Server) handleLegacyStats(w http.ResponseWriter, r *http.Request) {
+	streams := s.Relay.Snapshot()
+	
+	type IcecastSource struct {
+		AudioInfo         string      `json:"audio_info"`
+		Bitrate           interface{} `json:"bitrate"` // Can be string or int in Icecast
+		Genre             string      `json:"genre"`
+		Listeners         int         `json:"listeners"`
+		ListenURL         string      `json:"listenurl"`
+		Mount             string      `json:"mount"`
+		ServerDescription string      `json:"server_description"`
+		ServerName        string      `json:"server_name"`
+		ServerType        string      `json:"server_type"`
+		StreamStart       string      `json:"stream_start"`
+		Title             string      `json:"title"`
+		Dummy             interface{} `json:"dummy"`
+	}
+
+	sources := make([]IcecastSource, len(streams))
+	host := s.Config.HostName
+	if !strings.Contains(host, ":") {
+		host = host + ":" + s.Config.Port
+	}
+	proto := "http://"
+	if s.Config.UseHTTPS { proto = "https://" }
+
+	for i, st := range streams {
+		sources[i] = IcecastSource{
+			AudioInfo:         fmt.Sprintf("bitrate=%s", st.Bitrate),
+			Bitrate:           st.Bitrate,
+			Genre:             st.Genre,
+			Listeners:         st.ListenersCount(),
+			ListenURL:         proto + host + st.MountName,
+			Mount:             st.MountName,
+			ServerDescription: st.Description,
+			ServerName:        st.Name,
+			ServerType:        st.ContentType,
+			StreamStart:       st.Started.Format(time.RFC1123),
+			Title:             st.CurrentSong,
+			Dummy:             nil,
+		}
+	}
+
+	// Icecast JSON structure is famously slightly inconsistent (array vs object)
+	// but most clients expect this root wrapper.
+	resp := map[string]interface{}{
+		"icestats": map[string]interface{}{
+			"admin":        s.Config.AdminEmail,
+			"host":         s.Config.HostName,
+			"location":     s.Config.Location,
+			"server_id":    "Icecast 2.4.4 (TinyIce)",
+			"server_start": time.Now().Format(time.RFC1123), // We could track real start time
+			"source":       sources,
+		},
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	json.NewEncoder(w).Encode(resp)
 }
 
 func (s *Server) handlePublicEvents(w http.ResponseWriter, r *http.Request) {
