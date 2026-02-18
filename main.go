@@ -22,6 +22,7 @@ import (
 var (
 	configPath  = flag.String("config", "tinyice.json", "Path to configuration file")
 	bindHost    = flag.String("host", "0.0.0.0", "Network interface to bind to")
+	bindPort    = flag.String("port", "", "Network port to bind to (overrides config)")
 	logFile     = flag.String("log-file", "", "Path to log file (default is stdout)")
 	logLevel    = flag.String("log-level", "info", "Log level (debug, info, warn, error)")
 	jsonLogs    = flag.Bool("json-logs", false, "Enable JSON logging format")
@@ -107,6 +108,14 @@ func main() {
 	cfg, err := config.LoadConfig(*configPath)
 	if err != nil {
 		logrus.Fatalf("Failed to load config: %v", err)
+	}
+
+	// Override config with CLI flags if provided
+	if *bindHost != "0.0.0.0" || cfg.BindHost == "" {
+		cfg.BindHost = *bindHost
+	}
+	if *bindPort != "" {
+		cfg.Port = *bindPort
 	}
 
 	srv := server.NewServer(cfg, authLogger)
