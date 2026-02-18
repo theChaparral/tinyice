@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/sirupsen/logrus"
@@ -19,6 +20,8 @@ var (
 	logFile    = flag.String("log-file", "", "Path to log file (default is stdout)")
 	logLevel   = flag.String("log-level", "info", "Log level (debug, info, warn, error)")
 	jsonLogs   = flag.Bool("json-logs", false, "Enable JSON logging format")
+	daemon     = flag.Bool("daemon", false, "Run in background (daemon mode)")
+	pidFile    = flag.String("pid-file", "", "Path to PID file")
 )
 
 func generateRandomString(n int) string {
@@ -70,6 +73,29 @@ func main() {
 	flag.Parse()
 
 	initLogging()
+
+	if *daemon && os.Getenv("TINYICE_DAEMON") != "1" {
+		args := []string{}
+		for _, arg := range os.Args[1:] {
+			if arg != "-daemon" && !strings.HasPrefix(arg, "-daemon=") {
+				args = append(args, arg)
+			}
+		}
+		cmd := exec.Command(os.Args[0], args...)
+		cmd.Env = append(os.Environ(), "TINYICE_DAEMON=1")
+		if err := cmd.Start(); err != nil {
+			logrus.Fatalf("Failed to start daemon: %v", err)
+		}
+		fmt.Printf("TinyIce starting in background (PID: %d)\n", cmd.Process.Pid)
+		os.Exit(0)
+	}
+
+	if *pidFile != "" {
+		if err := os.WriteFile(*pidFile, []byte(fmt.Sprintf("%d", os.Getpid())), 0644); err != nil {
+			logrus.Errorf("Failed to write PID file: %v", err)
+		}
+		defer os.Remove(*pidFile)
+	}
 
 	if _, err := os.Stat(*configPath); os.IsNotExist(err) {
 		logrus.Info("Config file not found, generating secure defaults...")

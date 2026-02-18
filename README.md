@@ -57,6 +57,21 @@ Configure your encoder (e.g., BUTT) to point to:
 ### 4. Manage
 Visit `http://localhost:8000/admin` to manage your stations and view live traffic analytics.
 
+## Command Line Usage
+
+TinyIce supports several flags for operational flexibility:
+
+```bash
+./tinyice -daemon -log-file server.log -pid-file tinyice.pid
+```
+
+-   `-config`: Path to the configuration file (default: "tinyice.json").
+-   `-log-file`: Path to a file for log output (default: stdout).
+-   `-log-level`: Logging verbosity: `debug`, `info`, `warn`, `error` (default: "info").
+-   `-json-logs`: Enable structured JSON logging.
+-   `-daemon`: Run the server in the background.
+-   `-pid-file`: Path to write the process ID (useful for service management).
+
 ## Configuration
 
 The `tinyice.json` file allows for extensive customization:
