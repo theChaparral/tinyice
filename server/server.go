@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"io/fs"
 	"net/http"
 	"net/url"
 	"sort"
@@ -78,7 +79,8 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/events", s.handlePublicEvents)
 	mux.HandleFunc("/status-json.xsl", s.handleLegacyStats)
 	mux.HandleFunc("/metrics", s.handleMetrics)
-	mux.Handle("/assets/", http.StripPrefix("/assets/", http.FileServer(http.FS(assetFS))))
+	subFS, _ := fs.Sub(assetFS, "assets")
+	mux.Handle("/assets/", http.StripPrefix("/assets/", http.FileServer(http.FS(subFS))))
 	return mux
 }
 
