@@ -24,7 +24,7 @@ type Stream struct {
 	BytesOut    int64
 	CurrentSong string
 	Public      bool
-	Hidden      bool
+	Visible     bool
 
 	listeners map[string]chan []byte // Map of listener ID to their data channel
 	mu        sync.RWMutex
@@ -201,7 +201,7 @@ func (s *Stream) Unsubscribe(id string) {
 }
 
 // UpdateMetadata updates stream info
-func (s *Stream) UpdateMetadata(name, desc, genre, url, bitrate, contentType string, public, hidden bool) {
+func (s *Stream) UpdateMetadata(name, desc, genre, url, bitrate, contentType string, public, visible bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if name != "" {
@@ -223,7 +223,7 @@ func (s *Stream) UpdateMetadata(name, desc, genre, url, bitrate, contentType str
 		s.ContentType = contentType
 	}
 	s.Public = public
-	s.Hidden = hidden
+	s.Visible = visible
 }
 
 // SetCurrentSong updates the current song info thread-safely
@@ -233,11 +233,11 @@ func (s *Stream) SetCurrentSong(song string) {
 	s.CurrentSong = song
 }
 
-// SetHidden updates the visibility of the stream thread-safely
-func (s *Stream) SetHidden(hidden bool) {
+// SetVisible updates the visibility of the stream thread-safely
+func (s *Stream) SetVisible(visible bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.Hidden = hidden
+	s.Visible = visible
 }
 
 // SetBurstSize updates the burst buffer size thread-safely
@@ -270,7 +270,7 @@ type StreamStats struct {
 	BytesOut       int64
 	CurrentSong    string
 	Public         bool
-	Hidden         bool
+	Visible        bool
 	ListenersCount int
 	Uptime         string
 }
@@ -295,7 +295,7 @@ func (s *Stream) Snapshot() StreamStats {
 		BytesOut:       atomic.LoadInt64(&s.BytesOut),
 		CurrentSong:    s.CurrentSong,
 		Public:         s.Public,
-		Hidden:         s.Hidden,
+		Visible:        s.Visible,
 		ListenersCount: len(s.listeners),
 		Uptime:         s.uptimeLocked(), // We need a non-locked version of uptime
 	}

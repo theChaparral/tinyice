@@ -54,7 +54,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/admin/remove-mount", s.handleRemoveMount)
 	mux.HandleFunc("/admin/kick-all-listeners", s.handleKickAllListeners)
 	mux.HandleFunc("/admin/toggle-mount", s.handleToggleMount)
-	mux.HandleFunc("/admin/toggle-hidden", s.handleToggleHidden)
+	mux.HandleFunc("/admin/toggle-visible", s.handleToggleVisible)
 	mux.HandleFunc("/admin/add-user", s.handleAddUser)
 	mux.HandleFunc("/admin/remove-user", s.handleRemoveUser)
 	mux.HandleFunc("/admin/add-banned-ip", s.handleAddBannedIP)
@@ -217,8 +217,8 @@ func (s *Server) handleSource(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	isPublic := r.Header.Get("Ice-Public") == "1"
-	isHidden := s.Config.HiddenMounts[mount]
-	stream.UpdateMetadata(r.Header.Get("Ice-Name"), r.Header.Get("Ice-Description"), r.Header.Get("Ice-Genre"), r.Header.Get("Ice-Url"), bitrate, r.Header.Get("Content-Type"), isPublic, isHidden)
+	isVisible := s.Config.VisibleMounts[mount]
+	stream.UpdateMetadata(r.Header.Get("Ice-Name"), r.Header.Get("Ice-Description"), r.Header.Get("Ice-Genre"), r.Header.Get("Ice-Url"), bitrate, r.Header.Get("Content-Type"), isPublic, isVisible)
 	buf := make([]byte, 8192)
 	for {
 		n, err := bufrw.Read(buf)
@@ -249,10 +249,24 @@ func (s *Server) handleListener(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
+
 	allStreams := s.Relay.Snapshot()
+
 	var streams []relay.StreamStats
-	for _, st := range allStreams { if !st.Hidden { streams = append(streams, st) } }
+
+	for _, st := range allStreams {
+
+		if st.Visible {
+
+			streams = append(streams, st)
+
+		}
+
+	}
+
 	w.Header().Set("Content-Type", "text/html")
+
+
 	data := map[string]interface{}{"Streams": streams, "Config": s.Config}
 	if err := s.tmpl.ExecuteTemplate(w, "index.html", data); err != nil { logrus.WithError(err).Error("Template error"); http.Error(w, "Internal Server Error", http.StatusInternalServerError) }
 }
@@ -336,12 +350,14 @@ func (s *Server) handleToggleMount(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/admin", http.StatusSeeOther)
 }
 
-func (s *Server) handleToggleHidden(w http.ResponseWriter, r *http.Request) {
-	user, ok := s.checkAuth(r); mount := r.FormValue("mount")
+func (s *Server) handleToggleVisible(w http.ResponseWriter, r *http.Request) {
+	user, ok := s.checkAuth(r); if !ok { return }
+	mount := r.FormValue("mount")
 	if ok && s.hasAccess(user, mount) {
-		s.Config.HiddenMounts[mount] = !s.Config.HiddenMounts[mount]
-		if st, ok := s.Relay.GetStream(mount); ok { st.SetHidden(s.Config.HiddenMounts[mount]) }
+		s.Config.VisibleMounts[mount] = !s.Config.VisibleMounts[mount]
+		if st, ok := s.Relay.GetStream(mount); ok { st.SetVisible(s.Config.VisibleMounts[mount]) }
 		s.Config.SaveConfig()
+		logrus.WithFields(logrus.Fields{"mount": mount, "visible": s.Config.VisibleMounts[mount]}).Info("Admin toggled visibility")
 	}
 	http.Redirect(w, r, "/admin", http.StatusSeeOther)
 }
@@ -449,7 +465,7 @@ func (s *Server) handlePublicEvents(w http.ResponseWriter, r *http.Request) {
 	type PublicStreamInfo struct { Mount string `json:"mount"`; Name string `json:"name"`; Listeners int `json:"listeners"`; Bitrate string `json:"bitrate"`; Uptime string `json:"uptime"`; Genre string `json:"genre"`; Description string `json:"description"`; CurrentSong string `json:"song"` }
 	send := func() {
 		allStreams := s.Relay.Snapshot(); var info []PublicStreamInfo
-		for _, st := range allStreams { if !st.Hidden { info = append(info, PublicStreamInfo{Mount: st.MountName, Name: st.Name, Listeners: st.ListenersCount, Bitrate: st.Bitrate, Uptime: st.Uptime, Genre: st.Genre, Description: st.Description, CurrentSong: st.CurrentSong}) } }
+		for _, st := range allStreams { if st.Visible { info = append(info, PublicStreamInfo{Mount: st.MountName, Name: st.Name, Listeners: st.ListenersCount, Bitrate: st.Bitrate, Uptime: st.Uptime, Genre: st.Genre, Description: st.Description, CurrentSong: st.CurrentSong}) } }
 		payload, _ := json.Marshal(info); fmt.Fprintf(w, "data: %s\n\n", payload); flusher.Flush()
 	}
 	send()

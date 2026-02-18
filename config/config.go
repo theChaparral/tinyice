@@ -50,7 +50,7 @@ type Config struct {
 	LowLatencyMode        bool              `json:"low_latency_mode"`
 	MaxListeners          int               `json:"max_listeners"`
 	DisabledMounts        map[string]bool   `json:"disabled_mounts"`
-	HiddenMounts          map[string]bool   `json:"hidden_mounts"`
+	VisibleMounts         map[string]bool   `json:"visible_mounts"` // map[mount]is_visible
 
 	// UI Customization
 	PageTitle    string `json:"page_title"`
@@ -105,7 +105,7 @@ func LoadConfig(path string) (*Config, error) {
 	if config.Mounts == nil { config.Mounts = make(map[string]string) }
 	if config.MaxListeners == 0 { config.MaxListeners = 100 }
 	if config.DisabledMounts == nil { config.DisabledMounts = make(map[string]bool) }
-	if config.HiddenMounts == nil { config.HiddenMounts = make(map[string]bool) }
+	if config.VisibleMounts == nil { config.VisibleMounts = make(map[string]bool) }
 	if config.Users == nil { config.Users = make(map[string]*User) }
 	if config.AdvancedMounts == nil { config.AdvancedMounts = make(map[string]*MountSettings) }
 	if config.Relays == nil { config.Relays = make([]*RelayConfig, 0) }
