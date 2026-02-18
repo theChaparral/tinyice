@@ -770,10 +770,25 @@ func (s *Server) handleAddRelay(w http.ResponseWriter, r *http.Request) {
 			}
 			burst := 20
 			fmt.Sscanf(bs, "%d", &burst)
-			rc := &config.RelayConfig{URL: u, Mount: m, Password: pw, BurstSize: burst, Enabled: true}
-			s.Config.Relays = append(s.Config.Relays, rc)
+
+			found := false
+			for _, rc := range s.Config.Relays {
+				if rc.Mount == m {
+					rc.URL = u
+					rc.Password = pw
+					rc.BurstSize = burst
+					found = true
+					break
+				}
+			}
+
+			if !found {
+				rc := &config.RelayConfig{URL: u, Mount: m, Password: pw, BurstSize: burst, Enabled: true}
+				s.Config.Relays = append(s.Config.Relays, rc)
+			}
+
 			s.Config.SaveConfig()
-			s.RelayM.StartRelay(rc.URL, rc.Mount, rc.Password, rc.BurstSize, s.Config.VisibleMounts[m])
+			s.RelayM.StartRelay(u, m, pw, burst, s.Config.VisibleMounts[m])
 		}
 	}
 	http.Redirect(w, r, "/admin", http.StatusSeeOther)

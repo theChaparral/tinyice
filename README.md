@@ -43,7 +43,8 @@ Traditional streaming servers can be complex to configure and resource-heavy. Ti
 -   **Playlist Support**: Support for `.m3u8`, `.m3u`, and `.pls` playlists for easy integration with external players (VLC, Winamp, mobile apps).
 -   **Public Directory Listing**: Built-in support for Icecast YP protocol (e.g., `dir.xiph.org`).
 -   **Dynamic Management**: Add, update, disable, or remove mount points, users, and relays on the fly.
--   **IP Banning**: Instantly block malicious IPs from streaming or listening.
+-   **IP Banning**: Instantly block malicious IPs or entire network ranges using **CIDR support** (e.g., `1.2.3.0/24`).
+-   **Detailed Audit Logging**: Comprehensive logging of admin logins and encoder authentication results for better security monitoring.
 -   **Legacy API**: Support for `/status-json.xsl` for compatibility with existing Icecast tools.
 -   **Now Playing Metadata**: Real-time display of song titles pushed from broadcast software or pulled from relays.
 
