@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sirupsen/logrus"
 	"github.com/DatanoiseTV/tinyice/config"
 	"github.com/DatanoiseTV/tinyice/relay"
+	"github.com/sirupsen/logrus"
 	"golang.org/x/crypto/acme"
 	"golang.org/x/crypto/acme/autocert"
 )
@@ -49,7 +49,7 @@ func NewServer(cfg *config.Config) *Server {
 	}
 }
 
-func (s *Server) Start() error {
+func (s *Server) setupRoutes() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/admin", s.handleAdmin)
 	mux.HandleFunc("/admin/add-mount", s.handleAddMount)
@@ -75,7 +75,11 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/events", s.handlePublicEvents)
 	mux.HandleFunc("/status-json.xsl", s.handleLegacyStats)
 	mux.HandleFunc("/metrics", s.handleMetrics)
+	return mux
+}
 
+func (s *Server) Start() error {
+	mux := s.setupRoutes()
 	addr := s.Config.BindHost + ":" + s.Config.Port
 
 	if s.Config.DirectoryListing {
@@ -100,6 +104,10 @@ func (s *Server) Start() error {
 		return srv.ListenAndServe()
 	}
 
+	return s.startHTTPS(mux, addr)
+}
+
+func (s *Server) startHTTPS(mux *http.ServeMux, addr string) error {
 	httpsAddr := s.Config.BindHost + ":" + s.Config.HTTPSPort
 	var certManager *autocert.Manager
 
@@ -218,12 +226,17 @@ func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handlePLS(w http.ResponseWriter, r *http.Request) {
 	mount := strings.TrimSuffix(r.URL.Path, ".pls")
 	st, ok := s.Relay.GetStream(mount)
-	if !ok { http.NotFound(w, r); return }
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
 
 	baseURL := s.Config.BaseURL
 	if baseURL == "" {
 		proto := "http://"
-		if s.Config.UseHTTPS || r.Header.Get("X-Forwarded-Proto") == "https" { proto = "https://" }
+		if s.Config.UseHTTPS || r.Header.Get("X-Forwarded-Proto") == "https" {
+			proto = "https://"
+		}
 		baseURL = proto + r.Host
 	}
 	baseURL = strings.TrimSuffix(baseURL, "/")
@@ -274,41 +287,42 @@ func (s *Server) isBanned(ip string) bool {
 	return false
 }
 
+func (s *Server) getSourcePassword(mount string) (string, bool) {
+	for _, user := range s.Config.Users {
+		if pass, ok := user.Mounts[mount]; ok {
+			return pass, true
+		}
+	}
+	if pass, ok := s.Config.Mounts[mount]; ok {
+		return pass, true
+	}
+	return s.Config.DefaultSourcePassword, s.Config.DefaultSourcePassword != ""
+}
+
 func (s *Server) handleSource(w http.ResponseWriter, r *http.Request) {
 	if s.isBanned(r.RemoteAddr) {
 		logrus.WithField("ip", r.RemoteAddr).Warn("Banned IP source connection")
 		return
 	}
 	mount := r.URL.Path
-	var requiredPass string
-	found := false
-	for _, user := range s.Config.Users {
-		if pass, ok := user.Mounts[mount]; ok {
-			requiredPass = pass
-			found = true
-			break
-		}
-	}
-	if !found {
-		if pass, ok := s.Config.Mounts[mount]; ok {
-			requiredPass = pass
-			found = true
-		}
-	}
+	requiredPass, found := s.getSourcePassword(mount)
 	if !found {
 		requiredPass = s.Config.DefaultSourcePassword
 	}
+
 	if s.Config.DisabledMounts[mount] {
 		logrus.WithField("mount", mount).Warn("Disabled mount connection")
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
+
 	_, p, ok := r.BasicAuth()
 	if !ok || !config.CheckPasswordHash(p, requiredPass) {
 		w.Header().Set("WWW-Authenticate", `Basic realm="Icecast"`)
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
+
 	hj, ok := w.(http.Hijacker)
 	if !ok {
 		http.Error(w, "Hijacking unsupported", http.StatusInternalServerError)
@@ -320,11 +334,31 @@ func (s *Server) handleSource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer conn.Close()
+
 	bufrw.WriteString("HTTP/1.0 200 OK\r\nServer: Icecast 2.4.4\r\nConnection: Keep-Alive\r\n\r\n")
 	bufrw.Flush()
+
 	logrus.WithField("mount", mount).Info("Source connected")
 	stream := s.Relay.GetOrCreateStream(mount)
 	stream.SourceIP = r.RemoteAddr
+
+	s.updateSourceMetadata(stream, mount, r)
+
+	buf := make([]byte, 8192)
+	for {
+		n, err := bufrw.Read(buf)
+		if n > 0 {
+			stream.Broadcast(buf[:n], s.Relay)
+		}
+		if err != nil {
+			break
+		}
+	}
+	logrus.WithField("mount", mount).Info("Source disconnected")
+	s.Relay.RemoveStream(mount)
+}
+
+func (s *Server) updateSourceMetadata(stream *relay.Stream, mount string, r *http.Request) {
 	bitrate := r.Header.Get("Ice-Bitrate")
 	if bitrate == "" || bitrate == "N/A" {
 		audioInfo := r.Header.Get("Ice-Audio-Info")
@@ -341,18 +375,6 @@ func (s *Server) handleSource(w http.ResponseWriter, r *http.Request) {
 	isPublic := r.Header.Get("Ice-Public") == "1"
 	isVisible := s.Config.VisibleMounts[mount]
 	stream.UpdateMetadata(r.Header.Get("Ice-Name"), r.Header.Get("Ice-Description"), r.Header.Get("Ice-Genre"), r.Header.Get("Ice-Url"), bitrate, r.Header.Get("Content-Type"), isPublic, isVisible)
-	buf := make([]byte, 8192)
-	for {
-		n, err := bufrw.Read(buf)
-		if n > 0 {
-			stream.Broadcast(buf[:n], s.Relay)
-		}
-		if err != nil {
-			break
-		}
-	}
-	logrus.WithField("mount", mount).Info("Source disconnected")
-	s.Relay.RemoveStream(mount)
 }
 
 func (s *Server) handleListener(w http.ResponseWriter, r *http.Request) {

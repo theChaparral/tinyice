@@ -101,7 +101,12 @@ func LoadConfig(path string) (*Config, error) {
 	}
 
 	config.ConfigPath = path
+	config.setDefaults()
 
+	return config, nil
+}
+
+func (config *Config) setDefaults() {
 	if config.BindHost == "" {
 		config.BindHost = "0.0.0.0"
 	}
@@ -133,13 +138,13 @@ func LoadConfig(path string) (*Config, error) {
 		config.Relays = make([]*RelayConfig, 0)
 	}
 	for _, r := range config.Relays {
-		r.Enabled = true // Logic: if they are in config and we just loaded, we default to enabled for migration
+		r.Enabled = true // Migration logic
 	}
 	if config.BannedIPs == nil {
 		config.BannedIPs = make([]string, 0)
 	}
 
-	// Migration/Backward compatibility: Ensure AdminUser is in Users map as superadmin
+	// Migration/Backward compatibility
 	if config.AdminUser != "" && config.Users[config.AdminUser] == nil {
 		config.Users[config.AdminUser] = &User{
 			Username: config.AdminUser,
@@ -161,8 +166,6 @@ func LoadConfig(path string) (*Config, error) {
 	if config.DirectoryServer == "" {
 		config.DirectoryServer = "http://dir.xiph.org/cgi-bin/yp-cgi"
 	}
-
-	return config, nil
 }
 
 func (c *Config) SaveConfig() error {
