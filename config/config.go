@@ -19,6 +19,7 @@ type Config struct {
 	LowLatencyMode        bool              `json:"low_latency_mode"`
 	MaxListeners          int               `json:"max_listeners"`
 	DisabledMounts        map[string]bool   `json:"disabled_mounts"`
+	HiddenMounts          map[string]bool   `json:"hidden_mounts"`
 
 	// UI Customization
 	PageTitle    string `json:"page_title"`
@@ -69,6 +70,7 @@ func LoadConfig(path string) (*Config, error) {
 	if config.Mounts == nil { config.Mounts = make(map[string]string) }
 	if config.MaxListeners == 0 { config.MaxListeners = 100 }
 	if config.DisabledMounts == nil { config.DisabledMounts = make(map[string]bool) }
+	if config.HiddenMounts == nil { config.HiddenMounts = make(map[string]bool) }
 
 	if config.PageTitle == "" { config.PageTitle = "TinyIce" }
 	if config.PageSubtitle == "" { config.PageSubtitle = "Live streaming network powered by Go" }

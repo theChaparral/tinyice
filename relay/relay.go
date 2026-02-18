@@ -23,6 +23,7 @@ type Stream struct {
 	BytesOut    int64
 	CurrentSong string
 	Public      bool
+	Hidden      bool
 
 	listeners map[string]chan []byte // Map of listener ID to their data channel
 	mu        sync.RWMutex
@@ -210,7 +211,7 @@ func (s *Stream) Unsubscribe(id string) {
 }
 
 // UpdateMetadata updates stream info
-func (s *Stream) UpdateMetadata(name, desc, genre, url, bitrate, contentType string, public bool) {
+func (s *Stream) UpdateMetadata(name, desc, genre, url, bitrate, contentType string, public, hidden bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if name != "" {
@@ -232,6 +233,7 @@ func (s *Stream) UpdateMetadata(name, desc, genre, url, bitrate, contentType str
 		s.ContentType = contentType
 	}
 	s.Public = public
+	s.Hidden = hidden
 }
 
 // SetCurrentSong updates the current song info thread-safely
@@ -239,6 +241,13 @@ func (s *Stream) SetCurrentSong(song string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.CurrentSong = song
+}
+
+// SetHidden updates the visibility of the stream thread-safely
+func (s *Stream) SetHidden(hidden bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Hidden = hidden
 }
 
 // ListenersCount returns the number of active listeners

@@ -53,6 +53,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/admin/remove-mount", s.handleRemoveMount)
 	mux.HandleFunc("/admin/kick-all-listeners", s.handleKickAllListeners)
 	mux.HandleFunc("/admin/toggle-mount", s.handleToggleMount)
+	mux.HandleFunc("/admin/toggle-hidden", s.handleToggleHidden)
 	mux.HandleFunc("/", s.handleRoot)
 	mux.HandleFunc("/events", s.handlePublicEvents)
 	mux.HandleFunc("/status-json.xsl", s.handleLegacyStats)
@@ -214,7 +215,8 @@ func (s *Server) handleSource(w http.ResponseWriter, r *http.Request) {
 	}
 
 	isPublic := r.Header.Get("Ice-Public") == "1"
-	stream.UpdateMetadata(r.Header.Get("Ice-Name"), r.Header.Get("Ice-Description"), r.Header.Get("Ice-Genre"), r.Header.Get("Ice-Url"), bitrate, r.Header.Get("Content-Type"), isPublic)
+	isHidden := s.Config.HiddenMounts[mount]
+	stream.UpdateMetadata(r.Header.Get("Ice-Name"), r.Header.Get("Ice-Description"), r.Header.Get("Ice-Genre"), r.Header.Get("Ice-Url"), bitrate, r.Header.Get("Content-Type"), isPublic, isHidden)
 
 	buf := make([]byte, 8192)
 	for {
@@ -270,7 +272,13 @@ func (s *Server) handleListener(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
-	streams := s.Relay.Snapshot()
+	allStreams := s.Relay.Snapshot()
+	var streams []*relay.Stream
+	for _, st := range allStreams {
+		if !st.Hidden {
+			streams = append(streams, st)
+		}
+	}
 	w.Header().Set("Content-Type", "text/html")
 	data := map[string]interface{}{"Streams": streams, "Config": s.Config}
 	if err := s.tmpl.ExecuteTemplate(w, "index.html", data); err != nil {
@@ -411,6 +419,26 @@ func (s *Server) handleToggleMount(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/admin", http.StatusSeeOther)
 }
 
+func (s *Server) handleToggleHidden(w http.ResponseWriter, r *http.Request) {
+	if !s.checkAuth(r, s.Config.AdminUser, s.Config.AdminPassword) {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	mount := r.FormValue("mount")
+	if mount != "" {
+		s.Config.HiddenMounts[mount] = !s.Config.HiddenMounts[mount]
+		
+		// Update active stream if it exists
+		if st, ok := s.Relay.GetStream(mount); ok {
+			st.SetHidden(s.Config.HiddenMounts[mount])
+		}
+		
+		s.Config.SaveConfig()
+		logrus.WithFields(logrus.Fields{"mount": mount, "hidden": s.Config.HiddenMounts[mount]}).Info("Admin toggled visibility")
+	}
+	http.Redirect(w, r, "/admin", http.StatusSeeOther)
+}
+
 func (s *Server) handleLegacyStats(w http.ResponseWriter, r *http.Request) {
 	streams := s.Relay.Snapshot()
 	type IcecastSource struct {
@@ -455,10 +483,13 @@ func (s *Server) handlePublicEvents(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-r.Context().Done(): return
 		case <-ticker.C:
-			streams := s.Relay.Snapshot()
-			info := make([]PublicStreamInfo, len(streams))
-			for i, st := range streams {
-				info[i] = PublicStreamInfo{Mount: st.MountName, Name: st.Name, Listeners: st.ListenersCount(), Bitrate: st.Bitrate, Uptime: st.Uptime(), Genre: st.Genre, Description: st.Description, CurrentSong: st.CurrentSong}
+			allStreams := s.Relay.Snapshot()
+			var info []PublicStreamInfo
+			for _, st := range allStreams {
+				if st.Hidden {
+					continue
+				}
+				info = append(info, PublicStreamInfo{Mount: st.MountName, Name: st.Name, Listeners: st.ListenersCount(), Bitrate: st.Bitrate, Uptime: st.Uptime(), Genre: st.Genre, Description: st.Description, CurrentSong: st.CurrentSong})
 			}
 			payload, _ := json.Marshal(info)
 			fmt.Fprintf(w, "data: %s\n\n", payload)
