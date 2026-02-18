@@ -195,6 +195,7 @@
                                 <div class="form-group"><label>Source URL</label><input type="text" name="url" placeholder="http://master:8000/live" required></div>
                                 <div class="form-group"><label>Local Mount</label><input type="text" name="mount" placeholder="/relay" required></div>
                                 <div class="form-group"><label>Password (if req.)</label><input type="password" name="password"></div>
+                                <div class="form-group"><label>Burst Size (packets)</label><input type="number" name="burst_size" value="20"></div>
                                 <button type="submit" class="btn btn-primary">Start Relay</button>
                             </form>
                         </div>
@@ -209,7 +210,18 @@
                                     <tr>
                                         <td style="font-size:0.8rem;color:var(--text-dim)">{{.URL}}</td>
                                         <td><span class="mount-code">{{.Mount}}</span></td>
-                                        <td><form action="/admin/remove-relay" method="POST"><input type="hidden" name="mount" value="{{.Mount}}"><button type="submit" class="btn btn-danger btn-sm">Stop</button></form></td>
+                                        <td>
+                                            <div style="display:flex; gap:0.3rem">
+                                                <form action="/admin/restart-relay" method="POST">
+                                                    <input type="hidden" name="mount" value="{{.Mount}}">
+                                                    <button type="submit" class="btn btn-warning btn-sm">RE</button>
+                                                </form>
+                                                <form action="/admin/remove-relay" method="POST">
+                                                    <input type="hidden" name="mount" value="{{.Mount}}">
+                                                    <button type="submit" class="btn btn-danger btn-sm">X</button>
+                                                </form>
+                                            </div>
+                                        </td>
                                     </tr>
                                     {{else}}
                                     <tr><td colspan="3" style="text-align:center; padding:2rem">No relays configured.</td></tr>

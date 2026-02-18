@@ -23,6 +23,7 @@ var templateFS embed.FS
 type Server struct {
 	Config *config.Config
 	Relay  *relay.Relay
+	RelayM *relay.RelayManager
 	tmpl   *template.Template
 }
 
@@ -33,9 +34,11 @@ func NewServer(cfg *config.Config) *Server {
 		logrus.Fatalf("Error loading embedded templates: %v", err)
 	}
 
+	r := relay.NewRelay(cfg.LowLatencyMode)
 	return &Server{
 		Config: cfg,
-		Relay:  relay.NewRelay(cfg.LowLatencyMode),
+		Relay:  r,
+		RelayM: relay.NewRelayManager(r),
 		tmpl:   tmpl,
 	}
 }
@@ -59,6 +62,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/admin/remove-banned-ip", s.handleRemoveBannedIP)
 	mux.HandleFunc("/admin/add-relay", s.handleAddRelay)
 	mux.HandleFunc("/admin/remove-relay", s.handleRemoveRelay)
+	mux.HandleFunc("/admin/restart-relay", s.handleRestartRelay)
 	mux.HandleFunc("/", s.handleRoot)
 	mux.HandleFunc("/events", s.handlePublicEvents)
 	mux.HandleFunc("/status-json.xsl", s.handleLegacyStats)
@@ -135,7 +139,7 @@ func (s *Server) Start() error {
 
 	// Start Pull Relays
 	for _, rc := range s.Config.Relays {
-		s.Relay.StartPullRelay(rc.URL, rc.Mount, rc.Password, rc.BurstSize)
+		s.RelayM.StartRelay(rc.URL, rc.Mount, rc.Password, rc.BurstSize)
 	}
 
 	logrus.Infof("Starting HTTPS server on %s", httpsAddr)
@@ -506,7 +510,7 @@ func (s *Server) handleAddRelay(w http.ResponseWriter, r *http.Request) {
 	s.Config.SaveConfig()
 	
 	// Start it immediately
-	s.Relay.StartPullRelay(relay.URL, relay.Mount, relay.Password, 20)
+	s.RelayM.StartRelay(relay.URL, relay.Mount, relay.Password, 20)
 	
 	http.Redirect(w, r, "/admin", http.StatusSeeOther)
 }
@@ -521,7 +525,22 @@ func (s *Server) handleRemoveRelay(w http.ResponseWriter, r *http.Request) {
 		if rc.Mount == mount {
 			s.Config.Relays = append(s.Config.Relays[:i], s.Config.Relays[i+1:]...)
 			s.Config.SaveConfig()
-			s.Relay.RemoveStream(mount)
+			s.RelayM.StopRelay(mount)
+			break
+		}
+	}
+	http.Redirect(w, r, "/admin", http.StatusSeeOther)
+}
+
+func (s *Server) handleRestartRelay(w http.ResponseWriter, r *http.Request) {
+	if !s.isCSRFSafe(r) { return }
+	user, ok := s.checkAuth(r)
+	if !ok || user.Role != config.RoleSuperAdmin { return }
+	
+	mount := r.FormValue("mount")
+	for _, rc := range s.Config.Relays {
+		if rc.Mount == mount {
+			s.RelayM.StartRelay(rc.URL, rc.Mount, rc.Password, rc.BurstSize)
 			break
 		}
 	}
