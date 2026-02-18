@@ -19,6 +19,11 @@ func (r *Relay) StartPullRelay(url, mount, password string, burstSize int) {
 				continue
 			}
 
+			// Add headers for better compatibility
+			req.Header.Set("User-Agent", "TinyIce/0.1.0")
+			req.Header.Set("Icy-MetaData", "1")
+			req.Header.Set("Accept", "*/*")
+
 			// Some servers might require auth
 			if password != "" {
 				req.SetBasicAuth("source", password)
@@ -45,12 +50,26 @@ func (r *Relay) StartPullRelay(url, mount, password string, burstSize int) {
 				stream.SetBurstSize(burstSize)
 			}
 			stream.SourceIP = "relay-pull"
+
+			// Use Icy headers as fallback
+			name := resp.Header.Get("Ice-Name")
+			if name == "" { name = resp.Header.Get("Icy-Name") }
+			
+			desc := resp.Header.Get("Ice-Description")
+			if desc == "" { desc = resp.Header.Get("Icy-Description") }
+			
+			genre := resp.Header.Get("Ice-Genre")
+			if genre == "" { genre = resp.Header.Get("Icy-Genre") }
+			
+			bitrate := resp.Header.Get("Ice-Bitrate")
+			if bitrate == "" { bitrate = resp.Header.Get("Icy-Br") }
+
 			stream.UpdateMetadata(
-				resp.Header.Get("Ice-Name"),
-				resp.Header.Get("Ice-Description"),
-				resp.Header.Get("Ice-Genre"),
+				name,
+				desc,
+				genre,
 				resp.Header.Get("Ice-Url"),
-				resp.Header.Get("Ice-Bitrate"),
+				bitrate,
 				resp.Header.Get("Content-Type"),
 				false,
 				false,
