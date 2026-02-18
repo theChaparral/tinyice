@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -116,16 +117,33 @@ func (s *Server) listenWithReuse(network, address string) (net.Listener, error) 
 
 func (s *Server) Shutdown(ctx context.Context) error {
 	logrus.Info("Server shutting down gracefully...")
-	
+
 	// Stop relays immediately to prevent dual-pulling if a new instance starts
 	s.RelayM.StopAll()
 
+	var wg sync.WaitGroup
 	for _, srv := range s.httpServers {
-		if err := srv.Shutdown(ctx); err != nil {
-			logrus.Errorf("Error during HTTP server shutdown: %v", err)
-		}
+		wg.Add(1)
+		go func(srv *http.Server) {
+			defer wg.Done()
+			if err := srv.Shutdown(ctx); err != nil {
+				logrus.Errorf("Error during HTTP server shutdown: %v", err)
+			}
+		}(srv)
 	}
-	return nil
+
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (s *Server) ReloadConfig(cfg *config.Config) {

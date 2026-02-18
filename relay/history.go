@@ -38,7 +38,7 @@ func NewHistoryManager(path string) (*HistoryManager, error) {
 }
 
 func (hm *HistoryManager) Add(mount, song string) {
-	if song == "" || song == "N/A" {
+	if song == "" || song == "N/A" || song == "-" {
 		return
 	}
 
