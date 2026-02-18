@@ -2,6 +2,7 @@ package relay
 
 import (
 	"fmt"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -327,6 +328,12 @@ func (r *Relay) Snapshot() []StreamStats {
 	for _, s := range r.Streams {
 		streams = append(streams, s.Snapshot())
 	}
+
+	// Sort by start time, newest first
+	sort.Slice(streams, func(i, j int) bool {
+		return streams[i].Started.After(streams[j].Started)
+	})
+
 	return streams
 }
 
