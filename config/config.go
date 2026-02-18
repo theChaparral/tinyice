@@ -1,10 +1,9 @@
 package config
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"os"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type Config struct {
@@ -22,10 +21,14 @@ type Config struct {
 	DisabledMounts        map[string]bool   `json:"disabled_mounts"`
 }
 
-func HashPassword(p string) string {
-	h := sha256.New()
-	h.Write([]byte(p))
-	return hex.EncodeToString(h.Sum(nil))
+func HashPassword(p string) (string, error) {
+	bytes, err := bcrypt.GenerateFromPassword([]byte(p), 12)
+	return string(bytes), err
+}
+
+func CheckPasswordHash(password, hash string) bool {
+	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
+	return err == nil
 }
 
 func LoadConfig(path string) (*Config, error) {
@@ -44,25 +47,11 @@ func LoadConfig(path string) (*Config, error) {
 
 	config.ConfigPath = path
 
-	// Set defaults if empty
-	if config.Port == "" {
-		config.Port = "8000"
-	}
-	if config.AdminUser == "" {
-		config.AdminUser = "admin"
-	}
-	if config.DefaultSourcePassword == "" {
-		config.DefaultSourcePassword = "hackme"
-	}
-	if config.Mounts == nil {
-		config.Mounts = make(map[string]string)
-	}
-	if config.MaxListeners == 0 {
-		config.MaxListeners = 100
-	}
-	if config.DisabledMounts == nil {
-		config.DisabledMounts = make(map[string]bool)
-	}
+	if config.Port == "" { config.Port = "8000" }
+	if config.AdminUser == "" { config.AdminUser = "admin" }
+	if config.Mounts == nil { config.Mounts = make(map[string]string) }
+	if config.MaxListeners == 0 { config.MaxListeners = 100 }
+	if config.DisabledMounts == nil { config.DisabledMounts = make(map[string]bool) }
 
 	return config, nil
 }
