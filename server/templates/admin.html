@@ -67,15 +67,15 @@
                 <img src="/assets/logo.png" alt="TinyIce" class="logo-img">
             </a>
             <div id="sidebar-nav">
-                <button class="nav-link active" onclick="showTab('tab-overview')"><i class="lni lnis-dashboard"></i> Dashboard</button>
-                <button class="nav-link" onclick="showTab('tab-stations')"><i class="lni lnis-tower-broadcast-1"></i> Your Stations</button>
-                <button class="nav-link" onclick="showTab('tab-history')"><i class="lni lnis-empty-file"></i> Play History</button>
+                <button class="nav-link active" onclick="showTab('tab-overview')"><i class="lni lni-dashboard"></i> Dashboard</button>
+                <button class="nav-link" onclick="showTab('tab-stations')"><i class="lni lni-tower"></i> Your Stations</button>
+                <button class="nav-link" onclick="showTab('tab-history')"><i class="lni lni-empty-file"></i> Play History</button>
                 {{if eq .User.Role "superadmin"}}
-                <button class="nav-link" onclick="showTab('tab-users')"><i class="lni lnis-users"></i> User Management</button>
-                <button class="nav-link" onclick="showTab('tab-relays')"><i class="lni lnis-cloud-sync"></i> Edge Relays</button>
-                <button class="nav-link" onclick="showTab('tab-security')"><i class="lni lnis-shield"></i> Security & Bans</button>
+                <button class="nav-link" onclick="showTab('tab-users')"><i class="lni lni-users"></i> User Management</button>
+                <button class="nav-link" onclick="showTab('tab-relays')"><i class="lni lni-cloud-sync"></i> Edge Relays</button>
+                <button class="nav-link" onclick="showTab('tab-security')"><i class="lni lni-shield"></i> Security & Bans</button>
                 {{end}}
-                <button class="nav-link" onclick="showTab('tab-statistics')"><i class="lni lnis-stats-up"></i> Statistics</button>
+                <button class="nav-link" onclick="showTab('tab-statistics')"><i class="lni lni-stats-up"></i> Statistics</button>
             </div>
             <div style="margin-top: auto; padding-top: 2rem;">
                 <div style="font-size: 0.8rem; color: var(--text-dim); margin-bottom: 1rem;">User: <strong>{{.User.Username}}</strong> <span class="role-badge {{if eq .User.Role "superadmin"}}role-super{{else}}role-admin{{end}}">{{.User.Role}}</span></div>
