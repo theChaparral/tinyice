@@ -41,6 +41,7 @@ Traditional streaming servers can be complex to configure and resource-heavy. Ti
 -   **Approval Workflow**: New streams are hidden by default until approved by an administrator.
 -   **Stream Relaying**: Act as an edge node by pulling streams from remote servers.
 -   **Dual-Protocol Architecture**: Handles HTTPS for listeners while allowing legacy encoders to stream over plain HTTP.
+-   **Smart Fallback & Auto-Recovery**: Automatically switch listeners to a backup stream if the primary source drops, and seamlessly transition them back once the primary is restored.
 -   **Playback Tracking**: View the last 100 songs played per station in the admin dashboard.
 -   **Playlist Support**: Support for `.m3u8`, `.m3u`, and `.pls` playlists for easy integration with external players (VLC, Winamp, mobile apps).
 -   **Public Directory Listing**: Built-in support for Icecast YP protocol (e.g., `dir.xiph.org`).
