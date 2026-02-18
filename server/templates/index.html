@@ -22,14 +22,24 @@
             position: relative; overflow: hidden; height: 420px; display: flex; flex-direction: column; 
         }
         .card:hover { transform: translateY(-4px); border-color: var(--primary); }
-        .live-indicator { position: absolute; top: 1.5rem; right: 1.5rem; display: flex; align-items: center; gap: 0.5rem; background: rgba(16, 185, 129, 0.1); padding: 0.25rem 0.75rem; border-radius: 100px; font-size: 0.75rem; font-weight: 700; color: var(--success); border: 1px solid rgba(16, 185, 129, 0.2); }
+        .live-indicator { position: absolute; top: 1.5rem; right: 1.5rem; display: flex; align-items: center; gap: 0.5rem; background: rgba(16, 185, 129, 0.1); padding: 0.25rem 0.75rem; border-radius: 100px; font-size: 0.75rem; font-weight: 700; color: var(--success); border: 1px solid rgba(16, 185, 129, 0.2); z-index: 10; }
         .live-dot { width: 6px; height: 6px; background: var(--success); border-radius: 50%; animation: pulse 2s infinite; }
         @keyframes pulse { 0% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.5); opacity: 0.5; } 100% { transform: scale(1); opacity: 1; } }
 
-        .stream-name { font-size: 1.5rem; font-weight: 700; margin-bottom: 0.5rem; padding-right: 4rem; height: 2.4rem; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; }
-        .now-playing { background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.2); color: var(--warning); padding: 0.75rem; border-radius: 10px; margin-bottom: 1.5rem; font-size: 0.9rem; font-weight: 600; min-height: 54px; }
-        .now-playing label { font-size: 0.65rem; text-transform: uppercase; color: var(--text-dim); opacity: 0.8; display: block; }
-        .now-playing span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .stream-name { font-size: 1.5rem; font-weight: 700; margin-bottom: 0.5rem; padding-right: 4rem; height: 2.4rem; position: relative; overflow: hidden; white-space: nowrap; }
+        
+        .scroll-wrapper { display: inline-block; transition: transform 0.5s; }
+        .scroll-active { animation: marquee linear infinite; }
+        @keyframes marquee { 
+            0% { transform: translateX(0); }
+            15% { transform: translateX(0); }
+            85% { transform: translateX(calc(-100% + 250px)); }
+            100% { transform: translateX(calc(-100% + 250px)); }
+        }
+
+        .now-playing { background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.2); color: var(--warning); padding: 0.75rem; border-radius: 10px; margin-bottom: 1.5rem; font-size: 0.9rem; font-weight: 600; min-height: 54px; overflow: hidden; position: relative; }
+        .now-playing label { font-size: 0.65rem; text-transform: uppercase; color: var(--text-dim); opacity: 0.8; display: block; position: relative; z-index: 2; }
+        .song-val-wrap { display: inline-block; white-space: nowrap; }
         
         .meta-list { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 2rem; flex-grow: 1; }
         .meta-item { background: rgba(0,0,0,0.2); padding: 0.75rem; border-radius: 10px; display: flex; flex-direction: column; justify-content: center; height: 50px; }
@@ -56,41 +66,18 @@
         </header>
 
         <div class="streams-grid" id="streams-container">
-            <!-- Initial Load from Server -->
-            {{range .Streams}}
-            <div class="card" data-mount="{{.MountName}}">
-                <div class="live-indicator"><div class="live-dot"></div> LIVE</div>
-                <div class="stream-name">{{if .Name}}{{.Name}}{{else}}{{.MountName}}{{end}}</div>
-                <div class="now-playing"><label>Now Playing</label><span class="song-val">{{.CurrentSong}}</span></div>
-                <div class="meta-list">
-                    <div class="meta-item"><div class="meta-label">Listeners</div><div class="meta-value listener-val">{{.ListenersCount}}</div></div>
-                    <div class="meta-item"><div class="meta-label">Bitrate</div><div class="meta-value bitrate-val">{{.Bitrate}} kbps</div></div>
-                    <div class="meta-item"><div class="meta-label">Genre</div><div class="meta-value genre-val">{{.Genre}}</div></div>
-                    <div class="meta-item"><div class="meta-label">Uptime</div><div class="meta-value uptime-val">{{.Uptime}}</div></div>
-                </div>
-                <a href="{{.MountName}}" class="btn-play">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> TUNE IN NOW
-                </a>
-            </div>
-            {{else}}
-            <div class="empty-state">
-                <div style="font-size: 3rem; margin-bottom: 1.5rem;">📡</div>
-                <h2 style="margin-bottom: 0.5rem;">Off the Air</h2>
-                <p style="color: var(--text-dim);">No stations are currently broadcasting.</p>
-            </div>
-            {{end}}
+            <!-- Rendered via JS -->
         </div>
 
         <div id="pagination" class="pagination"></div>
-
         <div class="footer">Powered by <a href="/admin">TinyIce</a></div>
     </div>
 
     <template id="card-template">
         <div class="card">
             <div class="live-indicator"><div class="live-dot"></div> LIVE</div>
-            <div class="stream-name"></div>
-            <div class="now-playing"><label>Now Playing</label><span class="song-val"></span></div>
+            <div class="stream-name"><div class="scroll-wrapper name-scroll"></div></div>
+            <div class="now-playing"><label>Now Playing</label><div class="song-val-wrap song-scroll"></div></div>
             <div class="meta-list">
                 <div class="meta-item"><div class="meta-label">Listeners</div><div class="meta-value listener-val"></div></div>
                 <div class="meta-item"><div class="meta-label">Bitrate</div><div class="meta-value bitrate-val"></div></div>
@@ -114,6 +101,16 @@
             var pageSize = 6;
             var currentPage = 1;
 
+            function checkScroll(el) {
+                if (el.scrollWidth > el.parentElement.offsetWidth) {
+                    el.classList.add('scroll-active');
+                    var duration = el.scrollWidth / 30; 
+                    el.style.animationDuration = duration + 's';
+                } else {
+                    el.classList.remove('scroll-active');
+                }
+            }
+
             function render() {
                 var totalPages = Math.ceil(allStreams.length / pageSize);
                 if (currentPage > totalPages && totalPages > 0) currentPage = totalPages;
@@ -133,17 +130,24 @@
                     var clone = template.content.cloneNode(true);
                     var card = clone.querySelector('.card');
                     card.setAttribute('data-mount', s.mount);
-                    clone.querySelector('.stream-name').textContent = s.name || s.mount;
-                    clone.querySelector('.song-val').textContent = s.song || 'N/A';
+                    
+                    var nameScroll = clone.querySelector('.name-scroll');
+                    nameScroll.textContent = s.name || s.mount;
+                    
+                    var songScroll = clone.querySelector('.song-scroll');
+                    songScroll.textContent = s.song || 'N/A';
+                    
                     clone.querySelector('.listener-val').textContent = s.listeners;
                     clone.querySelector('.bitrate-val').textContent = s.bitrate + ' kbps';
                     clone.querySelector('.genre-val').textContent = s.genre;
                     clone.querySelector('.uptime-val').textContent = s.uptime;
                     clone.querySelector('.btn-play').setAttribute('href', s.mount);
                     container.appendChild(clone);
+
+                    checkScroll(container.querySelector('.card[data-mount="' + s.mount + '"] .name-scroll'));
+                    checkScroll(container.querySelector('.card[data-mount="' + s.mount + '"] .song-scroll'));
                 });
 
-                // Pagination Buttons
                 if (totalPages > 1) {
                     var html = '<button class="page-btn" ' + (currentPage === 1 ? 'disabled' : '') + ' onclick="setPage(' + (currentPage - 1) + ')">Prev</button>';
                     for (var i = 1; i <= totalPages; i++) {
@@ -151,15 +155,10 @@
                     }
                     html += '<button class="page-btn" ' + (currentPage === totalPages ? 'disabled' : '') + ' onclick="setPage(' + (currentPage + 1) + ')">Next</button>';
                     paginationEl.innerHTML = html;
-                } else {
-                    paginationEl.innerHTML = '';
-                }
+                } else { paginationEl.innerHTML = ''; }
             }
 
-            window.setPage = function(p) {
-                currentPage = p;
-                render();
-            };
+            window.setPage = function(p) { currentPage = p; render(); };
 
             es.onmessage = function(e) {
                 allStreams = JSON.parse(e.data);
