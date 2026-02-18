@@ -82,17 +82,6 @@ func (r *Relay) GetOrCreateStream(mount string) *Stream {
 	return s
 }
 
-// Uptime returns the duration since the stream started
-func (s *Stream) Uptime() string {
-	d := time.Since(s.Started).Round(time.Second)
-	h := d / time.Hour
-	d -= h * time.Hour
-	m := d / time.Minute
-	d -= m * time.Minute
-	s_ := d / time.Second
-	return fmt.Sprintf("%02d:%02d:%02d", h, m, s_)
-}
-
 // RemoveStream deletes a stream (e.g., when source disconnects)
 func (r *Relay) RemoveStream(mount string) {
 	r.mu.Lock()
@@ -257,20 +246,79 @@ func (s *Stream) ListenersCount() int {
 	return len(s.listeners)
 }
 
-// Snapshot returns a safe copy of the current streams
-func (r *Relay) Snapshot() []*Stream {
+// StreamStats is a point-in-time snapshot of a stream for the UI
+type StreamStats struct {
+	MountName      string
+	ContentType    string
+	Description    string
+	Genre          string
+	URL            string
+	Name           string
+	Bitrate        string
+	Started        time.Time
+	SourceIP       string
+	Enabled        bool
+	BytesIn        int64
+	BytesOut       int64
+	CurrentSong    string
+	Public         bool
+	Hidden         bool
+	ListenersCount int
+	Uptime         string
+}
+
+// Snapshot returns a point-in-time copy of the stream's state
+func (s *Stream) Snapshot() StreamStats {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return StreamStats{
+		MountName:      s.MountName,
+		ContentType:    s.ContentType,
+		Description:    s.Description,
+		Genre:          s.Genre,
+		URL:            s.URL,
+		Name:           s.Name,
+		Bitrate:        s.Bitrate,
+		Started:        s.Started,
+		SourceIP:       s.SourceIP,
+		Enabled:        s.Enabled,
+		BytesIn:        atomic.LoadInt64(&s.BytesIn),
+		BytesOut:       atomic.LoadInt64(&s.BytesOut),
+		CurrentSong:    s.CurrentSong,
+		Public:         s.Public,
+		Hidden:         s.Hidden,
+		ListenersCount: len(s.listeners),
+		Uptime:         s.uptimeLocked(), // We need a non-locked version of uptime
+	}
+}
+
+// uptimeLocked returns the formatted uptime string assuming the lock is already held
+func (s *Stream) uptimeLocked() string {
+	d := time.Since(s.Started).Round(time.Second)
+	h := d / time.Hour
+	d -= h * time.Hour
+	m := d / time.Minute
+	d -= m * time.Minute
+	s_ := d / time.Second
+	return fmt.Sprintf("%02d:%02d:%02d", h, m, s_)
+}
+
+// Uptime returns the duration since the stream started
+func (s *Stream) Uptime() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.uptimeLocked()
+}
+
+// Snapshot returns a safe copy of all current streams
+func (r *Relay) Snapshot() []StreamStats {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	streams := make([]*Stream, 0, len(r.Streams))
+	streams := make([]StreamStats, 0, len(r.Streams))
 	for _, s := range r.Streams {
-		// We return the pointer, but we should be careful about accessing its fields.
-		// For the UI, we might want a "read-only" view or just be careful.
-		// Since Stream fields are public and we have a mutex for modifications, 
-		// reading them without a lock might be racy but for a status page it's usually acceptable 
-		// or we should add a "ToDTO" method on Stream.
-		// Let's just return the stream for now.
-		streams = append(streams, s)
+		streams = append(streams, s.Snapshot())
 	}
 	return streams
 }

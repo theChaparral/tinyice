@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -273,7 +272,7 @@ func (s *Server) handleListener(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	allStreams := s.Relay.Snapshot()
-	var streams []*relay.Stream
+	var streams []relay.StreamStats
 	for _, st := range allStreams {
 		if !st.Hidden {
 			streams = append(streams, st)
@@ -453,14 +452,23 @@ func (s *Server) handleLegacyStats(w http.ResponseWriter, r *http.Request) {
 	if !strings.Contains(host, ":") { host = host + ":" + s.Config.Port }
 	proto := "http://"
 	if s.Config.UseHTTPS { proto = "https://" }
-	for i, st := range streams {
-		sources[i] = IcecastSource{
-			AudioInfo: fmt.Sprintf("bitrate=%s", st.Bitrate), Bitrate: st.Bitrate, Genre: st.Genre, 
-			Listeners: st.ListenersCount(), ListenURL: proto + host + st.MountName, Mount: st.MountName, 
-			ServerDescription: st.Description, ServerName: st.Name, ServerType: st.ContentType, 
-			StreamStart: st.Started.Format(time.RFC1123), Title: st.CurrentSong, Dummy: nil,
+		for i, st := range streams {
+			sources[i] = IcecastSource{
+				AudioInfo:         fmt.Sprintf("bitrate=%s", st.Bitrate),
+				Bitrate:           st.Bitrate,
+				Genre:             st.Genre,
+				Listeners:         st.ListenersCount,
+				ListenURL:         proto + host + st.MountName,
+				Mount:             st.MountName,
+				ServerDescription: st.Description,
+				ServerName:        st.Name,
+				ServerType:        st.ContentType,
+				StreamStart:       st.Started.Format(time.RFC1123),
+				Title:             st.CurrentSong,
+				Dummy:             nil,
+			}
 		}
-	}
+	
 	resp := map[string]interface{}{"icestats": map[string]interface{}{"admin": s.Config.AdminEmail, "host": s.Config.HostName, "location": s.Config.Location, "server_id": "Icecast 2.4.4 (TinyIce)", "server_start": time.Now().Format(time.RFC1123), "source": sources}}
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -489,7 +497,16 @@ func (s *Server) handlePublicEvents(w http.ResponseWriter, r *http.Request) {
 				if st.Hidden {
 					continue
 				}
-				info = append(info, PublicStreamInfo{Mount: st.MountName, Name: st.Name, Listeners: st.ListenersCount(), Bitrate: st.Bitrate, Uptime: st.Uptime(), Genre: st.Genre, Description: st.Description, CurrentSong: st.CurrentSong})
+				info = append(info, PublicStreamInfo{
+					Mount:       st.MountName,
+					Name:        st.Name,
+					Listeners:   st.ListenersCount,
+					Bitrate:     st.Bitrate,
+					Uptime:      st.Uptime,
+					Genre:       st.Genre,
+					Description: st.Description,
+					CurrentSong: st.CurrentSong,
+				})
 			}
 			payload, _ := json.Marshal(info)
 			fmt.Fprintf(w, "data: %s\n\n", payload)
@@ -519,54 +536,132 @@ func (s *Server) directoryReportingTask() {
 	}
 }
 
-func (s *Server) reportToDirectory(st *relay.Stream) {
+func (s *Server) reportToDirectory(st relay.StreamStats) {
+
 	proto := "http://"
+
 	if s.Config.UseHTTPS { proto = "https://" }
+
 	listenURL := proto + s.Config.HostName + ":" + s.Config.Port + st.MountName
+
 	if s.Config.UseHTTPS { listenURL = proto + s.Config.HostName + ":" + s.Config.HTTPSPort + st.MountName }
+
 	data := url.Values{}
+
 	data.Set("action", "add")
+
 	data.Set("sn", st.Name); data.Set("genre", st.Genre); data.Set("cps", st.Bitrate)
+
 	data.Set("url", st.URL); data.Set("desc", st.Description); data.Set("st", st.ContentType)
+
 	data.Set("listenurl", listenURL); data.Set("type", "audio/mpeg")
+
 	resp, err := http.PostForm(s.Config.DirectoryServer, data)
+
 	if err != nil { logrus.WithError(err).Warn("Failed to report to directory server"); return }
+
 	defer resp.Body.Close()
+
 	if resp.StatusCode != http.StatusOK { logrus.WithField("status", resp.Status).Warn("Directory server rejected update")
+
 	} else { logrus.WithField("mount", st.MountName).Debug("Reported to directory server") }
+
 }
 
+
+
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
+
 	if !s.checkAuth(r, s.Config.AdminUser, s.Config.AdminPassword) {
+
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+
 		return
+
 	}
+
 	w.Header().Set("Content-Type", "text/event-stream")
+
 	w.Header().Set("Cache-Control", "no-cache")
+
 	w.Header().Set("Connection", "keep-alive")
+
 	flusher, _ := w.(http.Flusher)
+
 	ticker := time.NewTicker(time.Second)
+
 	defer ticker.Stop()
+
+
+
 	type StreamInfo struct {
+
 		Mount string `json:"mount"`; Name string `json:"name"`; Listeners int `json:"listeners"`; Bitrate string `json:"bitrate"`; 
+
 		Uptime string `json:"uptime"`; ContentType string `json:"type"`; SourceIP string `json:"ip"`; 
+
 		BytesIn int64 `json:"bytes_in"`; BytesOut int64 `json:"bytes_out"`; CurrentSong string `json:"song"`
+
 	}
+
+
+
 	for {
+
 		select {
+
 		case <-r.Context().Done(): return
+
 		case <-ticker.C:
+
 			bi, bo := s.Relay.GetMetrics()
+
 			streams := s.Relay.Snapshot()
+
 			tl := 0
+
 			info := make([]StreamInfo, len(streams))
+
 			for i, st := range streams {
-				lc := st.ListenersCount(); tl += lc
-				info[i] = StreamInfo{Mount: st.MountName, Name: st.Name, Listeners: lc, Bitrate: st.Bitrate, Uptime: st.Uptime(), ContentType: st.ContentType, SourceIP: st.SourceIP, BytesIn: atomic.LoadInt64(&st.BytesIn), BytesOut: atomic.LoadInt64(&st.BytesOut), CurrentSong: st.CurrentSong}
+
+				lc := st.ListenersCount; tl += lc
+
+				info[i] = StreamInfo{
+
+					Mount: st.MountName, 
+
+					Name: st.Name, 
+
+					Listeners: lc, 
+
+					Bitrate: st.Bitrate, 
+
+					Uptime: st.Uptime, 
+
+					ContentType: st.ContentType, 
+
+					SourceIP: st.SourceIP, 
+
+					BytesIn: st.BytesIn, 
+
+					BytesOut: st.BytesOut, 
+
+					CurrentSong: st.CurrentSong,
+
+				}
+
 			}
+
 			payload, _ := json.Marshal(map[string]interface{}{"bytes_in": bi, "bytes_out": bo, "total_listeners": tl, "total_sources": len(streams), "streams": info})
+
 			fmt.Fprintf(w, "data: %s\n\n", payload)
+
 			flusher.Flush()
+
 		}
+
 	}
+
 }
+
+
