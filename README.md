@@ -64,6 +64,42 @@ Point your encoder (e.g., BUTT) to:
 -   **Password**: [The generated source password]
 -   **Mount**: /live
 
+## Configuration
+
+TinyIce uses a JSON configuration file (`tinyice.json`). Below are the available options:
+
+```json
+{
+    "bind_host": "0.0.0.0",
+    "port": "8000",
+    "page_title": "TinyIce",
+    "page_subtitle": "Live streaming network powered by Go",
+    "use_https": true,
+    "auto_https": true,
+    "https_port": "443",
+    "acme_email": "admin@example.com",
+    "acme_directory_url": "",
+    "domains": ["radio.example.com"],
+    "max_listeners": 100,
+    "directory_listing": true,
+    "directory_server": "http://dir.xiph.org/cgi-bin/yp-cgi",
+    "low_latency_mode": false,
+    "banned_ips": []
+}
+```
+
+### Custom ACME (Homelab)
+To use TinyIce with a custom ACME CA (like Step-CA or Smallstep) in a homelab environment, set the `acme_directory_url` in your config:
+
+```json
+{
+    "auto_https": true,
+    "acme_directory_url": "https://ca.internal/acme/acme/directory",
+    "acme_email": "admin@homelab.local",
+    "domains": ["radio.homelab.local"]
+}
+```
+
 ## Command Line Usage
 
 ```bash
