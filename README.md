@@ -11,7 +11,7 @@ TinyIce is a lightweight, high-performance, and secure Icecast2-compatible strea
 
 
 [![Go Report Card](https://goreportcard.com/badge/github.com/DatanoiseTV/tinyice)](https://goreportcard.com/report/github.com/DatanoiseTV/tinyice)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 ## Why TinyIce?
 
@@ -79,7 +79,7 @@ See [PERFORMANCE.md](PERFORMANCE.md) for detailed hardware and traffic estimates
 
 ## License
 
-Distributed under the MIT License. See `LICENSE` for more information.
+Distributed under the Apache License 2.0. See `LICENSE` for more information.
 
 ---
 Developed by [DatanoiseTV](https://github.com/DatanoiseTV)
