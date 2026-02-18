@@ -664,7 +664,21 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			if user.Role != config.RoleSuperAdmin { var userBi, userBo int64; for _, st := range info { userBi += st.BytesIn; userBo += st.BytesOut }; bi, bo = userBi, userBo }
-			payload, _ := json.Marshal(map[string]interface{}{"bytes_in": bi, "bytes_out": bo, "total_listeners": tl, "total_sources": len(info), "streams": info})
+			
+			type RelayInfo struct {
+				URL    string `json:"url"`
+				Mount  string `json:"mount"`
+				Active bool   `json:"active"`
+			}
+			relays := make([]RelayInfo, len(s.Config.Relays))
+			for i, rc := range s.Config.Relays {
+				relays[i] = RelayInfo{URL: rc.URL, Mount: rc.Mount, Active: false}
+				if st, ok := s.Relay.GetStream(rc.Mount); ok {
+					if st.SourceIP == "relay-pull" { relays[i].Active = true }
+				}
+			}
+
+			payload, _ := json.Marshal(map[string]interface{}{"bytes_in": bi, "bytes_out": bo, "total_listeners": tl, "total_sources": len(info), "streams": info, "relays": relays})
 			fmt.Fprintf(w, "data: %s\n\n", payload); flusher.Flush()
 		}
 	}
