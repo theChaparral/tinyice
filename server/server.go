@@ -98,15 +98,7 @@ func (s *Server) listenWithReuse(network, address string) (net.Listener, error) 
 		Control: func(network, address string, c syscall.RawConn) error {
 			var err error
 			err2 := c.Control(func(fd uintptr) {
-				err = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
-				if err != nil {
-					return
-				}
-				// SO_REUSEPORT is not available on Windows
-				if runtime.GOOS != "windows" {
-					// 0x0f is SO_REUSEPORT on most Unix systems (Linux/Darwin/FreeBSD)
-					syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, 0x0f, 1)
-				}
+				err = setReusePort(fd)
 			})
 			if err2 != nil {
 				return err2
