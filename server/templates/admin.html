@@ -254,7 +254,7 @@
                 }
 
                 var tlUABody = document.getElementById('topListenersUABody');
-                if (tlUABody) {
+                if (tlUABody && data.top_listeners_ua) {
                     tlUABody.innerHTML = '';
                     data.top_listeners_ua.forEach(function(ua) {
                         var row = document.createElement('tr');
@@ -264,7 +264,7 @@
                 }
 
                 var tsUABody = document.getElementById('topSourcesUABody');
-                if (tsUABody) {
+                if (tsUABody && data.top_sources_ua) {
                     tsUABody.innerHTML = '';
                     data.top_sources_ua.forEach(function(ua) {
                         var row = document.createElement('tr');

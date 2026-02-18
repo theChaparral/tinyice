@@ -1350,10 +1350,15 @@ func (s *Server) handleGetStats(w http.ResponseWriter, r *http.Request) {
 		topStreams = topStreams[:10]
 	}
 
-	var topListenersUA, topSourcesUA []relay.UAStat
+	topListenersUA := []relay.UAStat{}
+	topSourcesUA := []relay.UAStat{}
 	if s.Relay.History != nil {
-		topListenersUA = s.Relay.History.GetTopUAs("listener", 10)
-		topSourcesUA = s.Relay.History.GetTopUAs("source", 10)
+		if uas := s.Relay.History.GetTopUAs("listener", 10); uas != nil {
+			topListenersUA = uas
+		}
+		if uas := s.Relay.History.GetTopUAs("source", 10); uas != nil {
+			topSourcesUA = uas
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
