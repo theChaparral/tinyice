@@ -57,7 +57,7 @@
 <body>
     <div class="app-container">
         <aside>
-            <div class="logo">TinyIce <span>Admin</span></div>
+            <a href="/" style="text-decoration: none;"><div class="logo">TinyIce <span>Admin</span></div></a>
             <div id="sidebar-nav">
                 <button class="nav-link active" onclick="showTab('tab-overview')">Dashboard</button>
                 <button class="nav-link" onclick="showTab('tab-stations')">Your Stations</button>
@@ -66,7 +66,6 @@
                 <button class="nav-link" onclick="showTab('tab-relays')">Edge Relays</button>
                 <button class="nav-link" onclick="showTab('tab-security')">Security & Bans</button>
                 {{end}}
-                <a href="/" class="nav-link">Public View</a>
             </div>
 
             <div style="margin-top: auto; padding-top: 2rem;">
