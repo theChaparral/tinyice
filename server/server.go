@@ -57,6 +57,8 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/admin/remove-user", s.handleRemoveUser)
 	mux.HandleFunc("/admin/add-banned-ip", s.handleAddBannedIP)
 	mux.HandleFunc("/admin/remove-banned-ip", s.handleRemoveBannedIP)
+	mux.HandleFunc("/admin/add-relay", s.handleAddRelay)
+	mux.HandleFunc("/admin/remove-relay", s.handleRemoveRelay)
 	mux.HandleFunc("/", s.handleRoot)
 	mux.HandleFunc("/events", s.handlePublicEvents)
 	mux.HandleFunc("/status-json.xsl", s.handleLegacyStats)
@@ -478,6 +480,48 @@ func (s *Server) handleRemoveBannedIP(w http.ResponseWriter, r *http.Request) {
 		if b == ip {
 			s.Config.BannedIPs = append(s.Config.BannedIPs[:i], s.Config.BannedIPs[i+1:]...)
 			s.Config.SaveConfig()
+			break
+		}
+	}
+	http.Redirect(w, r, "/admin", http.StatusSeeOther)
+}
+
+func (s *Server) handleAddRelay(w http.ResponseWriter, r *http.Request) {
+	if !s.isCSRFSafe(r) { return }
+	user, ok := s.checkAuth(r)
+	if !ok || user.Role != config.RoleSuperAdmin { return }
+	
+	urlStr := r.FormValue("url")
+	mount := r.FormValue("mount")
+	password := r.FormValue("password")
+	if urlStr == "" || mount == "" { return }
+	if mount[0] != '/' { mount = "/" + mount }
+
+	relay := &config.RelayConfig{
+		URL:      urlStr,
+		Mount:    mount,
+		Password: password,
+	}
+	s.Config.Relays = append(s.Config.Relays, relay)
+	s.Config.SaveConfig()
+	
+	// Start it immediately
+	s.Relay.StartPullRelay(relay.URL, relay.Mount, relay.Password, 20)
+	
+	http.Redirect(w, r, "/admin", http.StatusSeeOther)
+}
+
+func (s *Server) handleRemoveRelay(w http.ResponseWriter, r *http.Request) {
+	if !s.isCSRFSafe(r) { return }
+	user, ok := s.checkAuth(r)
+	if !ok || user.Role != config.RoleSuperAdmin { return }
+	
+	mount := r.FormValue("mount")
+	for i, rc := range s.Config.Relays {
+		if rc.Mount == mount {
+			s.Config.Relays = append(s.Config.Relays[:i], s.Config.Relays[i+1:]...)
+			s.Config.SaveConfig()
+			s.Relay.RemoveStream(mount)
 			break
 		}
 	}
