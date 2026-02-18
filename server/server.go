@@ -75,6 +75,7 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/admin/kick-all-listeners", s.handleKickAllListeners)
 	mux.HandleFunc("/admin/toggle-mount", s.handleToggleMount)
 	mux.HandleFunc("/admin/toggle-visible", s.handleToggleVisible)
+	mux.HandleFunc("/admin/update-fallback", s.handleUpdateFallback)
 	mux.HandleFunc("/admin/add-user", s.handleAddUser)
 	mux.HandleFunc("/admin/remove-user", s.handleRemoveUser)
 	mux.HandleFunc("/admin/add-banned-ip", s.handleAddBannedIP)
@@ -497,20 +498,7 @@ func (s *Server) handleListener(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	mount := r.URL.Path
-	stream, ok := s.Relay.GetStream(mount)
-	if !ok {
-		http.NotFound(w, r)
-		return
-	}
-	if s.Config.MaxListeners > 0 && stream.ListenersCount() >= s.Config.MaxListeners {
-		http.Error(w, "Server Full", http.StatusServiceUnavailable)
-		return
-	}
-	id := r.RemoteAddr + "-" + fmt.Sprintf("%d", time.Now().UnixNano())
-	offset, signal := stream.Subscribe(id)
-	defer stream.Unsubscribe(id)
-
-	w.Header().Set("Content-Type", stream.ContentType)
+	
 	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 	w.Header().Set("Connection", "keep-alive")
 	if s.Config.LowLatencyMode {
@@ -518,36 +506,70 @@ func (s *Server) handleListener(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	flusher, _ := w.(http.Flusher)
-	if flusher != nil {
-		flusher.Flush()
-	}
-
 	buf := make([]byte, 16384)
+	id := r.RemoteAddr + "-" + fmt.Sprintf("%d", time.Now().UnixNano())
+
 	for {
-		select {
-		case <-r.Context().Done():
+		stream, ok := s.Relay.GetStream(mount)
+		if !ok {
+			// Check if we have a fallback
+			fallback, hasFallback := s.Config.FallbackMounts[mount]
+			if hasFallback && fallback != mount {
+				logrus.WithFields(logrus.Fields{"from": mount, "to": fallback}).Info("Primary stream down, falling back")
+				mount = fallback
+				continue
+			}
+			http.NotFound(w, r)
 			return
-		case <-signal:
-			// Read all available data from the buffer
-			for {
-				n, next, skipped := stream.Buffer.ReadAt(offset, buf)
-				if n == 0 {
+		}
+
+		if s.Config.MaxListeners > 0 && stream.ListenersCount() >= s.Config.MaxListeners {
+			http.Error(w, "Server Full", http.StatusServiceUnavailable)
+			return
+		}
+
+		w.Header().Set("Content-Type", stream.ContentType)
+		if flusher != nil { flusher.Flush() }
+
+		offset, signal := stream.Subscribe(id)
+		
+		runStream := true
+		for runStream {
+			select {
+			case <-r.Context().Done():
+				stream.Unsubscribe(id)
+				return
+			case _, ok := <-signal:
+				if !ok {
+					// Stream closed/source disconnected
+					runStream = false
 					break
 				}
-				if skipped {
-					atomic.AddInt64(&stream.BytesDropped, next-offset)
+				// Read all available data from the buffer
+				for {
+					n, next, skipped := stream.Buffer.ReadAt(offset, buf)
+					if n == 0 {
+						break
+					}
+					if skipped {
+						atomic.AddInt64(&stream.BytesDropped, next-offset)
+					}
+					offset = next
+					if _, err := w.Write(buf[:n]); err != nil {
+						stream.Unsubscribe(id)
+						return
+					}
+					atomic.AddInt64(&s.Relay.BytesOut, int64(n))
+					atomic.AddInt64(&stream.BytesOut, int64(n))
 				}
-				offset = next
-				if _, err := w.Write(buf[:n]); err != nil {
-					return
+				if flusher != nil {
+					flusher.Flush()
 				}
-				atomic.AddInt64(&s.Relay.BytesOut, int64(n))
-				atomic.AddInt64(&stream.BytesOut, int64(n))
-			}
-			if flusher != nil {
-				flusher.Flush()
 			}
 		}
+		stream.Unsubscribe(id)
+		// Loop will continue and check for fallback or re-connect to primary
+		time.Sleep(100 * time.Millisecond)
 	}
 }
 
@@ -605,12 +627,45 @@ func (s *Server) handleAdmin(w http.ResponseWriter, r *http.Request) {
 	sort.Strings(allMounts)
 
 	w.Header().Set("Content-Type", "text/html")
-	data := map[string]interface{}{"Streams": streams, "Config": s.Config, "User": user, "Mounts": allMounts}
+	data := map[string]interface{}{
+		"Streams":        streams,
+		"Config":         s.Config,
+		"User":           user,
+		"Mounts":         allMounts,
+		"FallbackMounts": s.Config.FallbackMounts,
+	}
 	if err := s.tmpl.ExecuteTemplate(w, "admin.html", data); err != nil {
 		if !strings.Contains(err.Error(), "broken pipe") {
 			logrus.WithError(err).Error("Template error")
 		}
 	}
+}
+
+func (s *Server) handleUpdateFallback(w http.ResponseWriter, r *http.Request) {
+	if !s.isCSRFSafe(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	user, ok := s.checkAuth(r)
+	if !ok {
+		return
+	}
+	mount := r.FormValue("mount")
+	fallback := r.FormValue("fallback")
+	if !s.hasAccess(user, mount) {
+		return
+	}
+
+	if fallback == "" {
+		delete(s.Config.FallbackMounts, mount)
+	} else {
+		if fallback[0] != '/' {
+			fallback = "/" + fallback
+		}
+		s.Config.FallbackMounts[mount] = fallback
+	}
+	s.Config.SaveConfig()
+	http.Redirect(w, r, "/admin", http.StatusSeeOther)
 }
 
 func (s *Server) handleAddMount(w http.ResponseWriter, r *http.Request) {

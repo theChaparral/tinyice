@@ -52,7 +52,9 @@ type Config struct {
 	LowLatencyMode bool            `json:"low_latency_mode"`
 	MaxListeners   int             `json:"max_listeners"`
 	DisabledMounts map[string]bool `json:"disabled_mounts"`
-	VisibleMounts  map[string]bool `json:"visible_mounts"` // map[mount]is_visible
+		VisibleMounts         map[string]bool   `json:"visible_mounts"`  // map[mount]is_visible
+		FallbackMounts        map[string]string `json:"fallback_mounts"` // map[source]fallback
+	
 
 	// UI Customization
 	PageTitle    string `json:"page_title"`
@@ -125,12 +127,10 @@ func (config *Config) setDefaults() {
 	if config.DisabledMounts == nil {
 		config.DisabledMounts = make(map[string]bool)
 	}
-	if config.VisibleMounts == nil {
-		config.VisibleMounts = make(map[string]bool)
-	}
-	if config.Users == nil {
-		config.Users = make(map[string]*User)
-	}
+		if config.VisibleMounts == nil { config.VisibleMounts = make(map[string]bool) }
+		if config.FallbackMounts == nil { config.FallbackMounts = make(map[string]string) }
+		if config.Users == nil { config.Users = make(map[string]*User) }
+	
 	if config.AdvancedMounts == nil {
 		config.AdvancedMounts = make(map[string]*MountSettings)
 	}
