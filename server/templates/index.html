@@ -14,48 +14,50 @@
         .container { width: 100%; max-width: 1200px; margin: 0 auto; padding: 4rem 2rem; }
         
         header { margin-bottom: 5rem; text-align: center; }
-        .logo { font-size: 3.5rem; font-weight: 900; letter-spacing: -2px; color: #fff; margin-bottom: 0.5rem; }
-        .subtitle { color: var(--secondary); font-size: 1.1rem; }
+        .logo { font-size: 3rem; font-weight: 900; letter-spacing: -1.5px; color: #fff; margin-bottom: 0.5rem; }
+        .subtitle { color: var(--secondary); font-size: 1rem; }
 
-        .streams-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 2.5rem; }
+        .streams-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 2rem; }
         
         .card { 
-            background: var(--card); border: 1px solid var(--border); border-radius: 24px; padding: 2.5rem; 
-            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1); 
-            display: flex; flex-direction: column; position: relative; height: 440px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            background: var(--card); border: 1px solid var(--border); border-radius: 24px; padding: 2rem; 
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); 
+            display: flex; flex-direction: column; position: relative; height: 400px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+            box-sizing: border-box;
         }
-        .card:hover { transform: translateY(-8px); border-color: var(--primary); box-shadow: 0 20px 40px rgba(0,0,0,0.7), 0 0 20px rgba(56, 189, 248, 0.1); }
+        /* Fix jumping: use transform scale and outline instead of margin/border size changes */
+        .card:hover { transform: scale(1.02); outline: 2px solid var(--primary); outline-offset: -2px; }
         
-        .live-tag { position: absolute; top: 1.5rem; right: 1.5rem; display: flex; align-items: center; gap: 0.5rem; background: rgba(16, 185, 129, 0.1); padding: 0.4rem 0.8rem; border-radius: 100px; font-size: 0.7rem; font-weight: 800; color: var(--success); border: 1px solid rgba(16, 185, 129, 0.2); text-transform: uppercase; }
-        .live-dot { width: 6px; height: 6px; background: var(--success); border-radius: 50%; animation: pulse 2s infinite; }
+        .live-tag { position: absolute; top: 1.5rem; right: 1.5rem; display: flex; align-items: center; gap: 0.4rem; background: rgba(16, 185, 129, 0.1); padding: 0.3rem 0.6rem; border-radius: 100px; font-size: 0.65rem; font-weight: 800; color: var(--success); border: 1px solid rgba(16, 185, 129, 0.2); text-transform: uppercase; }
+        .live-dot { width: 5px; height: 5px; background: var(--success); border-radius: 50%; animation: pulse 2s infinite; }
         @keyframes pulse { 0% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.5); opacity: 0.5; } 100% { transform: scale(1); opacity: 1; } }
 
-        .stream-name { font-size: 1.75rem; font-weight: 800; margin-bottom: 1.5rem; letter-spacing: -0.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 3rem; }
+        .stream-name { font-size: 1.4rem; font-weight: 800; margin-bottom: 1rem; letter-spacing: -0.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 3.5rem; height: 2rem; }
         
-        .now-playing-box { background: rgba(251, 191, 36, 0.05); border: 1px solid rgba(251, 191, 36, 0.1); border-radius: 16px; padding: 1rem; margin-bottom: 2rem; position: relative; }
-        .now-playing-box label { font-size: 0.65rem; text-transform: uppercase; color: var(--secondary); font-weight: 700; margin-bottom: 0.25rem; display: block; letter-spacing: 1px; }
-        .song-title { font-weight: 700; color: var(--warning); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; font-size: 1rem; }
+        .now-playing-box { background: rgba(251, 191, 36, 0.05); border: 1px solid rgba(251, 191, 36, 0.1); border-radius: 12px; padding: 0.8rem; margin-bottom: 1.5rem; position: relative; min-height: 50px; }
+        .now-playing-box label { font-size: 0.6rem; text-transform: uppercase; color: var(--secondary); font-weight: 700; margin-bottom: 0.1rem; display: block; letter-spacing: 1px; }
+        .song-title { font-weight: 700; color: var(--warning); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; font-size: 0.95rem; }
 
-        .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 2.5rem; flex-grow: 1; }
-        .stat-item { background: rgba(255,255,255,0.03); padding: 1rem; border-radius: 16px; display: flex; flex-direction: column; justify-content: center; }
-        .stat-label { font-size: 0.65rem; color: var(--secondary); text-transform: uppercase; margin-bottom: 0.2rem; font-weight: 600; letter-spacing: 0.5px; }
-        .stat-value { font-weight: 700; font-size: 1rem; color: var(--primary); }
+        .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 2rem; flex-grow: 1; }
+        .stat-item { background: rgba(255,255,255,0.02); padding: 0.75rem; border-radius: 12px; display: flex; flex-direction: column; justify-content: center; }
+        .stat-label { font-size: 0.6rem; color: var(--secondary); text-transform: uppercase; margin-bottom: 0.1rem; font-weight: 600; }
+        .stat-value { font-weight: 700; font-size: 0.9rem; color: var(--primary); }
 
-        .btn-listen { display: flex; align-items: center; justify-content: center; gap: 0.75rem; background: #fff; color: #000; padding: 1.25rem; border-radius: 18px; text-decoration: none; font-weight: 800; transition: all 0.2s; font-size: 1rem; margin-top: auto; }
-        .btn-listen:hover { background: var(--primary); transform: scale(1.02); }
+        .btn-listen { display: flex; align-items: center; justify-content: center; gap: 0.6rem; background: #fff; color: #000; padding: 1rem; border-radius: 14px; text-decoration: none; font-weight: 800; transition: all 0.2s; font-size: 0.95rem; margin-top: auto; }
+        .btn-listen:hover { background: var(--primary); }
 
-        .pagination { display: flex; justify-content: center; gap: 0.75rem; margin-top: 5rem; }
-        .page-btn { background: var(--card); border: 1px solid var(--border); color: var(--secondary); padding: 0.75rem 1.25rem; border-radius: 12px; cursor: pointer; font-weight: 600; }
+        .pagination { display: flex; justify-content: center; gap: 0.5rem; margin-top: 4rem; }
+        .page-btn { background: var(--card); border: 1px solid var(--border); color: var(--secondary); padding: 0.6rem 1rem; border-radius: 10px; cursor: pointer; font-weight: 600; }
         .page-btn:hover:not(:disabled) { border-color: var(--primary); color: #fff; }
         .page-btn.active { background: var(--primary); color: #000; border-color: var(--primary); }
         .page-btn:disabled { opacity: 0.2; cursor: not-allowed; }
 
-        .footer { margin-top: 6rem; text-align: center; color: var(--secondary); font-size: 0.9rem; border-top: 1px solid var(--border); padding-top: 3rem; }
+        .footer { margin-top: 5rem; text-align: center; color: var(--secondary); font-size: 0.85rem; border-top: 1px solid var(--border); padding-top: 2rem; }
         .footer a { color: #fff; text-decoration: none; font-weight: 700; }
         .footer a:hover { color: var(--primary); }
 
-        .empty-state { grid-column: 1/-1; text-align: center; padding: 8rem 2rem; background: var(--card); border-radius: 32px; border: 2px dashed var(--border); color: var(--secondary); }
+        .empty-state { grid-column: 1/-1; text-align: center; padding: 6rem 2rem; background: var(--card); border-radius: 24px; border: 2px dashed var(--border); color: var(--secondary); }
     </style>
 </head>
 <body>
@@ -88,7 +90,7 @@
                 <div class="stat-item"><div class="stat-label">Uptime</div><div class="stat-value val-uptime"></div></div>
             </div>
             <a href="" class="btn-listen">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> TUNE IN NOW
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> TUNE IN NOW
             </a>
         </div>
     </template>
@@ -109,7 +111,7 @@
                 if (currentPage > totalPages && totalPages > 0) currentPage = totalPages;
                 
                 if (allStreams.length === 0) {
-                    container.innerHTML = '<div class="empty-state"><div style="font-size: 4rem; margin-bottom: 2rem;">📡</div><h2>Off the Air</h2><p>No stations are currently broadcasting. Check back later!</p></div>';
+                    container.innerHTML = '<div class="empty-state"><h2>Off the Air</h2><p>No stations are currently broadcasting.</p></div>';
                     paginationEl.innerHTML = '';
                     return;
                 }
