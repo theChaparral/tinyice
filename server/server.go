@@ -102,9 +102,11 @@ func (s *Server) listenWithReuse(network, address string) (net.Listener, error) 
 				if err != nil {
 					return
 				}
-				// SO_REUSEPORT is not available on all systems, but we try it
-				// On Linux/Darwin it allows multiple processes to bind to the same port
-				syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, 0x0f, 1) // 0x0f is SO_REUSEPORT on most systems
+				// SO_REUSEPORT is not available on Windows
+				if runtime.GOOS != "windows" {
+					// 0x0f is SO_REUSEPORT on most Unix systems (Linux/Darwin/FreeBSD)
+					syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, 0x0f, 1)
+				}
 			})
 			if err2 != nil {
 				return err2
