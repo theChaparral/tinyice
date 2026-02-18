@@ -21,6 +21,7 @@ TinyIce is a lightweight, high-performance, and secure Icecast2-compatible strea
 
 Traditional streaming servers can be complex to configure and resource-heavy. TinyIce aims to solve this by providing:
 
+-   **Massive Scalability**: Built with a **Shared Circular Buffer** architecture that allows a single stream to be broadcast to hundreds of thousands of listeners with near-zero memory allocations.
 -   **Instant Deployment**: A single binary with all assets (templates, icons) embedded.
 -   **Zero-Config Security**: Unique secure credentials automatically generated on first run.
 -   **Multi-Tenant Ready**: Create multiple admin users who can only manage their own mount points.
@@ -33,6 +34,7 @@ Traditional streaming servers can be complex to configure and resource-heavy. Ti
 
 ## Features
 
+-   **High-Performance Distribution**: Shared circular buffer architecture designed for 100,000+ concurrent listeners per stream.
 -   **Icecast2 Compatible**: Works with standard source clients (BUTT, OBS, Mixxx, LadioCast) and players (VLC, web browsers).
 -   **Approval Workflow**: New streams are hidden by default until approved by an administrator.
 -   **Stream Relaying**: Act as an edge node by pulling streams from remote servers.
