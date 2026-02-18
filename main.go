@@ -20,13 +20,13 @@ import (
 )
 
 var (
-	configPath = flag.String("config", "tinyice.json", "Path to configuration file")
-	bindHost   = flag.String("host", "0.0.0.0", "Network interface to bind to")
-	logFile    = flag.String("log-file", "", "Path to log file (default is stdout)")
-	logLevel   = flag.String("log-level", "info", "Log level (debug, info, warn, error)")
-	jsonLogs   = flag.Bool("json-logs", false, "Enable JSON logging format")
-	daemon     = flag.Bool("daemon", false, "Run in background (daemon mode)")
-	pidFile    = flag.String("pid-file", "", "Path to PID file")
+	configPath  = flag.String("config", "tinyice.json", "Path to configuration file")
+	bindHost    = flag.String("host", "0.0.0.0", "Network interface to bind to")
+	logFile     = flag.String("log-file", "", "Path to log file (default is stdout)")
+	logLevel    = flag.String("log-level", "info", "Log level (debug, info, warn, error)")
+	jsonLogs    = flag.Bool("json-logs", false, "Enable JSON logging format")
+	daemon      = flag.Bool("daemon", false, "Run in background (daemon mode)")
+	pidFile     = flag.String("pid-file", "", "Path to PID file")
 	authLogFile = flag.String("auth-log-file", "", "Path to separate authentication audit log")
 )
 
@@ -178,7 +178,7 @@ func main() {
 	}
 
 	srv := server.NewServer(cfg, authLogger)
-	
+
 	// Signal handling
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)

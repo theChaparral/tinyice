@@ -117,7 +117,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 
 	// Stop relays immediately to prevent dual-pulling if a new instance starts
 	s.RelayM.StopAll()
-	
+
 	// Force signal all listeners to stop reading
 	s.Relay.DisconnectAllListeners()
 
@@ -182,7 +182,7 @@ func (s *Server) Start() error {
 			IdleTimeout:  120 * time.Second,
 		}
 		s.httpServers = append(s.httpServers, srv)
-		
+
 		ln, err := s.listenWithReuse("tcp", addr)
 		if err != nil {
 			return err
@@ -259,7 +259,7 @@ func (s *Server) startHTTPS(mux *http.ServeMux, addr string) error {
 	if err != nil {
 		return err
 	}
-	
+
 	if certManager != nil {
 		return httpsSrv.ServeTLS(ln, "", "")
 	}
@@ -510,13 +510,13 @@ func (s *Server) handleListener(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	mount := r.URL.Path
-	
+
 	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 	w.Header().Set("Connection", "keep-alive")
 	if s.Config.LowLatencyMode {
 		w.Header().Set("X-Accel-Buffering", "no")
 	}
-	
+
 	flusher, _ := w.(http.Flusher)
 	buf := make([]byte, 16384)
 	id := r.RemoteAddr + "-" + fmt.Sprintf("%d", time.Now().UnixNano())
@@ -541,10 +541,12 @@ func (s *Server) handleListener(w http.ResponseWriter, r *http.Request) {
 		}
 
 		w.Header().Set("Content-Type", stream.ContentType)
-		if flusher != nil { flusher.Flush() }
+		if flusher != nil {
+			flusher.Flush()
+		}
 
 		offset, signal := stream.Subscribe(id)
-		
+
 		runStream := true
 		for runStream {
 			select {
@@ -1233,52 +1235,50 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 				relays[i].Active = true
 			}
 		}
-				var m runtime.MemStats
-				runtime.ReadMemStats(&m)
-				
-				totalDropped := int64(0)
-				for _, st := range allStreams {
-					totalDropped += st.BytesDropped
-				}
-		
-						payload, _ := json.Marshal(map[string]interface{}{
-		
-							"bytes_in":        bi,
-		
-							"bytes_out":       bo,
-		
-							"total_listeners": tl,
-		
-							"total_sources":   len(info),
-		
-							"total_relays":    tr,
-		
-							"total_streamers": ts,
-		
-							"streams":         info,
-		
-							"relays":          relays,
-		
-							"visible_mounts":  s.Config.VisibleMounts,
-		
-							"sys_ram":         m.Sys,
-		
-							"heap_alloc":      m.HeapAlloc,
-		
-							"stack_sys":       m.StackSys,
-		
-							"num_gc":          m.NumGC,
-		
-							"goroutines":      runtime.NumGoroutine(),
-		
-							"total_dropped":   totalDropped,
-		
-							"server_uptime":   time.Since(s.startTime).Round(time.Second).String(),
-		
-						})
-		
-				
-				if _, err := fmt.Fprintf(w, "data: %s\n\n", payload); err != nil {
+		var m runtime.MemStats
+		runtime.ReadMemStats(&m)
+
+		totalDropped := int64(0)
+		for _, st := range allStreams {
+			totalDropped += st.BytesDropped
+		}
+
+		payload, _ := json.Marshal(map[string]interface{}{
+
+			"bytes_in": bi,
+
+			"bytes_out": bo,
+
+			"total_listeners": tl,
+
+			"total_sources": len(info),
+
+			"total_relays": tr,
+
+			"total_streamers": ts,
+
+			"streams": info,
+
+			"relays": relays,
+
+			"visible_mounts": s.Config.VisibleMounts,
+
+			"sys_ram": m.Sys,
+
+			"heap_alloc": m.HeapAlloc,
+
+			"stack_sys": m.StackSys,
+
+			"num_gc": m.NumGC,
+
+			"goroutines": runtime.NumGoroutine(),
+
+			"total_dropped": totalDropped,
+
+			"server_uptime": time.Since(s.startTime).Round(time.Second).String(),
+		})
+
+		if _, err := fmt.Fprintf(w, "data: %s\n\n", payload); err != nil {
 			return err
 		}
 		flusher.Flush()

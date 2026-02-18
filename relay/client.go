@@ -66,8 +66,6 @@ func (rm *RelayManager) StopRelay(mount string) {
 
 	defer rm.mu.Unlock()
 
-
-
 	if inst, ok := rm.instances[mount]; ok {
 
 		inst.Stop()
@@ -78,15 +76,11 @@ func (rm *RelayManager) StopRelay(mount string) {
 
 }
 
-
-
 func (rm *RelayManager) StopAll() {
 
 	rm.mu.Lock()
 
 	defer rm.mu.Unlock()
-
-
 
 	for mount, inst := range rm.instances {
 
@@ -97,8 +91,6 @@ func (rm *RelayManager) StopAll() {
 	}
 
 }
-
-
 
 func (inst *RelayInstance) Stop() {
 	inst.mu.Lock()

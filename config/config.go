@@ -42,19 +42,18 @@ type Config struct {
 	Relays         []*RelayConfig            `json:"relays"`
 	BannedIPs      []string                  `json:"banned_ips"`
 
-	AdminPassword  string          `json:"admin_password"`
-	AdminUser      string          `json:"admin_user"`
-	Location       string          `json:"location"`
-	AdminEmail     string          `json:"admin_email"`
-	BaseURL        string          `json:"base_url"` // e.g. https://radio.example.com
-	HostName       string          `json:"hostname"`
-	ConfigPath     string          `json:"-"`
-	LowLatencyMode bool            `json:"low_latency_mode"`
-	MaxListeners   int             `json:"max_listeners"`
-	DisabledMounts map[string]bool `json:"disabled_mounts"`
-		VisibleMounts         map[string]bool   `json:"visible_mounts"`  // map[mount]is_visible
-		FallbackMounts        map[string]string `json:"fallback_mounts"` // map[source]fallback
-	
+	AdminPassword  string            `json:"admin_password"`
+	AdminUser      string            `json:"admin_user"`
+	Location       string            `json:"location"`
+	AdminEmail     string            `json:"admin_email"`
+	BaseURL        string            `json:"base_url"` // e.g. https://radio.example.com
+	HostName       string            `json:"hostname"`
+	ConfigPath     string            `json:"-"`
+	LowLatencyMode bool              `json:"low_latency_mode"`
+	MaxListeners   int               `json:"max_listeners"`
+	DisabledMounts map[string]bool   `json:"disabled_mounts"`
+	VisibleMounts  map[string]bool   `json:"visible_mounts"`  // map[mount]is_visible
+	FallbackMounts map[string]string `json:"fallback_mounts"` // map[source]fallback
 
 	// UI Customization
 	PageTitle    string `json:"page_title"`
@@ -127,10 +126,16 @@ func (config *Config) setDefaults() {
 	if config.DisabledMounts == nil {
 		config.DisabledMounts = make(map[string]bool)
 	}
-		if config.VisibleMounts == nil { config.VisibleMounts = make(map[string]bool) }
-		if config.FallbackMounts == nil { config.FallbackMounts = make(map[string]string) }
-		if config.Users == nil { config.Users = make(map[string]*User) }
-	
+	if config.VisibleMounts == nil {
+		config.VisibleMounts = make(map[string]bool)
+	}
+	if config.FallbackMounts == nil {
+		config.FallbackMounts = make(map[string]string)
+	}
+	if config.Users == nil {
+		config.Users = make(map[string]*User)
+	}
+
 	if config.AdvancedMounts == nil {
 		config.AdvancedMounts = make(map[string]*MountSettings)
 	}

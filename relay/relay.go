@@ -69,22 +69,22 @@ func (cb *CircularBuffer) ReadAt(start int64, p []byte) (int, int64, bool) {
 
 // Stream represents a single mount point (e.g., /stream)
 type Stream struct {
-	MountName   string
-	ContentType string
-	Description string
-	Genre       string
-	URL         string
-	Name        string
-	Bitrate     string
-	Started     time.Time
-	SourceIP    string
-	Enabled     bool
-	BytesIn     int64
-	BytesOut    int64
+	MountName    string
+	ContentType  string
+	Description  string
+	Genre        string
+	URL          string
+	Name         string
+	Bitrate      string
+	Started      time.Time
+	SourceIP     string
+	Enabled      bool
+	BytesIn      int64
+	BytesOut     int64
 	BytesDropped int64 // Track total bytes dropped due to slow listeners
-	CurrentSong string
-	Public      bool
-	Visible     bool
+	CurrentSong  string
+	Public       bool
+	Visible      bool
 
 	Buffer    *CircularBuffer
 	listeners map[string]chan struct{} // Signal channel for new data

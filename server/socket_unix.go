@@ -1,11 +1,12 @@
 // consume: build linux darwin freebsd
+//go:build linux || darwin || freebsd
 // +build linux darwin freebsd
 
 package server
 
 import (
-	"syscall"
 	"golang.org/x/sys/unix"
+	"syscall"
 )
 
 func setReusePort(fd uintptr) error {
