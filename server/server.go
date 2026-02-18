@@ -509,7 +509,8 @@ func (s *Server) handleListener(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
-	mount := r.URL.Path
+	originalMount := r.URL.Path
+	mount := originalMount
 
 	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 	w.Header().Set("Connection", "keep-alive")
@@ -521,7 +522,19 @@ func (s *Server) handleListener(w http.ResponseWriter, r *http.Request) {
 	buf := make([]byte, 16384)
 	id := r.RemoteAddr + "-" + fmt.Sprintf("%d", time.Now().UnixNano())
 
+	// Recovery ticker: check if primary is back every 10s if we are on fallback
+	recoveryTicker := time.NewTicker(10 * time.Second)
+	defer recoveryTicker.Stop()
+
 	for {
+		// If we are currently on a fallback, check if original mount is back
+		if mount != originalMount {
+			if _, ok := s.Relay.GetStream(originalMount); ok {
+				logrus.WithField("mount", originalMount).Info("Primary stream returned, recovering from fallback")
+				mount = originalMount
+			}
+		}
+
 		stream, ok := s.Relay.GetStream(mount)
 		if !ok {
 			// Check if we have a fallback
@@ -531,6 +544,13 @@ func (s *Server) handleListener(w http.ResponseWriter, r *http.Request) {
 				mount = fallback
 				continue
 			}
+			// If even the fallback is not found, and we are not on original, try original again
+			if mount != originalMount {
+				mount = originalMount
+				time.Sleep(1 * time.Second)
+				continue
+			}
+
 			http.NotFound(w, r)
 			return
 		}
@@ -553,6 +573,13 @@ func (s *Server) handleListener(w http.ResponseWriter, r *http.Request) {
 			case <-r.Context().Done():
 				stream.Unsubscribe(id)
 				return
+			case <-recoveryTicker.C:
+				// If we are on fallback, check if primary came back
+				if mount != originalMount {
+					if _, ok := s.Relay.GetStream(originalMount); ok {
+						runStream = false // Break to switch back to primary
+					}
+				}
 			case _, ok := <-signal:
 				if !ok {
 					// Stream closed/source disconnected
