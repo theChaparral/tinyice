@@ -1195,17 +1195,18 @@ func (s *Server) reportToDirectory(st relay.StreamStats) {
 }
 
 type streamEventInfo struct {
-	Mount        string `json:"mount"`
-	Name         string `json:"name"`
-	Listeners    int    `json:"listeners"`
-	Bitrate      string `json:"bitrate"`
-	Uptime       string `json:"uptime"`
-	ContentType  string `json:"type"`
-	SourceIP     string `json:"ip"`
-	BytesIn      int64  `json:"bytes_in"`
-	BytesOut     int64  `json:"bytes_out"`
-	BytesDropped int64  `json:"bytes_dropped"`
-	CurrentSong  string `json:"song"`
+	Mount        string  `json:"mount"`
+	Name         string  `json:"name"`
+	Listeners    int     `json:"listeners"`
+	Bitrate      string  `json:"bitrate"`
+	Uptime       string  `json:"uptime"`
+	ContentType  string  `json:"type"`
+	SourceIP     string  `json:"ip"`
+	BytesIn      int64   `json:"bytes_in"`
+	BytesOut     int64   `json:"bytes_out"`
+	BytesDropped int64   `json:"bytes_dropped"`
+	CurrentSong  string  `json:"song"`
+	Health       float64 `json:"health"`
 }
 
 type relayEventInfo struct {
@@ -1229,7 +1230,7 @@ func (s *Server) collectStatsPayload(user *config.User) ([]byte, error) {
 				Mount: st.MountName, Name: st.Name, Listeners: lc, Bitrate: st.Bitrate,
 				Uptime: st.Uptime, ContentType: st.ContentType, SourceIP: st.SourceIP,
 				BytesIn: st.BytesIn, BytesOut: st.BytesOut, BytesDropped: st.BytesDropped,
-				CurrentSong: st.CurrentSong,
+				CurrentSong: st.CurrentSong, Health: st.Health,
 			})
 			if st.SourceIP == "relay-pull" {
 				tr++
