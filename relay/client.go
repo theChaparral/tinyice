@@ -126,9 +126,6 @@ func (rm *RelayManager) performPull(ctx context.Context, inst *RelayInstance) {
 	logrus.WithField("mount", inst.Mount).Info("Relay stream connected and pulling")
 
 	stream := rm.relay.GetOrCreateStream(inst.Mount)
-	if inst.BurstSize > 0 {
-		stream.SetBurstSize(inst.BurstSize)
-	}
 	stream.SourceIP = "relay-pull"
 
 	// Metadata

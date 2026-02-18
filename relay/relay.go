@@ -8,6 +8,63 @@ import (
 	"time"
 )
 
+// CircularBuffer is a thread-safe fixed-size ring buffer for stream data
+type CircularBuffer struct {
+	Data []byte
+	Size int64
+	Head int64 // Current write position (absolute)
+	mu   sync.RWMutex
+}
+
+func NewCircularBuffer(size int) *CircularBuffer {
+	return &CircularBuffer{
+		Data: make([]byte, size),
+		Size: int64(size),
+	}
+}
+
+func (cb *CircularBuffer) Write(p []byte) {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+
+	for len(p) > 0 {
+		pos := cb.Head % cb.Size
+		n := copy(cb.Data[pos:], p)
+		cb.Head += int64(n)
+		p = p[n:]
+	}
+}
+
+// ReadAt reads data from the buffer starting at the absolute offset 'start'
+func (cb *CircularBuffer) ReadAt(start int64, p []byte) (int, int64) {
+	cb.mu.RLock()
+	defer cb.mu.RUnlock()
+
+	if start >= cb.Head {
+		return 0, start
+	}
+
+	// Don't read more than we have or what's available in the buffer
+	if cb.Head-start > cb.Size {
+		start = cb.Head - cb.Size // Listener is too slow, skip to oldest available
+	}
+
+	pos := start % cb.Size
+	available := cb.Head - start
+	n := int64(len(p))
+	if n > available {
+		n = available
+	}
+
+	// Handle wrap-around
+	if pos+n > cb.Size {
+		n = cb.Size - pos
+	}
+
+	actual := copy(p, cb.Data[pos:pos+n])
+	return actual, start + int64(actual)
+}
+
 // Stream represents a single mount point (e.g., /stream)
 type Stream struct {
 	MountName   string
@@ -26,42 +83,27 @@ type Stream struct {
 	Public      bool
 	Visible     bool
 
-	listeners map[string]chan []byte // Map of listener ID to their data channel
+	Buffer    *CircularBuffer
+	listeners map[string]chan struct{} // Signal channel for new data
 	mu        sync.RWMutex
-
-	// Burst buffer (simple ring buffer or just a slice of recent chunks)
-	// We'll store the last N chunks for simplicity to start with.
-	burstBuffer [][]byte
-	burstSize   int
 }
 
 // Relay manages all active streams
-
 type Relay struct {
-	Streams map[string]*Stream
-
-	mu sync.RWMutex
-
+	Streams    map[string]*Stream
+	mu         sync.RWMutex
 	LowLatency bool
-
-	BytesIn int64
-
-	BytesOut int64
-
-	History *HistoryManager
+	BytesIn    int64
+	BytesOut   int64
+	History    *HistoryManager
 }
 
 func NewRelay(lowLatency bool, history *HistoryManager) *Relay {
-
 	return &Relay{
-
-		Streams: make(map[string]*Stream),
-
+		Streams:    make(map[string]*Stream),
 		LowLatency: lowLatency,
-
-		History: history,
+		History:    history,
 	}
-
 }
 
 // GetOrCreateStream returns an existing stream or creates a new one
@@ -73,16 +115,10 @@ func (r *Relay) GetOrCreateStream(mount string) *Stream {
 		return s
 	}
 
-	burstSize := 20
-	if r.LowLatency {
-		burstSize = 0 // Disable burst for lowest latency
-	}
-
 	s := &Stream{
 		MountName:   mount,
-		listeners:   make(map[string]chan []byte),
-		burstBuffer: make([][]byte, 0, 10),
-		burstSize:   burstSize,
+		listeners:   make(map[string]chan struct{}),
+		Buffer:      NewCircularBuffer(512 * 1024), // 512KB shared buffer per stream
 		Started:     time.Now(),
 		Name:        "Unnamed Stream",
 		Description: "No description",
@@ -144,7 +180,7 @@ func (r *Relay) DisconnectAllListeners() {
 	}
 }
 
-// Broadcast sends data to all listeners and updates the burst buffer
+// Broadcast sends data to all listeners via the shared circular buffer
 func (s *Stream) Broadcast(data []byte, relay *Relay) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -153,28 +189,15 @@ func (s *Stream) Broadcast(data []byte, relay *Relay) {
 	atomic.AddInt64(&relay.BytesIn, int64(len(data)))
 	atomic.AddInt64(&s.BytesIn, int64(len(data)))
 
-	// 1. Update Burst Buffer (if enabled)
-	// Make a copy of data to avoid race conditions if the source reuses the buffer
-	chunk := make([]byte, len(data))
-	copy(chunk, data)
+	// 1. Write to shared buffer
+	s.Buffer.Write(data)
 
-	if s.burstSize > 0 {
-		if len(s.burstBuffer) >= s.burstSize {
-			// Remove oldest
-			s.burstBuffer = s.burstBuffer[1:]
-		}
-		s.burstBuffer = append(s.burstBuffer, chunk)
-	}
-
-	// 2. Send to listeners
+	// 2. Signal all listeners that new data is available
 	for _, ch := range s.listeners {
 		select {
-		case ch <- chunk:
-			// Success
-			atomic.AddInt64(&relay.BytesOut, int64(len(chunk)))
-			atomic.AddInt64(&s.BytesOut, int64(len(chunk)))
+		case ch <- struct{}{}:
 		default:
-			// Listener is too slow
+			// Listener is already signaled or slow, skip
 		}
 	}
 }
@@ -184,22 +207,18 @@ func (r *Relay) GetMetrics() (int64, int64) {
 	return atomic.LoadInt64(&r.BytesIn), atomic.LoadInt64(&r.BytesOut)
 }
 
-// Subscribe adds a listener and returns a channel that receives data
-// It also returns the burst data to send immediately.
-func (s *Stream) Subscribe(id string) (<-chan []byte, [][]byte) {
+// Subscribe adds a listener and returns its starting offset and a signal channel
+func (s *Stream) Subscribe(id string) (int64, chan struct{}) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Buffer channel to avoid immediate blocking
-	ch := make(chan []byte, 100)
+	ch := make(chan struct{}, 1)
 	s.listeners[id] = ch
 
-	// Return current burst buffer to send immediately
-	// We return a copy of the slice header, but the underlying arrays are immutable (we copied them in Broadcast)
-	currentBurst := make([][]byte, len(s.burstBuffer))
-	copy(currentBurst, s.burstBuffer)
-
-	return ch, currentBurst
+	// Start at current head (absolute offset)
+	// We could also start at (Head - N) if we wanted to give a "burst" from the buffer
+	start := s.Buffer.Head
+	return start, ch
 }
 
 // Unsubscribe removes a listener
@@ -255,13 +274,6 @@ func (s *Stream) SetVisible(visible bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.Visible = visible
-}
-
-// SetBurstSize updates the burst buffer size thread-safely
-func (s *Stream) SetBurstSize(size int) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.burstSize = size
 }
 
 // ListenersCount returns the number of active listeners

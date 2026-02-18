@@ -12,26 +12,20 @@ Welcome to the TinyIce codebase! This document provides an architectural overvie
 
 ## Core Architecture
 
-TinyIce is built around a central **Pub/Sub** engine located in the `relay/` package. Unlike traditional Icecast servers that use complex buffer management, TinyIce uses Go's native channels to broadcast binary stream data to thousands of listeners with minimal overhead.
+TinyIce is built around a central **Pub/Sub** engine located in the `relay/` package. Unlike traditional servers that use individual channels per listener, TinyIce utilizes a **Shared Circular Buffer** architecture. 
 
 ### Codebase Map
-
-- `main.go`: Entry point. Handles CLI flag parsing, daemonization, and signal handling.
-- `config/`: Configuration management. Handles JSON serialization, unique credential generation on first run, and multi-tenant user roles.
+...
 - `relay/`:
-    - `relay.go`: The heart of the server. Manages `Stream` objects, subscriber channels, and burst buffering.
-    - `client.go`: The "Pull Relay" logic. Implements an ICY client that connects to remote servers, parses in-stream metadata, and feeds data back into the local relay.
-    - `history.go`: SQLite-backed playback history manager.
-- `server/`:
-    - `server.go`: HTTP/HTTPS handlers. Implements the Icecast `SOURCE` protocol (hijacking connections), listener logic, and the Admin API.
-    - `templates/`: Embedded HTML/CSS assets.
+    - `relay.go`: The heart of the server. Manages `Stream` objects and the `CircularBuffer`.
+...
 
 ## The Streaming Flow
 
 1.  **Source Connection**: A streamer (BUTT, OBS) sends a `SOURCE` or `PUT` request.
 2.  **Hijacking**: The server hijacks the TCP connection (`http.Hijacker`) to provide a raw, low-latency pipe for binary data.
-3.  **Broadcasting**: Data chunks are read from the source and pushed into a `Broadcast` method. This method iterates over all active listener channels and sends the chunk.
-4.  **Burst Buffer**: TinyIce maintains a small ring-buffer of recent data. When a new listener connects, they receive this "burst" immediately to fill their player's buffer and start playback instantly.
+3.  **Broadcasting**: Data chunks are written to a stream-specific `CircularBuffer`.
+4.  **Zero-Allocation Distribution**: Listeners subscribe by maintaining an offset into the shared buffer. A signal channel triggers a read loop that pumps data directly from the shared memory to the network socket. This significantly reduces memory allocations and garbage collection pressure under high load.
 
 ## Key Technical Decisions
 

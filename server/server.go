@@ -8,8 +8,10 @@ import (
 	"io/fs"
 	"net/http"
 	"net/url"
+	"runtime"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/DatanoiseTV/tinyice/config"
@@ -399,31 +401,43 @@ func (s *Server) handleListener(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.RemoteAddr + "-" + fmt.Sprintf("%d", time.Now().UnixNano())
-	ch, burst := stream.Subscribe(id)
+	offset, signal := stream.Subscribe(id)
 	defer stream.Unsubscribe(id)
+
 	w.Header().Set("Content-Type", stream.ContentType)
 	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 	w.Header().Set("Connection", "keep-alive")
 	if s.Config.LowLatencyMode {
 		w.Header().Set("X-Accel-Buffering", "no")
 	}
-	if f, ok := w.(http.Flusher); ok {
-		f.Flush()
+	
+	flusher, _ := w.(http.Flusher)
+	if flusher != nil {
+		flusher.Flush()
 	}
-	for _, chunk := range burst {
-		if _, err := w.Write(chunk); err != nil {
+
+	buf := make([]byte, 16384)
+	for {
+		select {
+		case <-r.Context().Done():
 			return
-		}
-	}
-	if f, ok := w.(http.Flusher); ok {
-		f.Flush()
-	}
-	for chunk := range ch {
-		if _, err := w.Write(chunk); err != nil {
-			return
-		}
-		if f, ok := w.(http.Flusher); ok {
-			f.Flush()
+		case <-signal:
+			// Read all available data from the buffer
+			for {
+				n, next := stream.Buffer.ReadAt(offset, buf)
+				if n == 0 {
+					break
+				}
+				offset = next
+				if _, err := w.Write(buf[:n]); err != nil {
+					return
+				}
+				atomic.AddInt64(&s.Relay.BytesOut, int64(n))
+				atomic.AddInt64(&stream.BytesOut, int64(n))
+			}
+			if flusher != nil {
+				flusher.Flush()
+			}
 		}
 	}
 }
@@ -1016,11 +1030,23 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 				relays[i].Active = true
 			}
 		}
-		payload, _ := json.Marshal(map[string]interface{}{
-			"bytes_in": bi, "bytes_out": bo, "total_listeners": tl, "total_sources": len(info),
-			"total_relays": tr, "total_streamers": ts, "streams": info, "relays": relays,
-			"visible_mounts": s.Config.VisibleMounts,
-		})
+				var m runtime.MemStats
+				runtime.ReadMemStats(&m)
+				
+				payload, _ := json.Marshal(map[string]interface{}{
+					"bytes_in":        bi,
+					"bytes_out":       bo,
+					"total_listeners": tl,
+					"total_sources":   len(info),
+					"total_relays":    tr,
+					"total_streamers": ts,
+					"streams":         info,
+					"relays":          relays,
+					"visible_mounts":  s.Config.VisibleMounts,
+					"sys_ram":         m.Sys / 1024 / 1024,
+					"goroutines":      runtime.NumGoroutine(),
+				})
+		
 		fmt.Fprintf(w, "data: %s\n\n", payload)
 		flusher.Flush()
 	}
