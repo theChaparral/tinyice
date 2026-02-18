@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TinyIce Admin</title>
-    <link href="https://cdn.lineicons.com/lineicons.css" rel="stylesheet">
+    <link href="https://cdn.lineicons.com/4.0/lineicons.css" rel="stylesheet">
     <style>
         :root {
             --bg: #0b0f1a; --surface: #161b2c; --surface-hover: #1e253a;
@@ -68,7 +68,7 @@
             </a>
             <div id="sidebar-nav">
                 <button class="nav-link active" onclick="showTab('tab-overview')"><i class="lni lni-dashboard"></i> Dashboard</button>
-                <button class="nav-link" onclick="showTab('tab-stations')"><i class="lni lnis-tower-broadcast-1"></i> Your Stations</button>
+                <button class="nav-link" onclick="showTab('tab-stations')"><i class="lni lni-radio"></i> Your Stations</button>
                 <button class="nav-link" onclick="showTab('tab-history')"><i class="lni lni-empty-file"></i> Play History</button>
                 {{if eq .User.Role "superadmin"}}
                 <button class="nav-link" onclick="showTab('tab-users')"><i class="lni lni-users"></i> User Management</button>
