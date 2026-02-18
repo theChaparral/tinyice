@@ -125,6 +125,15 @@ To use TinyIce with a custom ACME CA (like Step-CA or Smallstep) in a homelab en
 -   `-daemon`: Run in the background.
 -   `-pid-file`: Path to write the process ID.
 
+## Common Use Cases
+
+TinyIce is built to handle everything from a single home stream to large-scale distribution. Here is where it fits best:
+
+*   **Global Edge Distribution**: Use TinyIce as a lightweight "edge" node to offload bandwidth from your main studio. It can handle thousands of listeners on a tiny VPS with near-zero overhead.
+*   **Multi-DJ Community Radio**: Host multiple independent stations on one server. Give every DJ their own login and mount point so they can manage their own stats and history without seeing anyone else's data.
+*   **Private Home Streaming**: The single-binary setup makes it a breeze to run on a Raspberry Pi or a home server. Stream your local music collection to your phone or smart speakers securely using the built-in HTTPS support.
+*   **Custom Audio Apps**: If you're building a modern web player or a mobile app, TinyIce's real-time SSE metadata and JSON API mean your "Now Playing" widgets update instantly without any heavy polling.
+
 ## Performance
 
 See [PERFORMANCE.md](PERFORMANCE.md) for detailed hardware and traffic estimates.
