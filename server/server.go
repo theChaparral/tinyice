@@ -38,9 +38,10 @@ type Server struct {
 	tmpl        *template.Template
 	httpServers []*http.Server
 	startTime   time.Time
+	AuthLog     *logrus.Logger
 }
 
-func NewServer(cfg *config.Config) *Server {
+func NewServer(cfg *config.Config, authLog *logrus.Logger) *Server {
 	tmpl := template.New("base")
 	tmpl, err := tmpl.ParseFS(templateFS, "templates/*.html")
 	if err != nil {
@@ -59,6 +60,7 @@ func NewServer(cfg *config.Config) *Server {
 		RelayM:    relay.NewRelayManager(r),
 		tmpl:      tmpl,
 		startTime: time.Now(),
+		AuthLog:   authLog,
 	}
 }
 
@@ -261,6 +263,13 @@ func (s *Server) startHTTPS(mux *http.ServeMux, addr string) error {
 	return httpsSrv.ServeTLS(ln, s.Config.CertFile, s.Config.KeyFile)
 }
 
+func (s *Server) logAuth() *logrus.Entry {
+	if s.AuthLog != nil {
+		return s.AuthLog.WithField("subsystem", "auth")
+	}
+	return logrus.WithField("subsystem", "auth")
+}
+
 func (s *Server) checkAuth(r *http.Request) (*config.User, bool) {
 	u, p, ok := r.BasicAuth()
 	if !ok {
@@ -268,14 +277,14 @@ func (s *Server) checkAuth(r *http.Request) (*config.User, bool) {
 	}
 	user, exists := s.Config.Users[u]
 	if !exists {
-		logrus.WithFields(logrus.Fields{"user": u, "ip": r.RemoteAddr}).Warn("Admin auth failed: user not found")
+		s.logAuth().WithFields(logrus.Fields{"user": u, "ip": r.RemoteAddr}).Warn("Admin auth failed: user not found")
 		return nil, false
 	}
 	if !config.CheckPasswordHash(p, user.Password) {
-		logrus.WithFields(logrus.Fields{"user": u, "ip": r.RemoteAddr}).Warn("Admin auth failed: invalid password")
+		s.logAuth().WithFields(logrus.Fields{"user": u, "ip": r.RemoteAddr}).Warn("Admin auth failed: invalid password")
 		return nil, false
 	}
-	logrus.WithFields(logrus.Fields{"user": u, "ip": r.RemoteAddr}).Info("Admin auth successful")
+	s.logAuth().WithFields(logrus.Fields{"user": u, "ip": r.RemoteAddr}).Info("Admin auth successful")
 	return user, true
 }
 
@@ -430,13 +439,13 @@ func (s *Server) handleSource(w http.ResponseWriter, r *http.Request) {
 
 	_, p, ok := r.BasicAuth()
 	if !ok || !config.CheckPasswordHash(p, requiredPass) {
-		logrus.WithFields(logrus.Fields{"mount": mount, "ip": r.RemoteAddr}).Warn("Source auth failed")
+		s.logAuth().WithFields(logrus.Fields{"mount": mount, "ip": r.RemoteAddr}).Warn("Source auth failed")
 		w.Header().Set("WWW-Authenticate", `Basic realm="Icecast"`)
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
-	logrus.WithFields(logrus.Fields{"mount": mount, "ip": r.RemoteAddr}).Info("Source auth successful")
+	s.logAuth().WithFields(logrus.Fields{"mount": mount, "ip": r.RemoteAddr}).Info("Source auth successful")
 
 	hj, ok := w.(http.Hijacker)
 	if !ok {

@@ -119,6 +119,7 @@ To use TinyIce with a custom ACME CA (like Step-CA or Smallstep) in a homelab en
 -   `-host`: Network interface to bind to (default: "0.0.0.0").
 -   `-config`: Path to the configuration file.
 -   `-log-file`: Path to a file for log output.
+-   `-auth-log-file`: Path to a separate file for authentication audit logs.
 -   `-log-level`: `debug`, `info`, `warn`, `error`.
 -   `-json-logs`: Enable structured JSON logging.
 -   `-daemon`: Run in the background.

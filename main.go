@@ -27,6 +27,7 @@ var (
 	jsonLogs   = flag.Bool("json-logs", false, "Enable JSON logging format")
 	daemon     = flag.Bool("daemon", false, "Run in background (daemon mode)")
 	pidFile    = flag.String("pid-file", "", "Path to PID file")
+	authLogFile = flag.String("auth-log-file", "", "Path to separate authentication audit log")
 )
 
 func generateRandomString(n int) string {
@@ -37,7 +38,7 @@ func generateRandomString(n int) string {
 	return hex.EncodeToString(b)
 }
 
-func initLogging() {
+func initLogging() *logrus.Logger {
 	// Set Level
 	level, err := logrus.ParseLevel(strings.ToLower(*logLevel))
 	if err != nil {
@@ -47,13 +48,15 @@ func initLogging() {
 	logrus.SetLevel(level)
 
 	// Set Format
+	var formatter logrus.Formatter
 	if *jsonLogs {
-		logrus.SetFormatter(&logrus.JSONFormatter{})
+		formatter = &logrus.JSONFormatter{}
 	} else {
-		logrus.SetFormatter(&logrus.TextFormatter{
+		formatter = &logrus.TextFormatter{
 			FullTimestamp: true,
-		})
+		}
 	}
+	logrus.SetFormatter(formatter)
 
 	// Set Output
 	if *logFile != "" {
@@ -61,13 +64,25 @@ func initLogging() {
 		if err != nil {
 			logrus.Fatalf("Failed to open log file %s: %v", *logFile, err)
 		}
-		// MultiWriter to log to both file and stdout if needed,
-		// but standard practice for "background" is just file.
-		// Let's stick to the file if provided.
 		logrus.SetOutput(f)
 	} else {
 		logrus.SetOutput(os.Stdout)
 	}
+
+	// Create Auth Logger if needed
+	if *authLogFile != "" {
+		authLogger := logrus.New()
+		authLogger.SetLevel(level)
+		authLogger.SetFormatter(formatter)
+		f, err := os.OpenFile(*authLogFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			logrus.Fatalf("Failed to open auth log file %s: %v", *authLogFile, err)
+		}
+		authLogger.SetOutput(f)
+		return authLogger
+	}
+
+	return nil
 }
 
 func main() {
@@ -77,7 +92,7 @@ func main() {
 	}
 	flag.Parse()
 
-	initLogging()
+	authLogger := initLogging()
 
 	if *daemon && os.Getenv("TINYICE_DAEMON") != "1" {
 		args := []string{}
@@ -162,7 +177,7 @@ func main() {
 		logrus.Fatalf("Failed to load config: %v", err)
 	}
 
-	srv := server.NewServer(cfg)
+	srv := server.NewServer(cfg, authLogger)
 	
 	// Signal handling
 	sigs := make(chan os.Signal, 1)
