@@ -1,6 +1,6 @@
 # TinyIce ❄️
 
-**Run it, and you've got a production-ready Icecast server in seconds.**
+**Run it, and you've got a ready Icecast server in seconds.**
 
 TinyIce is a lightweight, high-performance, and secure Icecast2-compatible streaming server written in Go. It is designed to be self-contained, easy to deploy, and provides a modern web interface for both administrators and listeners.
 
@@ -17,7 +17,7 @@ Traditional streaming servers can be complex to configure and resource-heavy. Ti
 -   **Instant Deployment**: A single binary with all assets (templates, icons) embedded.
 -   **Zero-Config Security**: Unique secure credentials automatically generated on first run.
 -   **Multi-Tenant Ready**: Create multiple admin users who can only manage their own mount points.
--   **Production-Grade**: Salted **bcrypt** password hashing, CSRF protection, and HTTP resource hardening.
+-   **Secure & Hardened**: Salted **bcrypt** password hashing, CSRF protection, and HTTP resource hardening.
 -   **Auto-HTTPS**: Built-in support for **ACME (Let's Encrypt)** for zero-configuration SSL certificates.
 -   **Real-time Insights**: SSE-powered dashboards with smooth, hardware-accelerated traffic charts.
 

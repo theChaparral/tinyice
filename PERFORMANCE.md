@@ -30,7 +30,7 @@ Values below assume a standard **128 kbps MP3/AAC stream**.
 *   **Network**: 1 Gbps - 2 Gbps burst
 *   **Estimated Max Listeners**: 2,000 - 3,000
 *   **Estimated Max Sources**: 50+
-*   **Note**: The most common production setup. Performance is highly stable.
+*   **Note**: The most common real-world setup. Performance is highly stable.
 
 ### 3. Mid-Range Dedicated Server
 *   **CPU**: 4 - 8 Cores (Modern Intel/AMD)
