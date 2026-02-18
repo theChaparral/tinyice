@@ -6,116 +6,46 @@
     <title>TinyIce Streams</title>
     <style>
         :root {
-            --bg: #0b0f1a;
-            --surface: #161b2c;
-            --primary: #38bdf8;
-            --primary-glow: rgba(56, 189, 248, 0.15);
-            --text: #f1f5f9;
-            --text-dim: #94a3b8;
-            --border: #2d3748;
-            --success: #10b981;
-            --warning: #f59e0b;
+            --bg: #0b0f1a; --surface: #161b2c; --primary: #38bdf8;
+            --text: #f1f5f9; --text-dim: #94a3b8; --border: #2d3748;
+            --success: #10b981; --warning: #f59e0b;
         }
-        body {
-            font-family: 'Inter', system-ui, -apple-system, sans-serif;
-            background: var(--bg);
-            color: var(--text);
-            margin: 0;
-            padding: 0;
-            line-height: 1.5;
-            display: flex;
-            justify-content: center;
-        }
-        .container {
-            width: 100%;
-            max-width: 1100px;
-            padding: 4rem 2rem;
-        }
-        header {
-            margin-bottom: 4rem;
-            text-align: center;
-        }
-        .logo {
-            font-size: 2.5rem;
-            font-weight: 800;
-            color: var(--primary);
-            margin-bottom: 0.5rem;
-        }
+        body { font-family: 'Inter', system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 0; line-height: 1.5; display: flex; justify-content: center; }
+        .container { width: 100%; max-width: 1100px; padding: 4rem 2rem; }
+        header { margin-bottom: 4rem; text-align: center; }
+        .logo { font-size: 2.5rem; font-weight: 800; color: var(--primary); margin-bottom: 0.5rem; }
+        .streams-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 2rem; }
         
-        .streams-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-            gap: 2rem;
+        .card { 
+            background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 2rem; 
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.3s; 
+            position: relative; overflow: hidden; height: 420px; display: flex; flex-direction: column; 
         }
-        .card {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: 16px;
-            padding: 2rem;
-            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.3s;
-            position: relative;
-            overflow: hidden;
-        }
-        .card:hover {
-            transform: translateY(-4px);
-            border-color: var(--primary);
-        }
-        .live-indicator {
-            position: absolute;
-            top: 1.5rem;
-            right: 1.5rem;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            background: rgba(16, 185, 129, 0.1);
-            padding: 0.25rem 0.75rem;
-            border-radius: 100px;
-            font-size: 0.75rem;
-            font-weight: 700;
-            color: var(--success);
-            border: 1px solid rgba(16, 185, 129, 0.2);
-        }
-        .live-dot {
-            width: 6px; height: 6px; background: var(--success); border-radius: 50%; animation: pulse 2s infinite;
-        }
+        .card:hover { transform: translateY(-4px); border-color: var(--primary); }
+        .live-indicator { position: absolute; top: 1.5rem; right: 1.5rem; display: flex; align-items: center; gap: 0.5rem; background: rgba(16, 185, 129, 0.1); padding: 0.25rem 0.75rem; border-radius: 100px; font-size: 0.75rem; font-weight: 700; color: var(--success); border: 1px solid rgba(16, 185, 129, 0.2); }
+        .live-dot { width: 6px; height: 6px; background: var(--success); border-radius: 50%; animation: pulse 2s infinite; }
         @keyframes pulse { 0% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.5); opacity: 0.5; } 100% { transform: scale(1); opacity: 1; } }
 
-        .stream-name { font-size: 1.5rem; font-weight: 700; margin-bottom: 0.5rem; padding-right: 4rem; }
-        .now-playing { 
-            background: rgba(245, 158, 11, 0.1); 
-            border: 1px solid rgba(245, 158, 11, 0.2);
-            color: var(--warning);
-            padding: 0.75rem;
-            border-radius: 10px;
-            margin-bottom: 1.5rem;
-            font-size: 0.9rem;
-            font-weight: 600;
-            display: flex;
-            flex-direction: column;
-            gap: 0.2rem;
-        }
-        .now-playing label { font-size: 0.65rem; text-transform: uppercase; color: var(--text-dim); opacity: 0.8; }
-        .now-playing span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .stream-name { font-size: 1.5rem; font-weight: 700; margin-bottom: 0.5rem; padding-right: 4rem; height: 2.4rem; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; }
+        .now-playing { background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.2); color: var(--warning); padding: 0.75rem; border-radius: 10px; margin-bottom: 1.5rem; font-size: 0.9rem; font-weight: 600; min-height: 54px; }
+        .now-playing label { font-size: 0.65rem; text-transform: uppercase; color: var(--text-dim); opacity: 0.8; display: block; }
+        .now-playing span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         
-        .meta-list {
-            display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 2rem;
-        }
-        .meta-item { background: rgba(0,0,0,0.2); padding: 0.75rem; border-radius: 10px; height: 50px; display: flex; flex-direction: column; justify-content: center; }
+        .meta-list { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 2rem; flex-grow: 1; }
+        .meta-item { background: rgba(0,0,0,0.2); padding: 0.75rem; border-radius: 10px; display: flex; flex-direction: column; justify-content: center; height: 50px; }
         .meta-label { font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase; margin-bottom: 0.2rem; }
         .meta-value { font-weight: 600; font-size: 0.9rem; color: var(--primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-        .btn-play {
-            display: flex; align-items: center; justify-content: center; gap: 0.75rem;
-            background: var(--primary); color: var(--bg); padding: 1rem; border-radius: 12px;
-            text-decoration: none; font-weight: 700; transition: transform 0.2s;
-        }
-        .btn-play:hover { transform: scale(1.02); opacity: 0.9; }
-
-        .footer { margin-top: 6rem; text-align: center; color: var(--text-dim); font-size: 0.85rem; border-top: 1px solid var(--border); padding-top: 2rem; }
+        .btn-play { display: flex; align-items: center; justify-content: center; gap: 0.75rem; background: var(--primary); color: var(--bg); padding: 1rem; border-radius: 12px; text-decoration: none; font-weight: 700; margin-top: auto; }
+        .footer { margin-top: 4rem; text-align: center; color: var(--text-dim); font-size: 0.85rem; border-top: 1px solid var(--border); padding-top: 2rem; }
         .footer a { color: var(--text-dim); text-decoration: none; font-weight: 600; }
-        .footer a:hover { color: var(--primary); }
-
         .empty-state { grid-column: 1/-1; text-align: center; padding: 5rem 2rem; background: var(--surface); border-radius: 24px; border: 2px dashed var(--border); }
+
+        .pagination { display: flex; justify-content: center; gap: 0.5rem; margin-top: 3rem; }
+        .page-btn { background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 0.5rem 1rem; border-radius: 8px; cursor: pointer; transition: all 0.2s; }
+        .page-btn:hover:not(:disabled) { border-color: var(--primary); color: var(--primary); }
+        .page-btn.active { background: var(--primary); color: var(--bg); border-color: var(--primary); }
+        .page-btn:disabled { opacity: 0.3; cursor: not-allowed; }
     </style>
 </head>
 <body>
@@ -126,71 +56,41 @@
         </header>
 
         <div class="streams-grid" id="streams-container">
-            {{if .Streams}}
-                {{range .Streams}}
-                <div class="card" data-mount="{{.MountName}}">
-                    <div class="live-indicator">
-                        <div class="live-dot"></div> LIVE
-                    </div>
-                    <div class="stream-name">{{if .Name}}{{.Name}}{{else}}{{.MountName}}{{end}}</div>
-                    
-                    <div class="now-playing">
-                        <label>Now Playing</label>
-                        <span class="song-val">{{.CurrentSong}}</span>
-                    </div>
-                    
-                    <div class="meta-list">
-                        <div class="meta-item">
-                            <div class="meta-label">Listeners</div>
-                            <div class="meta-value listener-val">{{.ListenersCount}}</div>
-                        </div>
-                        <div class="meta-item">
-                            <div class="meta-label">Bitrate</div>
-                            <div class="meta-value bitrate-val">{{.Bitrate}} kbps</div>
-                        </div>
-                        <div class="meta-item">
-                            <div class="meta-label">Genre</div>
-                            <div class="meta-value genre-val">{{.Genre}}</div>
-                        </div>
-                        <div class="meta-item">
-                            <div class="meta-label">Uptime</div>
-                            <div class="meta-value uptime-val">{{.Uptime}}</div>
-                        </div>
-                    </div>
-
-                    <a href="{{.MountName}}" class="btn-play">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                            <path d="M8 5v14l11-7z"/>
-                        </svg>
-                        TUNE IN NOW
-                    </a>
+            <!-- Initial Load from Server -->
+            {{range .Streams}}
+            <div class="card" data-mount="{{.MountName}}">
+                <div class="live-indicator"><div class="live-dot"></div> LIVE</div>
+                <div class="stream-name">{{if .Name}}{{.Name}}{{else}}{{.MountName}}{{end}}</div>
+                <div class="now-playing"><label>Now Playing</label><span class="song-val">{{.CurrentSong}}</span></div>
+                <div class="meta-list">
+                    <div class="meta-item"><div class="meta-label">Listeners</div><div class="meta-value listener-val">{{.ListenersCount}}</div></div>
+                    <div class="meta-item"><div class="meta-label">Bitrate</div><div class="meta-value bitrate-val">{{.Bitrate}} kbps</div></div>
+                    <div class="meta-item"><div class="meta-label">Genre</div><div class="meta-value genre-val">{{.Genre}}</div></div>
+                    <div class="meta-item"><div class="meta-label">Uptime</div><div class="meta-value uptime-val">{{.Uptime}}</div></div>
                 </div>
-                {{end}}
+                <a href="{{.MountName}}" class="btn-play">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> TUNE IN NOW
+                </a>
+            </div>
             {{else}}
-                <div class="empty-state">
-                    <div style="font-size: 3rem; margin-bottom: 1.5rem;">📡</div>
-                    <h2 style="margin-bottom: 0.5rem;">Off the Air</h2>
-                    <p style="color: var(--text-dim);">No stations are currently broadcasting.</p>
-                </div>
+            <div class="empty-state">
+                <div style="font-size: 3rem; margin-bottom: 1.5rem;">📡</div>
+                <h2 style="margin-bottom: 0.5rem;">Off the Air</h2>
+                <p style="color: var(--text-dim);">No stations are currently broadcasting.</p>
+            </div>
             {{end}}
         </div>
 
-        <div class="footer">
-            Powered by <a href="/admin">TinyIce</a>
-        </div>
+        <div id="pagination" class="pagination"></div>
+
+        <div class="footer">Powered by <a href="/admin">TinyIce</a></div>
     </div>
 
-    <!-- Template for JS to use -->
     <template id="card-template">
         <div class="card">
-            <div class="live-indicator">
-                <div class="live-dot"></div> LIVE
-            </div>
+            <div class="live-indicator"><div class="live-dot"></div> LIVE</div>
             <div class="stream-name"></div>
-            <div class="now-playing">
-                <label>Now Playing</label>
-                <span class="song-val"></span>
-            </div>
+            <div class="now-playing"><label>Now Playing</label><span class="song-val"></span></div>
             <div class="meta-list">
                 <div class="meta-item"><div class="meta-label">Listeners</div><div class="meta-value listener-val"></div></div>
                 <div class="meta-item"><div class="meta-label">Bitrate</div><div class="meta-value bitrate-val"></div></div>
@@ -206,60 +106,64 @@
     <script>
         (function() {
             var container = document.getElementById('streams-container');
+            var paginationEl = document.getElementById('pagination');
             var template = document.getElementById('card-template');
             var es = new EventSource("/events");
+            
+            var allStreams = [];
+            var pageSize = 6;
+            var currentPage = 1;
 
-            es.onmessage = function(e) {
-                var streams = JSON.parse(e.data);
+            function render() {
+                var totalPages = Math.ceil(allStreams.length / pageSize);
+                if (currentPage > totalPages && totalPages > 0) currentPage = totalPages;
                 
-                if (streams.length === 0) {
+                if (allStreams.length === 0) {
                     container.innerHTML = '<div class="empty-state"><div style="font-size: 3rem; margin-bottom: 1.5rem;">📡</div><h2 style="margin-bottom: 0.5rem;">Off the Air</h2><p style="color: var(--text-dim);">No stations are currently broadcasting.</p></div>';
+                    paginationEl.innerHTML = '';
                     return;
                 }
 
-                var existingCards = container.querySelectorAll('.card');
-                var existingMounts = [];
-                for (var i = 0; i < existingCards.length; i++) {
-                    existingMounts.push(existingCards[i].getAttribute('data-mount'));
-                }
-                
-                var newMounts = streams.map(function(s) { return s.mount; });
-                var needsRebuild = existingMounts.length !== newMounts.length;
-                if (!needsRebuild) {
-                    for (var i = 0; i < newMounts.length; i++) {
-                        if (existingMounts.indexOf(newMounts[i]) === -1) {
-                            needsRebuild = true;
-                            break;
-                        }
-                    }
-                }
+                var start = (currentPage - 1) * pageSize;
+                var end = start + pageSize;
+                var pagedStreams = allStreams.slice(start, end);
 
-                if (needsRebuild) {
-                    container.innerHTML = '';
-                    streams.forEach(function(s) {
-                        var clone = template.content.cloneNode(true);
-                        var card = clone.querySelector('.card');
-                        card.setAttribute('data-mount', s.mount);
-                        clone.querySelector('.stream-name').textContent = s.name || s.mount;
-                        clone.querySelector('.song-val').textContent = s.song || 'N/A';
-                        clone.querySelector('.listener-val').textContent = s.listeners;
-                        clone.querySelector('.bitrate-val').textContent = s.bitrate + ' kbps';
-                        clone.querySelector('.genre-val').textContent = s.genre;
-                        clone.querySelector('.uptime-val').textContent = s.uptime;
-                        clone.querySelector('.btn-play').setAttribute('href', s.mount);
-                        container.appendChild(clone);
-                    });
+                container.innerHTML = '';
+                pagedStreams.forEach(function(s) {
+                    var clone = template.content.cloneNode(true);
+                    var card = clone.querySelector('.card');
+                    card.setAttribute('data-mount', s.mount);
+                    clone.querySelector('.stream-name').textContent = s.name || s.mount;
+                    clone.querySelector('.song-val').textContent = s.song || 'N/A';
+                    clone.querySelector('.listener-val').textContent = s.listeners;
+                    clone.querySelector('.bitrate-val').textContent = s.bitrate + ' kbps';
+                    clone.querySelector('.genre-val').textContent = s.genre;
+                    clone.querySelector('.uptime-val').textContent = s.uptime;
+                    clone.querySelector('.btn-play').setAttribute('href', s.mount);
+                    container.appendChild(clone);
+                });
+
+                // Pagination Buttons
+                if (totalPages > 1) {
+                    var html = '<button class="page-btn" ' + (currentPage === 1 ? 'disabled' : '') + ' onclick="setPage(' + (currentPage - 1) + ')">Prev</button>';
+                    for (var i = 1; i <= totalPages; i++) {
+                        html += '<button class="page-btn ' + (i === currentPage ? 'active' : '') + '" onclick="setPage(' + i + ')">' + i + '</button>';
+                    }
+                    html += '<button class="page-btn" ' + (currentPage === totalPages ? 'disabled' : '') + ' onclick="setPage(' + (currentPage + 1) + ')">Next</button>';
+                    paginationEl.innerHTML = html;
                 } else {
-                    streams.forEach(function(s) {
-                        var card = container.querySelector('.card[data-mount="' + s.mount + '"]');
-                        if (card) {
-                            card.querySelector('.song-val').textContent = s.song || 'N/A';
-                            card.querySelector('.listener-val').textContent = s.listeners;
-                            card.querySelector('.bitrate-val').textContent = s.bitrate + ' kbps';
-                            card.querySelector('.uptime-val').textContent = s.uptime;
-                        }
-                    });
+                    paginationEl.innerHTML = '';
                 }
+            }
+
+            window.setPage = function(p) {
+                currentPage = p;
+                render();
+            };
+
+            es.onmessage = function(e) {
+                allStreams = JSON.parse(e.data);
+                render();
             };
         })();
     </script>
