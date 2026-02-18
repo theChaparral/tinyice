@@ -24,7 +24,7 @@ Traditional streaming servers can be complex to configure and resource-heavy. Ti
 -   **Multi-Tenant Ready**: Create multiple admin users who can only manage their own mount points.
 -   **Edge-Ready Relaying**: Pull streams from other servers with automatic reconnection and in-stream ICY metadata parsing.
 -   **Secure & Hardened**: Salted **bcrypt** password hashing, CSRF protection, and HTTP resource hardening.
--   **Auto-HTTPS**: Built-in support for **ACME (Let's Encrypt)** for zero-configuration SSL certificates.
+-   **Auto-HTTPS**: Built-in support for **ACME (Let's Encrypt)** for zero-configuration SSL certificates. Supports custom ACME CAs (e.g., Step-CA) for homelab environments.
 -   **Real-time Insights**: SSE-powered dashboards with smooth, hardware-accelerated traffic charts.
 -   **Playback History**: Persistent song history stored in a lightweight SQLite database.
 -   **Observability**: Built-in **Prometheus** metrics endpoint and structured logging.

@@ -64,6 +64,7 @@ type Config struct {
 	CertFile   string   `json:"cert_file"`
 	KeyFile    string   `json:"key_file"`
 	ACMEEmail  string   `json:"acme_email"`
+	ACMEDirectoryURL string `json:"acme_directory_url"` // Support for custom CAs (Step-CA, etc)
 	Domains    []string `json:"domains"`
 
 	// Directory Listing (YP)

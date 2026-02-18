@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"golang.org/x/crypto/acme"
 	"golang.org/x/crypto/acme/autocert"
 	"github.com/syso/tinyice/config"
 	"github.com/syso/tinyice/relay"
@@ -108,6 +109,9 @@ func (s *Server) Start() error {
 			HostPolicy: autocert.HostWhitelist(s.Config.Domains...),
 			Cache:      autocert.DirCache("certs"),
 			Email:      s.Config.ACMEEmail,
+		}
+		if s.Config.ACMEDirectoryURL != "" {
+			certManager.Client = &acme.Client{DirectoryURL: s.Config.ACMEDirectoryURL}
 		}
 	}
 
