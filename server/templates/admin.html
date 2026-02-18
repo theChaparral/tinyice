@@ -140,7 +140,7 @@
                                         <div style="display:flex; gap:0.3rem">
                                             <button type="button" class="btn btn-outline btn-sm edit-mount" data-mount="{{$mount}}">EDIT</button>
                                             <form action="/admin/toggle-hidden" method="POST"><input type="hidden" name="mount" value="{{$mount}}"><button type="submit" class="btn btn-outline btn-sm">{{if index $.Config.HiddenMounts $mount}}SHOW{{else}}HIDE{{end}}</button></form>
-                                            <form action="/admin/toggle-mount" method="POST"><input type="hidden" name="mount" value="{{$mount}}"><button type="submit" class="btn {{if $disabled}}btn-primary{{else}}btn-warning{{end}} btn-sm">TG</button></form>
+                                            <form action="/admin/toggle-mount" method="POST"><input type="hidden" name="mount" value="{{$mount}}"><button type="submit" class="btn {{if $disabled}}btn-primary{{else}}btn-warning{{end}} btn-sm">{{if $disabled}}ENABLE{{else}}DISABLE{{end}}</button></form>
                                             <form action="/admin/remove-mount" method="POST" onsubmit="return confirm('Remove?')"><input type="hidden" name="mount" value="{{$mount}}"><button type="submit" class="btn btn-danger btn-sm">X</button></form>
                                         </div>
                                     </td>
