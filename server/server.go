@@ -568,7 +568,8 @@ func (s *Server) handleListener(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) serveStreamData(w http.ResponseWriter, r *http.Request, stream *relay.Stream, id, originalMount, currentMount string, recoveryTicker *time.Ticker) bool {
-	offset, signal := stream.Subscribe(id)
+	// Subscribe with 64KB burst (approx 4s @ 128kbps) for instant start
+	offset, signal := stream.Subscribe(id, 65536)
 	defer stream.Unsubscribe(id)
 	buf := make([]byte, 16384)
 	flusher, _ := w.(http.Flusher)

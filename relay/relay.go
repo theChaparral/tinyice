@@ -211,16 +211,24 @@ func (r *Relay) GetMetrics() (int64, int64) {
 }
 
 // Subscribe adds a listener and returns its starting offset and a signal channel
-func (s *Stream) Subscribe(id string) (int64, chan struct{}) {
+func (s *Stream) Subscribe(id string, burstSize int) (int64, chan struct{}) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	ch := make(chan struct{}, 1)
 	s.listeners[id] = ch
 
-	// Start at current head (absolute offset)
-	// We could also start at (Head - N) if we wanted to give a "burst" from the buffer
-	start := s.Buffer.Head
+	// Start at current head minus burst size for instant playback
+	start := s.Buffer.Head - int64(burstSize)
+	if start < 0 {
+		start = 0
+	}
+	
+	// Ensure we don't go back further than the buffer allows
+	if s.Buffer.Head-start > s.Buffer.Size {
+		start = s.Buffer.Head - s.Buffer.Size
+	}
+
 	return start, ch
 }
 

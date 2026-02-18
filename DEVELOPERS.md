@@ -41,7 +41,9 @@ TinyIce is designed for high-density streaming. Below are approximate resource r
 1.  **Source Connection**: A streamer (BUTT, OBS) sends a `SOURCE` or `PUT` request.
 2.  **Hijacking**: The server hijacks the TCP connection (`http.Hijacker`) to provide a raw, low-latency pipe for binary data.
 3.  **Broadcasting**: Data chunks are written to a stream-specific `CircularBuffer`.
-4.  **Zero-Allocation Distribution**: Listeners subscribe by maintaining an offset into the shared buffer. A signal channel triggers a read loop that pumps data directly from the shared memory to the network socket. This significantly reduces memory allocations and garbage collection pressure under high load.
+4.  **Zero-Allocation Distribution**: Listeners subscribe by maintaining an offset into the shared buffer. 
+    -   On connection, listeners receive a **64KB "Instant Start" burst** from the buffer history.
+    -   A signal channel triggers a read loop that pumps data directly from the shared memory to the network socket.
 
 ## Zero-Downtime Updates
 
