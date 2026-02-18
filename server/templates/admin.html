@@ -238,6 +238,40 @@
             if (updateHash !== false) window.location.hash = id; 
             if (id === 'tab-statistics') fetchStatistics();
         }
+
+        function fetchStatistics() {
+            fetch('/admin/statistics').then(function(r) { return r.json(); }).then(function(data) {
+                var tsBody = document.getElementById('topStreamsBody');
+                if (tsBody) {
+                    tsBody.innerHTML = '';
+                    data.top_streams.forEach(function(s) {
+                        var row = document.createElement('tr');
+                        row.innerHTML = '<td>' + s.MountName + '</td><td>' + s.Name + '</td><td style="font-weight:bold; color:var(--primary)">' + s.ListenersCount + '</td><td>' + s.Bitrate + '</td>';
+                        tsBody.appendChild(row);
+                    });
+                }
+
+                var tlUABody = document.getElementById('topListenersUABody');
+                if (tlUABody) {
+                    tlUABody.innerHTML = '';
+                    data.top_listeners_ua.forEach(function(ua) {
+                        var row = document.createElement('tr');
+                        row.innerHTML = '<td>' + (ua.ua || 'Unknown') + '</td><td style="font-weight:bold; color:var(--success)">' + ua.count + '</td>';
+                        tlUABody.appendChild(row);
+                    });
+                }
+
+                var tsUABody = document.getElementById('topSourcesUABody');
+                if (tsUABody) {
+                    tsUABody.innerHTML = '';
+                    data.top_sources_ua.forEach(function(ua) {
+                        var row = document.createElement('tr');
+                        row.innerHTML = '<td>' + (ua.ua || 'Unknown') + '</td><td style="font-weight:bold; color:var(--warning)">' + ua.count + '</td>';
+                        tsUABody.appendChild(row);
+                    });
+                }
+            });
+        }
         
         // Ensure forms redirect back to the current tab
         document.addEventListener('submit', function(e) {
@@ -274,7 +308,6 @@
         }
 
         (function() {
-            if (window.location.hash) { var it = window.location.hash.substring(1); if (document.getElementById(it)) { showTab(it, false); } }
             var canvas = document.getElementById('trafficChart'); var ctx = canvas.getContext('2d');
             var outRateEl = document.getElementById('outRate'); var inRateEl = document.getElementById('inRate');
             var streamsBody = document.getElementById('streamsBody'); var rowTemplate = document.getElementById('stream-row-template');
@@ -391,35 +424,8 @@
             });
             document.addEventListener('click', function(e) { if (e.target.classList.contains('edit-mount')) { document.getElementById('add-mount-path').value = e.target.dataset.mount; showTab('tab-stations'); document.getElementById('new-mount-pw').focus(); } });
 
-            function fetchStatistics() {
-                fetch('/admin/statistics').then(function(r) { return r.json(); }).then(function(data) {
-                    var tsBody = document.getElementById('topStreamsBody');
-                    tsBody.innerHTML = '';
-                    data.top_streams.forEach(function(s) {
-                        var row = document.createElement('tr');
-                        row.innerHTML = '<td>' + s.MountName + '</td><td>' + s.Name + '</td><td style="font-weight:bold; color:var(--primary)">' + s.ListenersCount + '</td><td>' + s.Bitrate + '</td>';
-                        tsBody.appendChild(row);
-                    });
-
-                    var tlUABody = document.getElementById('topListenersUABody');
-                    tlUABody.innerHTML = '';
-                    data.top_listeners_ua.forEach(function(ua) {
-                        var row = document.createElement('tr');
-                        row.innerHTML = '<td>' + ua.ua + '</td><td style="font-weight:bold; color:var(--success)">' + ua.count + '</td>';
-                        tlUABody.appendChild(row);
-                    });
-
-                    var tsUABody = document.getElementById('topSourcesUABody');
-                    tsUABody.innerHTML = '';
-                    data.top_sources_ua.forEach(function(ua) {
-                        var row = document.createElement('tr');
-                        row.innerHTML = '<td>' + ua.ua + '</td><td style="font-weight:bold; color:var(--warning)">' + ua.count + '</td>';
-                        tsUABody.appendChild(row);
-                    });
-                });
-            }
-
             drawChart();
+            if (window.location.hash) { var it = window.location.hash.substring(1); if (document.getElementById(it)) { showTab(it, false); } }
         })();
     </script>
 </body>
