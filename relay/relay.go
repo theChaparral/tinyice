@@ -36,17 +36,19 @@ func (cb *CircularBuffer) Write(p []byte) {
 }
 
 // ReadAt reads data from the buffer starting at the absolute offset 'start'
-func (cb *CircularBuffer) ReadAt(start int64, p []byte) (int, int64) {
+func (cb *CircularBuffer) ReadAt(start int64, p []byte) (int, int64, bool) {
 	cb.mu.RLock()
 	defer cb.mu.RUnlock()
 
+	skipped := false
 	if start >= cb.Head {
-		return 0, start
+		return 0, start, false
 	}
 
 	// Don't read more than we have or what's available in the buffer
 	if cb.Head-start > cb.Size {
 		start = cb.Head - cb.Size // Listener is too slow, skip to oldest available
+		skipped = true
 	}
 
 	pos := start % cb.Size
@@ -62,7 +64,7 @@ func (cb *CircularBuffer) ReadAt(start int64, p []byte) (int, int64) {
 	}
 
 	actual := copy(p, cb.Data[pos:pos+n])
-	return actual, start + int64(actual)
+	return actual, start + int64(actual), skipped
 }
 
 // Stream represents a single mount point (e.g., /stream)
@@ -79,6 +81,7 @@ type Stream struct {
 	Enabled     bool
 	BytesIn     int64
 	BytesOut    int64
+	BytesDropped int64 // Track total bytes dropped due to slow listeners
 	CurrentSong string
 	Public      bool
 	Visible     bool
@@ -297,6 +300,7 @@ type StreamStats struct {
 	Enabled        bool
 	BytesIn        int64
 	BytesOut       int64
+	BytesDropped   int64
 	CurrentSong    string
 	Public         bool
 	Visible        bool
@@ -322,6 +326,7 @@ func (s *Stream) Snapshot() StreamStats {
 		Enabled:        s.Enabled,
 		BytesIn:        atomic.LoadInt64(&s.BytesIn),
 		BytesOut:       atomic.LoadInt64(&s.BytesOut),
+		BytesDropped:   atomic.LoadInt64(&s.BytesDropped),
 		CurrentSong:    s.CurrentSong,
 		Public:         s.Public,
 		Visible:        s.Visible,

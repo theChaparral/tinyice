@@ -448,9 +448,12 @@ func (s *Server) handleListener(w http.ResponseWriter, r *http.Request) {
 		case <-signal:
 			// Read all available data from the buffer
 			for {
-				n, next := stream.Buffer.ReadAt(offset, buf)
+				n, next, skipped := stream.Buffer.ReadAt(offset, buf)
 				if n == 0 {
 					break
+				}
+				if skipped {
+					atomic.AddInt64(&stream.BytesDropped, next-offset)
 				}
 				offset = next
 				if _, err := w.Write(buf[:n]); err != nil {
@@ -1019,16 +1022,17 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 	type StreamInfo struct {
-		Mount       string `json:"mount"`
-		Name        string `json:"name"`
-		Listeners   int    `json:"listeners"`
-		Bitrate     string `json:"bitrate"`
-		Uptime      string `json:"uptime"`
-		ContentType string `json:"type"`
-		SourceIP    string `json:"ip"`
-		BytesIn     int64  `json:"bytes_in"`
-		BytesOut    int64  `json:"bytes_out"`
-		CurrentSong string `json:"song"`
+		Mount        string `json:"mount"`
+		Name         string `json:"name"`
+		Listeners    int    `json:"listeners"`
+		Bitrate      string `json:"bitrate"`
+		Uptime       string `json:"uptime"`
+		ContentType  string `json:"type"`
+		SourceIP     string `json:"ip"`
+		BytesIn      int64  `json:"bytes_in"`
+		BytesOut     int64  `json:"bytes_out"`
+		BytesDropped int64  `json:"bytes_dropped"`
+		CurrentSong  string `json:"song"`
 	}
 	send := func() {
 		bi, bo := s.Relay.GetMetrics()
@@ -1040,7 +1044,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 			if s.hasAccess(user, st.MountName) {
 				lc := st.ListenersCount
 				tl += lc
-				info = append(info, StreamInfo{Mount: st.MountName, Name: st.Name, Listeners: lc, Bitrate: st.Bitrate, Uptime: st.Uptime, ContentType: st.ContentType, SourceIP: st.SourceIP, BytesIn: st.BytesIn, BytesOut: st.BytesOut, CurrentSong: st.CurrentSong})
+				info = append(info, StreamInfo{Mount: st.MountName, Name: st.Name, Listeners: lc, Bitrate: st.Bitrate, Uptime: st.Uptime, ContentType: st.ContentType, SourceIP: st.SourceIP, BytesIn: st.BytesIn, BytesOut: st.BytesOut, BytesDropped: st.BytesDropped, CurrentSong: st.CurrentSong})
 				if st.SourceIP == "relay-pull" {
 					tr++
 				} else {
