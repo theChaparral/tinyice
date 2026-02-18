@@ -87,6 +87,7 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/admin/restart-relay", s.handleRestartRelay)
 	mux.HandleFunc("/admin/delete-relay", s.handleDeleteRelay)
 	mux.HandleFunc("/admin/history", s.handleHistory)
+	mux.HandleFunc("/admin/statistics", s.handleGetStats)
 	mux.HandleFunc("/", s.handleRoot)
 	mux.HandleFunc("/events", s.handlePublicEvents)
 	mux.HandleFunc("/status-json.xsl", s.handleLegacyStats)
@@ -450,6 +451,11 @@ func (s *Server) handleSource(w http.ResponseWriter, r *http.Request) {
 
 	s.logAuth().WithFields(logrus.Fields{"mount": mount, "ip": r.RemoteAddr}).Info("Source auth successful")
 
+	// Record Source User-Agent
+	if s.Relay.History != nil {
+		s.Relay.History.RecordUA(r.Header.Get("User-Agent"), "source")
+	}
+
 	hj, ok := w.(http.Hijacker)
 	if !ok {
 		http.Error(w, "Hijacking unsupported", http.StatusInternalServerError)
@@ -511,6 +517,11 @@ func (s *Server) handleListener(w http.ResponseWriter, r *http.Request) {
 	}
 	originalMount := r.URL.Path
 	mount := originalMount
+
+	// Record Listener User-Agent
+	if s.Relay.History != nil {
+		s.Relay.History.RecordUA(r.Header.Get("User-Agent"), "listener")
+	}
 
 	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 	w.Header().Set("Connection", "keep-alive")
@@ -1321,4 +1332,34 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+}
+
+func (s *Server) handleGetStats(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.checkAuth(r); !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	allStreams := s.Relay.Snapshot()
+	sort.Slice(allStreams, func(i, j int) bool {
+		return allStreams[i].ListenersCount > allStreams[j].ListenersCount
+	})
+
+	topStreams := allStreams
+	if len(topStreams) > 10 {
+		topStreams = topStreams[:10]
+	}
+
+	var topListenersUA, topSourcesUA []relay.UAStat
+	if s.Relay.History != nil {
+		topListenersUA = s.Relay.History.GetTopUAs("listener", 10)
+		topSourcesUA = s.Relay.History.GetTopUAs("source", 10)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"top_streams":      topStreams,
+		"top_listeners_ua": topListenersUA,
+		"top_sources_ua":   topSourcesUA,
+	})
 }

@@ -68,6 +68,7 @@
                 <button class="nav-link active" onclick="showTab('tab-overview')">Dashboard</button>
                 <button class="nav-link" onclick="showTab('tab-stations')">Your Stations</button>
                 <button class="nav-link" onclick="showTab('tab-history')">Play History</button>
+                <button class="nav-link" onclick="showTab('tab-statistics')">Statistics</button>
                 {{if eq .User.Role "superadmin"}}
                 <button class="nav-link" onclick="showTab('tab-users')">User Management</button>
                 <button class="nav-link" onclick="showTab('tab-relays')">Edge Relays</button>
@@ -175,7 +176,46 @@
                 </section>
             </div>
             {{if eq .User.Role "superadmin"}}
-            <div id="tab-users" class="tab-content"><div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem;"><section><h2>Create Admin</h2><div class="card"><form action="/admin/add-user" method="POST"><div class="form-group"><label>Username</label><input type="text" name="username" required></div><div class="form-group"><label>Password</label><input type="password" name="password" required></div><button type="submit" class="btn btn-primary">Add User</button></form></div></section><section><h2>System Users</h2><div class="card" style="padding: 0;"><table><thead><tr><th style="width:40%">User</th><th style="width:30%">Role</th><th style="width:30%">Action</th></tr></thead><tbody>{{range .Config.Users}}<tr><td>{{.Username}}</td><td>{{.Role}}</td><td>{{if ne .Role "superadmin"}}<form action="/admin/remove-user" method="POST"><input type="hidden" name="username" value="{{.Username}}"><button type="submit" class="btn btn-danger btn-sm">DELETE</button></form>{{end}}</td></tr>{{end}}</tbody></table></div></section></div></div>
+                        <div id="tab-statistics" class="tab-content">
+                            <section>
+                                <h2>Top Streams (Current Listeners)</h2>
+                                <div class="card" style="padding: 0; overflow: hidden;">
+                                    <table>
+                                        <thead>
+                                            <tr>
+                                                <th>Mount</th>
+                                                <th>Name</th>
+                                                <th>Listeners</th>
+                                                <th>Bitrate</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="topStreamsBody"></tbody>
+                                    </table>
+                                </div>
+                            </section>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem;">
+                                <section>
+                                    <h2>Top Listener User-Agents</h2>
+                                    <div class="card" style="padding: 0; overflow: hidden;">
+                                        <table>
+                                            <thead><tr><th>User-Agent</th><th>Hits</th></tr></thead>
+                                            <tbody id="topListenersUABody"></tbody>
+                                        </table>
+                                    </div>
+                                </section>
+                                <section>
+                                    <h2>Top Source User-Agents</h2>
+                                    <div class="card" style="padding: 0; overflow: hidden;">
+                                        <table>
+                                            <thead><tr><th>User-Agent</th><th>Hits</th></tr></thead>
+                                            <tbody id="topSourcesUABody"></tbody>
+                                        </table>
+                                    </div>
+                                </section>
+                            </div>
+                        </div>
+                        <div id="tab-users" class="tab-content">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem;"><section><h2>Create Admin</h2><div class="card"><form action="/admin/add-user" method="POST"><div class="form-group"><label>Username</label><input type="text" name="username" required></div><div class="form-group"><label>Password</label><input type="password" name="password" required></div><button type="submit" class="btn btn-primary">Add User</button></form></div></section><section><h2>System Users</h2><div class="card" style="padding: 0;"><table><thead><tr><th style="width:40%">User</th><th style="width:30%">Role</th><th style="width:30%">Action</th></tr></thead><tbody>{{range .Config.Users}}<tr><td>{{.Username}}</td><td>{{.Role}}</td><td>{{if ne .Role "superadmin"}}<form action="/admin/remove-user" method="POST"><input type="hidden" name="username" value="{{.Username}}"><button type="submit" class="btn btn-danger btn-sm">DELETE</button></form>{{end}}</td></tr>{{end}}</tbody></table></div></section></div></div>
             <div id="tab-relays" class="tab-content">
                 <div style="display: grid; grid-template-columns: 1fr 1.5fr; gap: 2rem;">
                     <section><h2>Configure Relay</h2><div class="card"><form action="/admin/add-relay" method="POST"><div class="form-group"><label>Source URL</label><input type="text" id="add-relay-url" name="url" placeholder="http://master:8000/live" required></div><div class="form-group"><label>Local Mount</label><input type="text" id="add-relay-mount" name="mount" placeholder="/relay" required></div><div class="form-group"><label>Password</label><input type="password" id="add-relay-password" name="password"></div><div class="form-group"><label>Burst Size</label><input type="number" id="add-relay-burst" name="burst_size" value="20"></div><button type="submit" class="btn btn-primary">Start Relay</button></form></div></section>
@@ -189,7 +229,15 @@
     <template id="stream-row-template"><tr><td><span class="mount-code row-mount"></span><br><span style="font-size:0.7rem;color:var(--text-dim)" class="row-ip"></span></td><td><span class="song-title row-song"></span></td><td style="font-weight:700;color:var(--primary);" class="row-listeners"></td><td><span style="color:var(--success)" class="row-in"></span> / <span style="color:var(--primary)" class="row-out"></span></td><td><span class="row-health"></span></td><td style="font-family:monospace;" class="row-uptime"></td><td><div style="display:flex;gap:0.5rem;"><a href="" target="_blank" class="btn btn-outline btn-sm row-link">Listen</a><form action="/admin/kick" method="POST" style="display:inline;" class="row-kick-form"><input type="hidden" name="mount" value=""><button type="submit" class="btn btn-danger btn-sm">KICK</button></form></div></td></tr></template>
     <template id="relay-row-template"><tr><td><div class="status-pill row-relay-status"><div class="dot"></div> <span class="row-relay-status-text"></span></div></td><td style="font-size:0.8rem;color:var(--text-dim)" class="row-relay-url"></td><td><span class="mount-code row-relay-mount"></span></td><td><div style="display:flex; gap:0.3rem"><button type="button" class="btn btn-outline btn-sm row-relay-edit-btn">EDIT</button><form action="/admin/toggle-visible" method="POST" class="row-relay-visible-form"><input type="hidden" name="mount" value=""><button type="submit" class="btn btn-sm row-relay-visible-btn"></button></form><form action="/admin/toggle-relay" method="POST" class="row-relay-toggle-form"><input type="hidden" name="mount" value=""><button type="submit" class="btn btn-sm row-relay-toggle-btn"></button></form><form action="/admin/delete-relay" method="POST" class="row-relay-delete-form"><input type="hidden" name="mount" value=""><button type="submit" class="btn btn-danger btn-sm">STOP</button></form></div></td></tr></template>
     <script>
-        function showTab(id, updateHash) { document.querySelectorAll('.tab-content').forEach(function(t) { t.classList.remove('active'); }); document.querySelectorAll('.nav-link').forEach(function(t) { t.classList.remove('active'); }); document.getElementById(id).classList.add('active'); var btn = Array.from(document.querySelectorAll('.nav-link')).find(function(b) { return b.getAttribute('onclick') && b.getAttribute('onclick').indexOf(id) !== -1; }); if (btn) btn.classList.add('active'); if (updateHash !== false) window.location.hash = id; }
+        function showTab(id, updateHash) { 
+            document.querySelectorAll('.tab-content').forEach(function(t) { t.classList.remove('active'); }); 
+            document.querySelectorAll('.nav-link').forEach(function(t) { t.classList.remove('active'); }); 
+            document.getElementById(id).classList.add('active'); 
+            var btn = Array.from(document.querySelectorAll('.nav-link')).find(function(b) { return b.getAttribute('onclick') && b.getAttribute('onclick').indexOf(id) !== -1; }); 
+            if (btn) btn.classList.add('active'); 
+            if (updateHash !== false) window.location.hash = id; 
+            if (id === 'tab-statistics') fetchStatistics();
+        }
         
         // Ensure forms redirect back to the current tab
         document.addEventListener('submit', function(e) {
@@ -342,6 +390,35 @@
                 var chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"; var pw = ""; for (var i = 0; i < 16; i++) pw += chars.charAt(Math.floor(Math.random() * chars.length)); document.getElementById('new-mount-pw').value = pw;
             });
             document.addEventListener('click', function(e) { if (e.target.classList.contains('edit-mount')) { document.getElementById('add-mount-path').value = e.target.dataset.mount; showTab('tab-stations'); document.getElementById('new-mount-pw').focus(); } });
+
+            function fetchStatistics() {
+                fetch('/admin/statistics').then(function(r) { return r.json(); }).then(function(data) {
+                    var tsBody = document.getElementById('topStreamsBody');
+                    tsBody.innerHTML = '';
+                    data.top_streams.forEach(function(s) {
+                        var row = document.createElement('tr');
+                        row.innerHTML = '<td>' + s.MountName + '</td><td>' + s.Name + '</td><td style="font-weight:bold; color:var(--primary)">' + s.ListenersCount + '</td><td>' + s.Bitrate + '</td>';
+                        tsBody.appendChild(row);
+                    });
+
+                    var tlUABody = document.getElementById('topListenersUABody');
+                    tlUABody.innerHTML = '';
+                    data.top_listeners_ua.forEach(function(ua) {
+                        var row = document.createElement('tr');
+                        row.innerHTML = '<td>' + ua.ua + '</td><td style="font-weight:bold; color:var(--success)">' + ua.count + '</td>';
+                        tlUABody.appendChild(row);
+                    });
+
+                    var tsUABody = document.getElementById('topSourcesUABody');
+                    tsUABody.innerHTML = '';
+                    data.top_sources_ua.forEach(function(ua) {
+                        var row = document.createElement('tr');
+                        row.innerHTML = '<td>' + ua.ua + '</td><td style="font-weight:bold; color:var(--warning)">' + ua.count + '</td>';
+                        tsUABody.appendChild(row);
+                    });
+                });
+            }
+
             drawChart();
         })();
     </script>

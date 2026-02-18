@@ -34,7 +34,49 @@ func NewHistoryManager(path string) (*HistoryManager, error) {
 		return nil, err
 	}
 
+	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS user_agents (
+		ua TEXT,
+		type TEXT,
+		count INTEGER DEFAULT 1,
+		PRIMARY KEY (ua, type)
+	)`)
+	if err != nil {
+		return nil, err
+	}
+
 	return &HistoryManager{db: db}, nil
+}
+
+func (hm *HistoryManager) RecordUA(ua, uaType string) {
+	if ua == "" {
+		ua = "Unknown"
+	}
+	_, err := hm.db.Exec(`INSERT INTO user_agents (ua, type, count) VALUES (?, ?, 1)
+		ON CONFLICT(ua, type) DO UPDATE SET count = count + 1`, ua, uaType)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to record User-Agent")
+	}
+}
+
+type UAStat struct {
+	UA    string `json:"ua"`
+	Count int    `json:"count"`
+}
+
+func (hm *HistoryManager) GetTopUAs(uaType string, limit int) []UAStat {
+	rows, err := hm.db.Query("SELECT ua, count FROM user_agents WHERE type = ? ORDER BY count DESC LIMIT ?", uaType, limit)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+
+	var stats []UAStat
+	for rows.Next() {
+		var s UAStat
+		rows.Scan(&s.UA, &s.Count)
+		stats = append(stats, s)
+	}
+	return stats
 }
 
 func (hm *HistoryManager) Add(mount, song string) {
