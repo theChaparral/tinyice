@@ -7,6 +7,7 @@ import (
 	"html/template"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -70,7 +71,6 @@ func (s *Server) Start() error {
 		return srv.ListenAndServe()
 	}
 
-	// HTTPS Enabled
 	httpsAddr := ":" + s.Config.HTTPSPort
 	var certManager *autocert.Manager
 
@@ -83,7 +83,6 @@ func (s *Server) Start() error {
 		}
 	}
 
-	// HTTPS Server
 	httpsSrv := &http.Server{
 		Addr:         httpsAddr,
 		Handler:      mux,
@@ -95,23 +94,17 @@ func (s *Server) Start() error {
 		httpsSrv.TLSConfig = certManager.TLSConfig()
 	}
 
-	// HTTP Server (Redirects for Web/Listeners, direct for Sources)
 	httpSrv := &http.Server{
 		Addr: addr,
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// If it's a source connection (PUT/SOURCE), don't redirect
 			if r.Method == "PUT" || r.Method == "SOURCE" {
 				mux.ServeHTTP(w, r)
 				return
 			}
-			
-			// Handle ACME challenge if auto-https is on
 			if certManager != nil && strings.HasPrefix(r.URL.Path, "/.well-known/acme-challenge/") {
 				certManager.HTTPHandler(nil).ServeHTTP(w, r)
 				return
 			}
-
-			// Redirect others to HTTPS
 			target := "https://" + r.Host + r.URL.Path
 			if len(r.URL.RawQuery) > 0 {
 				target += "?" + r.URL.RawQuery
@@ -128,6 +121,10 @@ func (s *Server) Start() error {
 			logrus.Fatalf("HTTP server failed: %v", err)
 		}
 	}()
+
+	if s.Config.DirectoryListing {
+		go s.directoryReportingTask()
+	}
 
 	logrus.Infof("Starting HTTPS server on %s", httpsAddr)
 	if certManager != nil {
@@ -216,14 +213,8 @@ func (s *Server) handleSource(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	stream.UpdateMetadata(
-		r.Header.Get("Ice-Name"),
-		r.Header.Get("Ice-Description"),
-		r.Header.Get("Ice-Genre"),
-		r.Header.Get("Ice-Url"),
-		bitrate,
-		r.Header.Get("Content-Type"),
-	)
+	isPublic := r.Header.Get("Ice-Public") == "1"
+	stream.UpdateMetadata(r.Header.Get("Ice-Name"), r.Header.Get("Ice-Description"), r.Header.Get("Ice-Genre"), r.Header.Get("Ice-Url"), bitrate, r.Header.Get("Content-Type"), isPublic)
 
 	buf := make([]byte, 8192)
 	for {
@@ -366,12 +357,7 @@ func (s *Server) handleMetadata(w http.ResponseWriter, r *http.Request) {
 	if !s.checkAuth(r, s.Config.AdminUser, s.Config.AdminPassword) {
 		_, p, ok := r.BasicAuth()
 		mount := r.URL.Query().Get("mount")
-		if !ok {
-			w.Header().Set("WWW-Authenticate", `Basic realm="TinyIce Metadata"`)
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
-		if !config.CheckPasswordHash(p, s.Config.DefaultSourcePassword) && !config.CheckPasswordHash(p, s.Config.Mounts[mount]) {
+		if !ok || (!config.CheckPasswordHash(p, s.Config.DefaultSourcePassword) && !config.CheckPasswordHash(p, s.Config.Mounts[mount])) {
 			w.Header().Set("WWW-Authenticate", `Basic realm="TinyIce Metadata"`)
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
@@ -427,60 +413,27 @@ func (s *Server) handleToggleMount(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleLegacyStats(w http.ResponseWriter, r *http.Request) {
 	streams := s.Relay.Snapshot()
-	
 	type IcecastSource struct {
-		AudioInfo         string      `json:"audio_info"`
-		Bitrate           interface{} `json:"bitrate"` // Can be string or int in Icecast
-		Genre             string      `json:"genre"`
-		Listeners         int         `json:"listeners"`
-		ListenURL         string      `json:"listenurl"`
-		Mount             string      `json:"mount"`
-		ServerDescription string      `json:"server_description"`
-		ServerName        string      `json:"server_name"`
-		ServerType        string      `json:"server_type"`
-		StreamStart       string      `json:"stream_start"`
-		Title             string      `json:"title"`
-		Dummy             interface{} `json:"dummy"`
+		AudioInfo string `json:"audio_info"`; Bitrate interface{} `json:"bitrate"`; Genre string `json:"genre"`; 
+		Listeners int `json:"listeners"`; ListenURL string `json:"listenurl"`; Mount string `json:"mount"`; 
+		ServerDescription string `json:"server_description"`; ServerName string `json:"server_name"`; 
+		ServerType string `json:"server_type"`; StreamStart string `json:"stream_start"`; 
+		Title string `json:"title"`; Dummy interface{} `json:"dummy"`
 	}
-
 	sources := make([]IcecastSource, len(streams))
 	host := s.Config.HostName
-	if !strings.Contains(host, ":") {
-		host = host + ":" + s.Config.Port
-	}
+	if !strings.Contains(host, ":") { host = host + ":" + s.Config.Port }
 	proto := "http://"
 	if s.Config.UseHTTPS { proto = "https://" }
-
 	for i, st := range streams {
 		sources[i] = IcecastSource{
-			AudioInfo:         fmt.Sprintf("bitrate=%s", st.Bitrate),
-			Bitrate:           st.Bitrate,
-			Genre:             st.Genre,
-			Listeners:         st.ListenersCount(),
-			ListenURL:         proto + host + st.MountName,
-			Mount:             st.MountName,
-			ServerDescription: st.Description,
-			ServerName:        st.Name,
-			ServerType:        st.ContentType,
-			StreamStart:       st.Started.Format(time.RFC1123),
-			Title:             st.CurrentSong,
-			Dummy:             nil,
+			AudioInfo: fmt.Sprintf("bitrate=%s", st.Bitrate), Bitrate: st.Bitrate, Genre: st.Genre, 
+			Listeners: st.ListenersCount(), ListenURL: proto + host + st.MountName, Mount: st.MountName, 
+			ServerDescription: st.Description, ServerName: st.Name, ServerType: st.ContentType, 
+			StreamStart: st.Started.Format(time.RFC1123), Title: st.CurrentSong, Dummy: nil,
 		}
 	}
-
-	// Icecast JSON structure is famously slightly inconsistent (array vs object)
-	// but most clients expect this root wrapper.
-	resp := map[string]interface{}{
-		"icestats": map[string]interface{}{
-			"admin":        s.Config.AdminEmail,
-			"host":         s.Config.HostName,
-			"location":     s.Config.Location,
-			"server_id":    "Icecast 2.4.4 (TinyIce)",
-			"server_start": time.Now().Format(time.RFC1123), // We could track real start time
-			"source":       sources,
-		},
-	}
-
+	resp := map[string]interface{}{"icestats": map[string]interface{}{"admin": s.Config.AdminEmail, "host": s.Config.HostName, "location": s.Config.Location, "server_id": "Icecast 2.4.4 (TinyIce)", "server_start": time.Now().Format(time.RFC1123), "source": sources}}
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	json.NewEncoder(w).Encode(resp)
@@ -493,13 +446,11 @@ func (s *Server) handlePublicEvents(w http.ResponseWriter, r *http.Request) {
 	flusher, _ := w.(http.Flusher)
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
-
 	type PublicStreamInfo struct {
 		Mount string `json:"mount"`; Name string `json:"name"`; Listeners int `json:"listeners"`; 
 		Bitrate string `json:"bitrate"`; Uptime string `json:"uptime"`; Genre string `json:"genre"`; 
 		Description string `json:"description"`; CurrentSong string `json:"song"`
 	}
-
 	for {
 		select {
 		case <-r.Context().Done(): return
@@ -526,6 +477,34 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{"bytes_in": bi, "bytes_out": bo})
 }
 
+func (s *Server) directoryReportingTask() {
+	ticker := time.NewTicker(3 * time.Minute)
+	defer ticker.Stop()
+	for range ticker.C {
+		streams := s.Relay.Snapshot()
+		for _, st := range streams {
+			if st.Public { s.reportToDirectory(st) }
+		}
+	}
+}
+
+func (s *Server) reportToDirectory(st *relay.Stream) {
+	proto := "http://"
+	if s.Config.UseHTTPS { proto = "https://" }
+	listenURL := proto + s.Config.HostName + ":" + s.Config.Port + st.MountName
+	if s.Config.UseHTTPS { listenURL = proto + s.Config.HostName + ":" + s.Config.HTTPSPort + st.MountName }
+	data := url.Values{}
+	data.Set("action", "add")
+	data.Set("sn", st.Name); data.Set("genre", st.Genre); data.Set("cps", st.Bitrate)
+	data.Set("url", st.URL); data.Set("desc", st.Description); data.Set("st", st.ContentType)
+	data.Set("listenurl", listenURL); data.Set("type", "audio/mpeg")
+	resp, err := http.PostForm(s.Config.DirectoryServer, data)
+	if err != nil { logrus.WithError(err).Warn("Failed to report to directory server"); return }
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK { logrus.WithField("status", resp.Status).Warn("Directory server rejected update")
+	} else { logrus.WithField("mount", st.MountName).Debug("Reported to directory server") }
+}
+
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	if !s.checkAuth(r, s.Config.AdminUser, s.Config.AdminPassword) {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
@@ -537,13 +516,11 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	flusher, _ := w.(http.Flusher)
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
-
 	type StreamInfo struct {
 		Mount string `json:"mount"`; Name string `json:"name"`; Listeners int `json:"listeners"`; Bitrate string `json:"bitrate"`; 
 		Uptime string `json:"uptime"`; ContentType string `json:"type"`; SourceIP string `json:"ip"`; 
 		BytesIn int64 `json:"bytes_in"`; BytesOut int64 `json:"bytes_out"`; CurrentSong string `json:"song"`
 	}
-
 	for {
 		select {
 		case <-r.Context().Done(): return

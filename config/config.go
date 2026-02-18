@@ -32,6 +32,10 @@ type Config struct {
 	KeyFile    string   `json:"key_file"`
 	ACMEEmail  string   `json:"acme_email"`
 	Domains    []string `json:"domains"`
+
+	// Directory Listing (YP)
+	DirectoryListing bool   `json:"directory_listing"`
+	DirectoryServer  string `json:"directory_server"`
 }
 
 func HashPassword(p string) (string, error) {
@@ -69,6 +73,7 @@ func LoadConfig(path string) (*Config, error) {
 	if config.PageTitle == "" { config.PageTitle = "TinyIce" }
 	if config.PageSubtitle == "" { config.PageSubtitle = "Live streaming network powered by Go" }
 	if config.HTTPSPort == "" { config.HTTPSPort = "443" }
+	if config.DirectoryServer == "" { config.DirectoryServer = "http://dir.xiph.org/cgi-bin/yp-cgi" }
 
 	return config, nil
 }
