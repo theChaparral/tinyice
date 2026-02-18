@@ -191,6 +191,17 @@
     <script>
         function showTab(id, updateHash) { document.querySelectorAll('.tab-content').forEach(function(t) { t.classList.remove('active'); }); document.querySelectorAll('.nav-link').forEach(function(t) { t.classList.remove('active'); }); document.getElementById(id).classList.add('active'); var btn = Array.from(document.querySelectorAll('.nav-link')).find(function(b) { return b.getAttribute('onclick') && b.getAttribute('onclick').indexOf(id) !== -1; }); if (btn) btn.classList.add('active'); if (updateHash !== false) window.location.hash = id; }
         
+        // Ensure forms redirect back to the current tab
+        document.addEventListener('submit', function(e) {
+            var form = e.target;
+            if (form.method.toLowerCase() === 'post') {
+                var action = form.getAttribute('action');
+                if (action && action.indexOf('#') === -1) {
+                    form.setAttribute('action', action + window.location.hash);
+                }
+            }
+        });
+
         function loadHistory(mount, btn) {
             if (!mount) return;
             document.querySelectorAll('.history-mount-btn').forEach(function(b) { b.classList.remove('active'); });
