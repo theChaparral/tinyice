@@ -548,7 +548,9 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html")
 	data := map[string]interface{}{"Streams": streams, "Config": s.Config}
 	if err := s.tmpl.ExecuteTemplate(w, "index.html", data); err != nil {
-		logrus.WithError(err).Error("Template error")
+		if !strings.Contains(err.Error(), "broken pipe") {
+			logrus.WithError(err).Error("Template error")
+		}
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 	}
 }
@@ -591,7 +593,9 @@ func (s *Server) handleAdmin(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html")
 	data := map[string]interface{}{"Streams": streams, "Config": s.Config, "User": user, "Mounts": allMounts}
 	if err := s.tmpl.ExecuteTemplate(w, "admin.html", data); err != nil {
-		logrus.WithError(err).Error("Template error")
+		if !strings.Contains(err.Error(), "broken pipe") {
+			logrus.WithError(err).Error("Template error")
+		}
 	}
 }
 
@@ -999,7 +1003,7 @@ func (s *Server) handlePublicEvents(w http.ResponseWriter, r *http.Request) {
 		Description string `json:"description"`
 		CurrentSong string `json:"song"`
 	}
-	send := func() {
+	send := func() error {
 		allStreams := s.Relay.Snapshot()
 		var info []PublicStreamInfo
 		for _, st := range allStreams {
@@ -1008,16 +1012,23 @@ func (s *Server) handlePublicEvents(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		payload, _ := json.Marshal(info)
-		fmt.Fprintf(w, "data: %s\n\n", payload)
+		if _, err := fmt.Fprintf(w, "data: %s\n\n", payload); err != nil {
+			return err
+		}
 		flusher.Flush()
+		return nil
 	}
-	send()
+	if err := send(); err != nil {
+		return
+	}
 	for {
 		select {
 		case <-r.Context().Done():
 			return
 		case <-ticker.C:
-			send()
+			if err := send(); err != nil {
+				return
+			}
 		}
 	}
 }
@@ -1102,7 +1113,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		BytesDropped int64  `json:"bytes_dropped"`
 		CurrentSong  string `json:"song"`
 	}
-	send := func() {
+	send := func() error {
 		bi, bo := s.Relay.GetMetrics()
 		allStreams := s.Relay.Snapshot()
 		tl := 0
@@ -1141,33 +1152,40 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 				relays[i].Active = true
 			}
 		}
-				var m runtime.MemStats
-				runtime.ReadMemStats(&m)
-				
-				payload, _ := json.Marshal(map[string]interface{}{
-					"bytes_in":        bi,
-					"bytes_out":       bo,
-					"total_listeners": tl,
-					"total_sources":   len(info),
-					"total_relays":    tr,
-					"total_streamers": ts,
-					"streams":         info,
-					"relays":          relays,
-					"visible_mounts":  s.Config.VisibleMounts,
-					"sys_ram":         m.Sys / 1024 / 1024,
-					"goroutines":      runtime.NumGoroutine(),
-				})
-		
-		fmt.Fprintf(w, "data: %s\n\n", payload)
+		var m runtime.MemStats
+		runtime.ReadMemStats(&m)
+
+		payload, _ := json.Marshal(map[string]interface{}{
+			"bytes_in":        bi,
+			"bytes_out":       bo,
+			"total_listeners": tl,
+			"total_sources":   len(info),
+			"total_relays":    tr,
+			"total_streamers": ts,
+			"streams":         info,
+			"relays":          relays,
+			"visible_mounts":  s.Config.VisibleMounts,
+			"sys_ram":         m.Sys / 1024 / 1024,
+			"goroutines":      runtime.NumGoroutine(),
+		})
+
+		if _, err := fmt.Fprintf(w, "data: %s\n\n", payload); err != nil {
+			return err
+		}
 		flusher.Flush()
+		return nil
 	}
-	send()
+	if err := send(); err != nil {
+		return
+	}
 	for {
 		select {
 		case <-r.Context().Done():
 			return
 		case <-ticker.C:
-			send()
+			if err := send(); err != nil {
+				return
+			}
 		}
 	}
 }
