@@ -26,8 +26,7 @@
             box-shadow: 0 4px 20px rgba(0,0,0,0.3);
             box-sizing: border-box;
         }
-        /* Fix jumping: use transform scale and outline instead of margin/border size changes */
-        .card:hover { transform: scale(1.02); outline: 2px solid var(--primary); outline-offset: -2px; }
+        .card:hover { border-color: var(--primary); }
         
         .live-tag { position: absolute; top: 1.5rem; right: 1.5rem; display: flex; align-items: center; gap: 0.4rem; background: rgba(16, 185, 129, 0.1); padding: 0.3rem 0.6rem; border-radius: 100px; font-size: 0.65rem; font-weight: 800; color: var(--success); border: 1px solid rgba(16, 185, 129, 0.2); text-transform: uppercase; }
         .live-dot { width: 5px; height: 5px; background: var(--success); border-radius: 50%; animation: pulse 2s infinite; }
