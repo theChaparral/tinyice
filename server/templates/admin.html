@@ -91,14 +91,30 @@
                 <div class="stat-card"><div class="label">Traffic MB Out</div><div class="value" id="global-mb-out">0.0</div></div>
             </div>
             <section id="debug-stats" style="display: none; margin-bottom: 2rem;">
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
+                <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1.5rem;">
                     <div class="card" style="padding: 1rem; text-align: center; border-color: var(--warning);">
                         <div class="label" style="font-size: 0.7rem; color: var(--text-dim);">SYSTEM RAM</div>
                         <div class="value" style="font-size: 1.5rem; color: var(--warning);"><span id="debug-ram">0</span> MB</div>
                     </div>
                     <div class="card" style="padding: 1rem; text-align: center; border-color: var(--warning);">
+                        <div class="label" style="font-size: 0.7rem; color: var(--text-dim);">HEAP ALLOC</div>
+                        <div class="value" style="font-size: 1.5rem; color: var(--warning);"><span id="debug-heap">0</span> MB</div>
+                    </div>
+                    <div class="card" style="padding: 1rem; text-align: center; border-color: var(--warning);">
+                        <div class="label" style="font-size: 0.7rem; color: var(--text-dim);">STACK RAM</div>
+                        <div class="value" style="font-size: 1.5rem; color: var(--warning);"><span id="debug-stack">0</span> MB</div>
+                    </div>
+                    <div class="card" style="padding: 1rem; text-align: center; border-color: var(--warning);">
+                        <div class="label" style="font-size: 0.7rem; color: var(--text-dim);">GC CYCLES</div>
+                        <div class="value" style="font-size: 1.5rem; color: var(--warning);" id="debug-gc">0</div>
+                    </div>
+                    <div class="card" style="padding: 1rem; text-align: center; border-color: var(--danger);">
                         <div class="label" style="font-size: 0.7rem; color: var(--text-dim);">GOROUTINES</div>
-                        <div class="value" style="font-size: 1.5rem; color: var(--warning);" id="debug-goroutines">0</div>
+                        <div class="value" style="font-size: 1.5rem; color: var(--danger);" id="debug-goroutines">0</div>
+                    </div>
+                    <div class="card" style="padding: 1rem; text-align: center; border-color: var(--danger);">
+                        <div class="label" style="font-size: 0.7rem; color: var(--text-dim);">TOTAL LOSS</div>
+                        <div class="value" style="font-size: 1.5rem; color: var(--danger);"><span id="debug-loss">0.0</span> MB</div>
                     </div>
                 </div>
             </section>
@@ -204,6 +220,8 @@
             var gMbIn = document.getElementById('global-mb-in'); var gMbOut = document.getElementById('global-mb-out');
             var gStreamers = document.getElementById('stat-streamers'); var gRelays = document.getElementById('stat-relays');
             var debugRam = document.getElementById('debug-ram'); var debugGoroutines = document.getElementById('debug-goroutines');
+            var debugHeap = document.getElementById('debug-heap'); var debugStack = document.getElementById('debug-stack');
+            var debugGC = document.getElementById('debug-gc'); var debugLoss = document.getElementById('debug-loss');
             var isDebug = window.location.search.indexOf('debug') !== -1;
             if (isDebug) document.getElementById('debug-stats').style.display = 'block';
 
@@ -232,11 +250,18 @@
                 inRateEl.innerText = rIn.toFixed(1); outRateEl.innerText = rOut.toFixed(1); dataIn.shift(); dataIn.push(rIn); dataOut.shift(); dataOut.push(rOut); drawChart();
                 gListeners.innerText = data.total_listeners; gSources.innerText = data.total_sources; 
                 gStreamers.innerText = data.total_streamers; gRelays.innerText = data.total_relays;
-                gMbIn.innerText = (data.bytes_in / (1024 * 1024)).toFixed(1); gMbOut.innerText = (data.bytes_out / (1024 * 1024)).toFixed(1);
-                if (debugRam) debugRam.innerText = data.sys_ram;
-                if (debugGoroutines) debugGoroutines.innerText = data.goroutines;
-
-                streamsBody.innerHTML = ''; if (data.streams.length > 0) {
+                                gMbIn.innerText = (data.bytes_in / (1024 * 1024)).toFixed(1); gMbOut.innerText = (data.bytes_out / (1024 * 1024)).toFixed(1);
+                                if (debugRam) {
+                                    debugRam.innerText = data.sys_ram;
+                                    debugHeap.innerText = data.heap_alloc;
+                                    debugStack.innerText = data.stack_sys;
+                                    debugGC.innerText = data.num_gc;
+                                    debugGoroutines.innerText = data.goroutines;
+                                    debugLoss.innerText = (data.total_dropped / (1024 * 1024)).toFixed(2);
+                                }
+                                
+                                streamsBody.innerHTML = ''; if (data.streams.length > 0) {
+                
                     data.streams.forEach(function(s) {
                         var prev = streamHistory[s.mount] || { in: s.bytes_in, out: s.bytes_out }; var curIn = (s.bytes_in - prev.in) / 1024, curOut = (s.bytes_out - prev.out) / 1024; streamHistory[s.mount] = { in: s.bytes_in, out: s.bytes_out };
                         var clone = rowTemplate.content.cloneNode(true); clone.querySelector('.row-mount').textContent = s.mount; clone.querySelector('.row-ip').textContent = s.ip; clone.querySelector('.row-song').textContent = s.song;

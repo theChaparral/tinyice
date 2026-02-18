@@ -1152,24 +1152,32 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 				relays[i].Active = true
 			}
 		}
-		var m runtime.MemStats
-		runtime.ReadMemStats(&m)
-
-		payload, _ := json.Marshal(map[string]interface{}{
-			"bytes_in":        bi,
-			"bytes_out":       bo,
-			"total_listeners": tl,
-			"total_sources":   len(info),
-			"total_relays":    tr,
-			"total_streamers": ts,
-			"streams":         info,
-			"relays":          relays,
-			"visible_mounts":  s.Config.VisibleMounts,
-			"sys_ram":         m.Sys / 1024 / 1024,
-			"goroutines":      runtime.NumGoroutine(),
-		})
-
-		if _, err := fmt.Fprintf(w, "data: %s\n\n", payload); err != nil {
+				var m runtime.MemStats
+				runtime.ReadMemStats(&m)
+				
+				totalDropped := int64(0)
+				for _, st := range allStreams {
+					totalDropped += st.BytesDropped
+				}
+		
+				payload, _ := json.Marshal(map[string]interface{}{
+					"bytes_in":        bi,
+					"bytes_out":       bo,
+					"total_listeners": tl,
+					"total_sources":   len(info),
+					"total_relays":    tr,
+					"total_streamers": ts,
+					"streams":         info,
+					"relays":          relays,
+					"visible_mounts":  s.Config.VisibleMounts,
+					"sys_ram":         m.Sys / 1024 / 1024,
+					"heap_alloc":      m.HeapAlloc / 1024 / 1024,
+					"stack_sys":       m.StackSys / 1024 / 1024,
+					"num_gc":          m.NumGC,
+					"goroutines":      runtime.NumGoroutine(),
+					"total_dropped":   totalDropped,
+				})
+				if _, err := fmt.Fprintf(w, "data: %s\n\n", payload); err != nil {
 			return err
 		}
 		flusher.Flush()
