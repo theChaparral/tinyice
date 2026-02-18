@@ -36,20 +36,40 @@ type Stream struct {
 }
 
 // Relay manages all active streams
+
 type Relay struct {
+
 	Streams    map[string]*Stream
+
 	mu         sync.RWMutex
+
 	LowLatency bool
+
 	BytesIn    int64
+
 	BytesOut   int64
+
+	History    *HistoryManager
+
 }
 
-func NewRelay(lowLatency bool) *Relay {
+
+
+func NewRelay(lowLatency bool, history *HistoryManager) *Relay {
+
 	return &Relay{
+
 		Streams:    make(map[string]*Stream),
+
 		LowLatency: lowLatency,
+
+		History:    history,
+
 	}
+
 }
+
+
 
 // GetOrCreateStream returns an existing stream or creates a new one
 func (r *Relay) GetOrCreateStream(mount string) *Stream {
@@ -227,10 +247,15 @@ func (s *Stream) UpdateMetadata(name, desc, genre, url, bitrate, contentType str
 }
 
 // SetCurrentSong updates the current song info thread-safely
-func (s *Stream) SetCurrentSong(song string) {
+func (s *Stream) SetCurrentSong(song string, relay *Relay) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.CurrentSong = song
+	if s.CurrentSong != song {
+		s.CurrentSong = song
+		if relay.History != nil {
+			relay.History.Add(s.MountName, song)
+		}
+	}
 }
 
 // SetVisible updates the visibility of the stream thread-safely

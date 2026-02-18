@@ -17,6 +17,7 @@ type RelayInstance struct {
 	Mount     string
 	Password  string
 	BurstSize int
+	Visible   bool
 	cancel    context.CancelFunc
 	mu        sync.Mutex
 	Active    bool
@@ -35,7 +36,7 @@ func NewRelayManager(r *Relay) *RelayManager {
 	}
 }
 
-func (rm *RelayManager) StartRelay(url, mount, password string, burstSize int) {
+func (rm *RelayManager) StartRelay(url, mount, password string, burstSize int, visible bool) {
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
 
@@ -50,6 +51,7 @@ func (rm *RelayManager) StartRelay(url, mount, password string, burstSize int) {
 		Mount:     mount,
 		Password:  password,
 		BurstSize: burstSize,
+		Visible:   visible,
 		cancel:    cancel,
 		Active:    true,
 	}
@@ -143,7 +145,7 @@ func (rm *RelayManager) performPull(ctx context.Context, inst *RelayInstance) {
 	var metaInt int
 	fmt.Sscanf(resp.Header.Get("Icy-Metaint"), "%d", &metaInt)
 
-	stream.UpdateMetadata(name, desc, genre, resp.Header.Get("Ice-Url"), bitrate, resp.Header.Get("Content-Type"), false, false)
+	stream.UpdateMetadata(name, desc, genre, resp.Header.Get("Ice-Url"), bitrate, resp.Header.Get("Content-Type"), false, inst.Visible)
 
 	// In-stream metadata parsing
 	if metaInt > 0 {
@@ -195,7 +197,7 @@ func (rm *RelayManager) pullWithMetadata(ctx context.Context, body io.Reader, st
 					title := strings.Split(metaStr, "StreamTitle='")[1]
 					title = strings.Split(title, "';")[0]
 					if title != "" {
-						stream.SetCurrentSong(title)
+						stream.SetCurrentSong(title, rm.relay)
 					}
 				}
 			}

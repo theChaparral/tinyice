@@ -33,7 +33,12 @@ func NewServer(cfg *config.Config) *Server {
 		logrus.Fatalf("Error loading embedded templates: %v", err)
 	}
 
-	r := relay.NewRelay(cfg.LowLatencyMode)
+	hm, err := relay.NewHistoryManager("history.db")
+	if err != nil {
+		logrus.WithError(err).Fatal("Failed to initialize history manager")
+	}
+
+	r := relay.NewRelay(cfg.LowLatencyMode, hm)
 	return &Server{
 		Config: cfg,
 		Relay:  r,
@@ -60,8 +65,10 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/admin/add-banned-ip", s.handleAddBannedIP)
 	mux.HandleFunc("/admin/remove-banned-ip", s.handleRemoveBannedIP)
 	mux.HandleFunc("/admin/add-relay", s.handleAddRelay)
-	mux.HandleFunc("/admin/remove-relay", s.handleRemoveRelay)
+	mux.HandleFunc("/admin/toggle-relay", s.handleToggleRelay)
 	mux.HandleFunc("/admin/restart-relay", s.handleRestartRelay)
+	mux.HandleFunc("/admin/delete-relay", s.handleDeleteRelay)
+	mux.HandleFunc("/admin/history", s.handleHistory)
 	mux.HandleFunc("/", s.handleRoot)
 	mux.HandleFunc("/events", s.handlePublicEvents)
 	mux.HandleFunc("/status-json.xsl", s.handleLegacyStats)
@@ -74,7 +81,9 @@ func (s *Server) Start() error {
 	}
 
 	for _, rc := range s.Config.Relays {
-		s.RelayM.StartRelay(rc.URL, rc.Mount, rc.Password, rc.BurstSize)
+		if rc.Enabled {
+			s.RelayM.StartRelay(rc.URL, rc.Mount, rc.Password, rc.BurstSize, s.Config.VisibleMounts[rc.Mount])
+		}
 	}
 	
 	if !s.Config.UseHTTPS {
@@ -249,24 +258,10 @@ func (s *Server) handleListener(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
-
 	allStreams := s.Relay.Snapshot()
-
 	var streams []relay.StreamStats
-
-	for _, st := range allStreams {
-
-		if st.Visible {
-
-			streams = append(streams, st)
-
-		}
-
-	}
-
+	for _, st := range allStreams { if st.Visible { streams = append(streams, st) } }
 	w.Header().Set("Content-Type", "text/html")
-
-
 	data := map[string]interface{}{"Streams": streams, "Config": s.Config}
 	if err := s.tmpl.ExecuteTemplate(w, "index.html", data); err != nil { logrus.WithError(err).Error("Template error"); http.Error(w, "Internal Server Error", http.StatusInternalServerError) }
 }
@@ -305,7 +300,7 @@ func (s *Server) handleRemoveMount(w http.ResponseWriter, r *http.Request) {
 	user, ok := s.checkAuth(r); if !ok { return }
 	mount := r.FormValue("mount")
 	if !s.hasAccess(user, mount) { return }
-	delete(s.Config.Mounts, mount); delete(s.Config.DisabledMounts, mount); delete(user.Mounts, mount)
+	delete(s.Config.Mounts, mount); delete(s.Config.DisabledMounts, mount); delete(s.Config.VisibleMounts, mount); delete(user.Mounts, mount)
 	s.Relay.RemoveStream(mount); s.Config.SaveConfig(); http.Redirect(w, r, "/admin", http.StatusSeeOther)
 }
 
@@ -325,7 +320,9 @@ func (s *Server) handleMetadata(w http.ResponseWriter, r *http.Request) {
 		if !allowed { for _, u := range s.Config.Users { if config.CheckPasswordHash(p, u.Mounts[mount]) { allowed = true; break } } }
 		if !allowed { http.Error(w, "Unauthorized", http.StatusUnauthorized); return }
 	} else { if !s.hasAccess(user, mount) { http.Error(w, "Forbidden", http.StatusForbidden); return } }
-	if mount != "" && song != "" { if st, ok := s.Relay.GetStream(mount); ok { st.SetCurrentSong(song) } }
+	if mount != "" && song != "" {
+		if st, ok := s.Relay.GetStream(mount); ok { st.SetCurrentSong(song, s.Relay) }
+	}
 	fmt.Fprint(w, "<?xml version=\"1.0\"?>\n<iceresponse><message>OK</message><return>1</return></iceresponse>\n")
 }
 
@@ -412,16 +409,32 @@ func (s *Server) handleAddRelay(w http.ResponseWriter, r *http.Request) {
 		u, m, pw, bs := r.FormValue("url"), r.FormValue("mount"), r.FormValue("password"), r.FormValue("burst_size")
 		if u != "" && m != "" {
 			if m[0] != '/' { m = "/" + m }
-			fmt.Sscanf(bs, "%d", &bs)
-			rc := &config.RelayConfig{URL: u, Mount: m, Password: pw, BurstSize: 20}
+			burst := 20
+			fmt.Sscanf(bs, "%d", &burst)
+			rc := &config.RelayConfig{URL: u, Mount: m, Password: pw, BurstSize: burst, Enabled: true}
 			s.Config.Relays = append(s.Config.Relays, rc); s.Config.SaveConfig()
-			s.RelayM.StartRelay(rc.URL, rc.Mount, rc.Password, rc.BurstSize)
+			s.RelayM.StartRelay(rc.URL, rc.Mount, rc.Password, rc.BurstSize, s.Config.VisibleMounts[m])
 		}
 	}
 	http.Redirect(w, r, "/admin", http.StatusSeeOther)
 }
 
-func (s *Server) handleRemoveRelay(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleToggleRelay(w http.ResponseWriter, r *http.Request) {
+	if !s.isCSRFSafe(r) { return }
+	user, ok := s.checkAuth(r); mount := r.FormValue("mount")
+	if ok && user.Role == config.RoleSuperAdmin {
+		for _, rc := range s.Config.Relays {
+			if rc.Mount == mount {
+				rc.Enabled = !rc.Enabled
+				if rc.Enabled { s.RelayM.StartRelay(rc.URL, rc.Mount, rc.Password, rc.BurstSize, s.Config.VisibleMounts[mount]) } else { s.RelayM.StopRelay(mount) }
+				s.Config.SaveConfig(); break
+			}
+		}
+	}
+	http.Redirect(w, r, "/admin", http.StatusSeeOther)
+}
+
+func (s *Server) handleDeleteRelay(w http.ResponseWriter, r *http.Request) {
 	if !s.isCSRFSafe(r) { return }
 	user, ok := s.checkAuth(r); mount := r.FormValue("mount")
 	if ok && user.Role == config.RoleSuperAdmin {
@@ -434,9 +447,16 @@ func (s *Server) handleRestartRelay(w http.ResponseWriter, r *http.Request) {
 	if !s.isCSRFSafe(r) { return }
 	user, ok := s.checkAuth(r); mount := r.FormValue("mount")
 	if ok && user.Role == config.RoleSuperAdmin {
-		for _, rc := range s.Config.Relays { if rc.Mount == mount { s.RelayM.StartRelay(rc.URL, rc.Mount, rc.Password, rc.BurstSize); break } }
+		for _, rc := range s.Config.Relays { if rc.Mount == mount { s.RelayM.StartRelay(rc.URL, rc.Mount, rc.Password, rc.BurstSize, s.Config.VisibleMounts[mount]); break } }
 	}
 	http.Redirect(w, r, "/admin", http.StatusSeeOther)
+}
+
+func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
+	mount := r.URL.Query().Get("mount")
+	history := s.Relay.History.Get(mount)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(history)
 }
 
 func (s *Server) handleLegacyStats(w http.ResponseWriter, r *http.Request) {
@@ -510,10 +530,17 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if user.Role != config.RoleSuperAdmin { var ubi, ubo int64; for _, st := range info { ubi += st.BytesIn; ubo += st.BytesOut }; bi, bo = ubi, ubo }
-		type RelayInfo struct { URL string `json:"url"`; Mount string `json:"mount"`; Active bool `json:"active"` }
+		type RelayInfo struct { URL string `json:"url"`; Mount string `json:"mount"`; Active bool `json:"active"`; Enabled bool `json:"enabled"` }
 		relays := make([]RelayInfo, len(s.Config.Relays))
-		for i, rc := range s.Config.Relays { relays[i] = RelayInfo{URL: rc.URL, Mount: rc.Mount, Active: false}; if st, ok := s.Relay.GetStream(rc.Mount); ok && st.SourceIP == "relay-pull" { relays[i].Active = true } }
-		payload, _ := json.Marshal(map[string]interface{}{"bytes_in": bi, "bytes_out": bo, "total_listeners": tl, "total_sources": len(info), "total_relays": tr, "total_streamers": ts, "streams": info, "relays": relays})
+		for i, rc := range s.Config.Relays {
+			relays[i] = RelayInfo{URL: rc.URL, Mount: rc.Mount, Active: false, Enabled: rc.Enabled}
+			if st, ok := s.Relay.GetStream(rc.Mount); ok && st.SourceIP == "relay-pull" { relays[i].Active = true }
+		}
+		payload, _ := json.Marshal(map[string]interface{}{
+			"bytes_in": bi, "bytes_out": bo, "total_listeners": tl, "total_sources": len(info), 
+			"total_relays": tr, "total_streamers": ts, "streams": info, "relays": relays,
+			"visible_mounts": s.Config.VisibleMounts,
+		})
 		fmt.Fprintf(w, "data: %s\n\n", payload); flusher.Flush()
 	}
 	send()

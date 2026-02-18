@@ -23,6 +23,7 @@ type RelayConfig struct {
 	Mount     string `json:"mount"`     // Local mount point
 	Password  string `json:"password"`  // If the master requires one
 	BurstSize int    `json:"burst_size"`
+	Enabled   bool   `json:"enabled"`
 }
 
 type MountSettings struct {
@@ -109,6 +110,9 @@ func LoadConfig(path string) (*Config, error) {
 	if config.Users == nil { config.Users = make(map[string]*User) }
 	if config.AdvancedMounts == nil { config.AdvancedMounts = make(map[string]*MountSettings) }
 	if config.Relays == nil { config.Relays = make([]*RelayConfig, 0) }
+	for _, r := range config.Relays {
+		r.Enabled = true // Logic: if they are in config and we just loaded, we default to enabled for migration
+	}
 	if config.BannedIPs == nil { config.BannedIPs = make([]string, 0) }
 
 	// Migration/Backward compatibility: Ensure AdminUser is in Users map as superadmin
