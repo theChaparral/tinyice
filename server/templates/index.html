@@ -26,20 +26,21 @@
         .live-dot { width: 6px; height: 6px; background: var(--success); border-radius: 50%; animation: pulse 2s infinite; }
         @keyframes pulse { 0% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.5); opacity: 0.5; } 100% { transform: scale(1); opacity: 1; } }
 
-        .stream-name { font-size: 1.5rem; font-weight: 700; margin-bottom: 0.5rem; padding-right: 4rem; height: 2.4rem; position: relative; overflow: hidden; white-space: nowrap; }
+        .stream-name { font-size: 1.5rem; font-weight: 700; margin-bottom: 0.5rem; padding-right: 4.5rem; height: 2.4rem; position: relative; overflow: hidden; }
+        .scroll-wrapper { white-space: nowrap; display: inline-block; position: relative; }
         
-        .scroll-wrapper { display: inline-block; transition: transform 0.5s; }
         .scroll-active { animation: marquee linear infinite; }
         @keyframes marquee { 
             0% { transform: translateX(0); }
-            15% { transform: translateX(0); }
-            85% { transform: translateX(calc(-100% + 250px)); }
-            100% { transform: translateX(calc(-100% + 250px)); }
+            10% { transform: translateX(0); }
+            90% { transform: translateX(var(--scroll-dist)); }
+            100% { transform: translateX(var(--scroll-dist)); }
         }
 
-        .now-playing { background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.2); color: var(--warning); padding: 0.75rem; border-radius: 10px; margin-bottom: 1.5rem; font-size: 0.9rem; font-weight: 600; min-height: 54px; overflow: hidden; position: relative; }
+        .now-playing { background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.2); color: var(--warning); padding: 0.75rem; border-radius: 10px; margin-bottom: 1.5rem; font-size: 0.9rem; font-weight: 600; min-height: 54px; position: relative; overflow: hidden; }
         .now-playing label { font-size: 0.65rem; text-transform: uppercase; color: var(--text-dim); opacity: 0.8; display: block; position: relative; z-index: 2; }
-        .song-val-wrap { display: inline-block; white-space: nowrap; }
+        .song-val-wrap { display: block; position: relative; height: 1.2rem; overflow: hidden; }
+        .song-scroll { white-space: nowrap; display: inline-block; }
         
         .meta-list { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 2rem; flex-grow: 1; }
         .meta-item { background: rgba(0,0,0,0.2); padding: 0.75rem; border-radius: 10px; display: flex; flex-direction: column; justify-content: center; height: 50px; }
@@ -77,7 +78,10 @@
         <div class="card">
             <div class="live-indicator"><div class="live-dot"></div> LIVE</div>
             <div class="stream-name"><div class="scroll-wrapper name-scroll"></div></div>
-            <div class="now-playing"><label>Now Playing</label><div class="song-val-wrap song-scroll"></div></div>
+            <div class="now-playing">
+                <label>Now Playing</label>
+                <div class="song-val-wrap"><div class="song-scroll"></div></div>
+            </div>
             <div class="meta-list">
                 <div class="meta-item"><div class="meta-label">Listeners</div><div class="meta-value listener-val"></div></div>
                 <div class="meta-item"><div class="meta-label">Bitrate</div><div class="meta-value bitrate-val"></div></div>
@@ -102,12 +106,16 @@
             var currentPage = 1;
 
             function checkScroll(el) {
-                if (el.scrollWidth > el.parentElement.offsetWidth) {
+                var parent = el.parentElement;
+                if (el.scrollWidth > parent.offsetWidth) {
+                    var dist = parent.offsetWidth - el.scrollWidth - 20;
+                    el.style.setProperty('--scroll-dist', dist + 'px');
                     el.classList.add('scroll-active');
                     var duration = el.scrollWidth / 30; 
-                    el.style.animationDuration = duration + 's';
+                    el.style.animationDuration = Math.max(duration, 5) + 's';
                 } else {
                     el.classList.remove('scroll-active');
+                    el.style.transform = 'translateX(0)';
                 }
             }
 
@@ -131,12 +139,8 @@
                     var card = clone.querySelector('.card');
                     card.setAttribute('data-mount', s.mount);
                     
-                    var nameScroll = clone.querySelector('.name-scroll');
-                    nameScroll.textContent = s.name || s.mount;
-                    
-                    var songScroll = clone.querySelector('.song-scroll');
-                    songScroll.textContent = s.song || 'N/A';
-                    
+                    clone.querySelector('.name-scroll').textContent = s.name || s.mount;
+                    clone.querySelector('.song-scroll').textContent = s.song || 'N/A';
                     clone.querySelector('.listener-val').textContent = s.listeners;
                     clone.querySelector('.bitrate-val').textContent = s.bitrate + ' kbps';
                     clone.querySelector('.genre-val').textContent = s.genre;
@@ -144,8 +148,10 @@
                     clone.querySelector('.btn-play').setAttribute('href', s.mount);
                     container.appendChild(clone);
 
-                    checkScroll(container.querySelector('.card[data-mount="' + s.mount + '"] .name-scroll'));
-                    checkScroll(container.querySelector('.card[data-mount="' + s.mount + '"] .song-scroll'));
+                    // Re-calculate after DOM insertion
+                    var cardInDom = container.querySelector('.card[data-mount="' + s.mount + '"]');
+                    checkScroll(cardInDom.querySelector('.name-scroll'));
+                    checkScroll(cardInDom.querySelector('.song-scroll'));
                 });
 
                 if (totalPages > 1) {
