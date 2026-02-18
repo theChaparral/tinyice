@@ -1,4 +1,6 @@
-# TinyIce
+# TinyIce ❄️
+
+**Run it, and you've got a production-ready Icecast server in seconds.**
 
 TinyIce is a lightweight, high-performance, and secure Icecast2-compatible streaming server written in Go. It is designed to be self-contained, easy to deploy, and provides a modern web interface for both administrators and listeners.
 
@@ -12,22 +14,21 @@ TinyIce is a lightweight, high-performance, and secure Icecast2-compatible strea
 
 Traditional streaming servers can be complex to configure and resource-heavy. TinyIce aims to solve this by providing:
 
--   **Zero Dependencies**: A single binary with all assets including templates and icons embedded at compile time.
--   **No Default Passwords**: Unique secure credentials are automatically generated on the first run, and all passwords are stored using salted **bcrypt** hashing.
+-   **Instant Deployment**: A single binary with all assets (templates, icons) embedded.
+-   **Zero-Config Security**: Unique secure credentials automatically generated on first run.
+-   **Multi-Tenant Ready**: Create multiple admin users who can only manage their own mount points.
+-   **Production-Grade**: Salted **bcrypt** password hashing, CSRF protection, and HTTP resource hardening.
 -   **Auto-HTTPS**: Built-in support for **ACME (Let's Encrypt)** for zero-configuration SSL certificates.
--   **Modern UI**: Real-time dashboards powered by Server-Sent Events (SSE) with smooth, hardware-accelerated traffic charts.
--   **High Compatibility**: Supports standard Icecast2 source clients, players, and directory listings (YP).
--   **Advanced Logging**: Structured logging via `logrus` with support for multiple levels and formats (text, JSON).
+-   **Real-time Insights**: SSE-powered dashboards with smooth, hardware-accelerated traffic charts.
 
 ## Features
 
--   **Icecast2 Compatible**: Fully supports standard source clients such as BUTT, OBS, Mixxx, and LadioCast, as well as players like VLC and modern web browsers.
--   **Dual-Protocol Listening**: Intelligently handles HTTPS for listeners and the Web UI while allowing encoders to stream over plain HTTP if they do not support TLS.
--   **Public Directory Listing**: Support for the Icecast YP protocol to list your stations on directories like `dir.xiph.org`.
--   **Dynamic Mount Management**: Add, update, disable, or remove mount points through the admin panel without requiring a server restart.
--   **Real-time Analytics**: Visual traffic charts for Inbound and Outbound data flow along with global server statistics.
--   **Administrative Controls**: Capability to kick specific streamers, disconnect all listeners, or temporarily disable mount points.
--   **Now Playing Metadata**: Support for industry-standard metadata updates and real-time display on both public and admin pages.
+-   **Icecast2 Compatible**: Works with standard source clients (BUTT, OBS, Mixxx, LadioCast) and players (VLC, web browsers).
+-   **Dual-Protocol Architecture**: Handles HTTPS for listeners while allowing legacy encoders to stream over plain HTTP.
+-   **Public Directory Listing**: Built-in support for Icecast YP protocol (e.g., `dir.xiph.org`).
+-   **Dynamic Management**: Add, update, disable, or remove mount points and users on the fly.
+-   **Administrative Controls**: Kick specific streamers, disconnect all listeners, or toggle stream visibility.
+-   **Now Playing Metadata**: Real-time display of song titles pushed from broadcast software.
 
 ## Getting Started
 
@@ -41,66 +42,45 @@ go build -o tinyice
 ```bash
 ./tinyice
 ```
-On the **first run**, TinyIce will:
-1.  Generate a secure `tinyice.json` configuration file.
-2.  Create unique random passwords for the admin user and the default source.
-3.  Display these credentials in your terminal. **Save them immediately.**
+On the **first run**, TinyIce will generate `tinyice.json` with unique random passwords. **Save them from the terminal!**
 
 ### 3. Stream
-Configure your encoder (e.g., BUTT) to point to:
+Point your encoder (e.g., BUTT) to:
 -   **Server Type**: Icecast 2
 -   **Address**: your-server-ip
 -   **Port**: 8000
 -   **Password**: [The generated source password]
 -   **Mount**: /live
 
-### 4. Manage
-Visit `http://localhost:8000/admin` to manage your stations and view live traffic analytics.
-
 ## Command Line Usage
 
-TinyIce supports several flags for operational flexibility:
-
 ```bash
-./tinyice -daemon -log-file server.log -pid-file tinyice.pid
+./tinyice -host 127.0.0.1 -port 8000 -daemon -log-file tinyice.log
 ```
 
--   `-config`: Path to the configuration file (default: "tinyice.json").
--   `-log-file`: Path to a file for log output (default: stdout).
--   `-log-level`: Logging verbosity: `debug`, `info`, `warn`, `error` (default: "info").
+-   `-host`: Network interface to bind to (default: "0.0.0.0").
+-   `-config`: Path to the configuration file.
+-   `-log-file`: Path to a file for log output.
+-   `-log-level`: `debug`, `info`, `warn`, `error`.
 -   `-json-logs`: Enable structured JSON logging.
--   `-daemon`: Run the server in the background.
--   `-pid-file`: Path to write the process ID (useful for service management).
+-   `-daemon`: Run in the background.
+-   `-pid-file`: Path to write the process ID.
 
 ## Configuration
 
-The `tinyice.json` file allows for extensive customization:
-
 ```json
 {
+    "bind_host": "0.0.0.0",
     "port": "8000",
     "page_title": "My Stream Portal",
-    "page_subtitle": "Broadcasting live from Earth",
     "use_https": true,
     "auto_https": true,
     "acme_email": "admin@example.com",
     "domains": ["radio.example.com"],
     "directory_listing": true,
-    "default_source_password": "$2a$12$...",
-    "admin_user": "admin",
-    "admin_password": "$2a$12$...",
     "max_listeners": 100
 }
 ```
-
-## Advanced Usage
-
-### Super Low Latency Mode
-Enable this feature in the Admin Panel to disable the "burst-on-connect" buffer. This reduces playback delay to less than one second.
-
-### Metadata Updates
-TinyIce supports standard Icecast metadata updates:
-`GET /admin/metadata?mount=/live&mode=updinfo&song=Artist+-+Title`
 
 ## License
 

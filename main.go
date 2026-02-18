@@ -17,6 +17,7 @@ import (
 
 var (
 	configPath = flag.String("config", "tinyice.json", "Path to configuration file")
+	bindHost   = flag.String("host", "0.0.0.0", "Network interface to bind to")
 	logFile    = flag.String("log-file", "", "Path to log file (default is stdout)")
 	logLevel   = flag.String("log-level", "info", "Log level (debug, info, warn, error)")
 	jsonLogs   = flag.Bool("json-logs", false, "Enable JSON logging format")
@@ -109,6 +110,7 @@ func main() {
 		hAdmin, _ := config.HashPassword(adminPass)
 
 		defaultCfg := config.Config{
+			BindHost:              *bindHost,
 			Port:                  "8000",
 			DefaultSourcePassword: hDefaultSource,
 			Mounts: map[string]string{
@@ -116,6 +118,14 @@ func main() {
 			},
 			AdminUser:     "admin",
 			AdminPassword: hAdmin,
+			Users: map[string]*config.User{
+				"admin": {
+					Username: "admin",
+					Password: hAdmin,
+					Role:     config.RoleSuperAdmin,
+					Mounts:   make(map[string]string),
+				},
+			},
 			HostName:      "localhost",
 			Location:      "Earth",
 			AdminEmail:    "admin@localhost",

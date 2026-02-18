@@ -6,92 +6,25 @@
     <title>TinyIce Admin</title>
     <style>
         :root {
-            --bg: #0b0f1a;
-            --surface: #161b2c;
-            --surface-hover: #1e253a;
-            --primary: #38bdf8;
-            --primary-glow: rgba(56, 189, 248, 0.15);
-            --text: #f1f5f9;
-            --text-dim: #94a3b8;
-            --border: #2d3748;
-            --success: #10b981;
-            --danger: #f87171;
-            --warning: #f59e0b;
+            --bg: #0b0f1a; --surface: #161b2c; --surface-hover: #1e253a;
+            --primary: #38bdf8; --primary-glow: rgba(56, 189, 248, 0.15);
+            --text: #f1f5f9; --text-dim: #94a3b8; --border: #2d3748;
+            --success: #10b981; --danger: #f87171; --warning: #f59e0b;
         }
-        body {
-            font-family: 'Inter', system-ui, -apple-system, sans-serif;
-            background: var(--bg);
-            color: var(--text);
-            margin: 0;
-            line-height: 1.5;
-        }
-        .app-container {
-            display: grid;
-            grid-template-columns: 280px 1fr;
-            min-height: 100vh;
-        }
-        aside {
-            background: var(--surface);
-            border-right: 1px solid var(--border);
-            padding: 2rem;
-            display: flex;
-            flex-direction: column;
-        }
-        main {
-            padding: 2.5rem;
-            max-width: 1200px;
-        }
-        .logo {
-            font-size: 1.5rem;
-            font-weight: 800;
-            color: var(--primary);
-            margin-bottom: 2rem;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
+        body { font-family: 'Inter', system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); margin: 0; line-height: 1.5; }
+        .app-container { display: grid; grid-template-columns: 280px 1fr; min-height: 100vh; }
+        aside { background: var(--surface); border-right: 1px solid var(--border); padding: 2rem; display: flex; flex-direction: column; }
+        main { padding: 2.5rem; max-width: 1200px; }
+        .logo { font-size: 1.5rem; font-weight: 800; color: var(--primary); margin-bottom: 2rem; display: flex; align-items: center; gap: 0.5rem; }
         .logo span { font-weight: 200; color: var(--text-dim); }
-        
         h2 { font-size: 1.25rem; font-weight: 600; margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.75rem; }
         h2::before { content: ''; width: 4px; height: 1.25rem; background: var(--primary); border-radius: 2px; }
-
-        .card {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 1.5rem;
-            margin-bottom: 2rem;
-        }
-
-        .stat-cards {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 1.5rem;
-            margin-bottom: 2rem;
-        }
-        .stat-card {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: 16px;
-            padding: 1.5rem;
-            text-align: center;
-        }
+        .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; margin-bottom: 2rem; }
+        .stat-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem; margin-bottom: 2rem; }
+        .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 1.5rem; text-align: center; }
         .stat-card .label { color: var(--text-dim); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 0.5rem; }
         .stat-card .value { font-size: 2.5rem; font-weight: 800; color: var(--primary); }
-
-        .btn {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            padding: 0.6rem 1.2rem;
-            border-radius: 8px;
-            font-weight: 600;
-            font-size: 0.9rem;
-            cursor: pointer;
-            transition: all 0.2s;
-            text-decoration: none;
-            border: none;
-        }
+        .btn { display: inline-flex; align-items: center; justify-content: center; padding: 0.6rem 1.2rem; border-radius: 8px; font-weight: 600; font-size: 0.9rem; cursor: pointer; transition: all 0.2s; text-decoration: none; border: none; }
         .btn-primary { background: var(--primary); color: var(--bg); }
         .btn-outline { border: 1px solid var(--border); color: var(--text); background: transparent; }
         .btn-outline:hover { background: var(--surface-hover); }
@@ -100,42 +33,20 @@
         .btn-danger:hover { background: var(--danger); color: var(--bg); }
         .btn-warning { background: rgba(245, 158, 11, 0.1); color: var(--warning); border: 1px solid rgba(245, 158, 11, 0.2); }
         .btn-warning:hover { background: var(--warning); color: var(--bg); }
-
         table { width: 100%; border-collapse: collapse; }
         th { text-align: left; font-size: 0.75rem; color: var(--text-dim); text-transform: uppercase; padding: 1rem; border-bottom: 1px solid var(--border); }
         td { padding: 1rem; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
-        
         .mount-code { font-family: ui-monospace, monospace; color: var(--primary); background: rgba(56, 189, 248, 0.1); padding: 0.2rem 0.4rem; border-radius: 4px; }
         .mount-disabled { text-decoration: line-through; color: var(--text-dim); }
-        
-        .status-pill { display: inline-flex; align-items: center; gap: 0.4rem; background: rgba(16, 185, 129, 0.1); color: var(--success); padding: 0.2rem 0.6rem; border-radius: 100px; font-size: 0.75rem; font-weight: 700; }
-        .dot { width: 6px; height: 6px; background: currentColor; border-radius: 50%; }
-
         .form-group { margin-bottom: 1.25rem; }
         label { display: block; font-size: 0.85rem; color: var(--text-dim); margin-bottom: 0.5rem; }
-        input {
-            width: 100%;
-            background: var(--bg);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 0.75rem;
-            color: var(--text);
-            box-sizing: border-box;
-        }
-
-        nav a {
-            display: flex;
-            align-items: center;
-            gap: 0.75rem;
-            color: var(--text-dim);
-            text-decoration: none;
-            padding: 0.75rem 1rem;
-            border-radius: 8px;
-            margin-bottom: 0.5rem;
-        }
+        input, select { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem; color: var(--text); box-sizing: border-box; }
+        nav a { display: flex; align-items: center; gap: 0.75rem; color: var(--text-dim); text-decoration: none; padding: 0.75rem 1rem; border-radius: 8px; margin-bottom: 0.5rem; }
         nav a.active { color: var(--primary); background: var(--primary-glow); }
-
         .song-title { font-weight: 600; color: var(--warning); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px; }
+        .role-badge { font-size: 0.7rem; padding: 0.1rem 0.4rem; border-radius: 4px; font-weight: 800; text-transform: uppercase; }
+        .role-super { background: var(--primary); color: var(--bg); }
+        .role-admin { background: var(--border); color: var(--text); }
     </style>
 </head>
 <body>
@@ -146,45 +57,40 @@
                 <a href="/admin" class="active">Dashboard</a>
                 <a href="/">Public View</a>
             </nav>
+            <div style="margin-top: 1rem; font-size: 0.8rem; color: var(--text-dim);">
+                Logged in as: <strong style="color:var(--primary)">{{.User.Username}}</strong>
+                <span class="role-badge {{if eq .User.Role "superadmin"}}role-super{{else}}role-admin{{end}}">{{.User.Role}}</span>
+            </div>
             
+            {{if eq .User.Role "superadmin"}}
             <div style="margin-top: 2rem; padding: 1rem; background: var(--bg); border-radius: 12px; border: 1px solid var(--border);">
-                <div style="font-size: 0.75rem; color: var(--text-dim); text-transform: uppercase; margin-bottom: 0.5rem;">Latency Mode</div>
+                <div style="font-size: 0.75rem; color: var(--text-dim); text-transform: uppercase; margin-bottom: 0.5rem;">Global Latency</div>
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
                     <span style="font-size: 0.9rem; font-weight: 600;">{{if .Config.LowLatencyMode}}Super Low{{else}}Standard{{end}}</span>
                     <span style="width: 8px; height: 8px; background: {{if .Config.LowLatencyMode}}#f59e0b{{else}}#10b981{{end}}; border-radius: 50%;"></span>
                 </div>
                 <form action="/admin/toggle-latency" method="POST">
-                    <button type="submit" class="btn btn-outline btn-sm" style="width: 100%;">Toggle Mode</button>
+                    <button type="submit" class="btn btn-outline btn-sm" style="width: 100%;">Toggle</button>
                 </form>
             </div>
+            {{end}}
 
             <div style="margin-top: auto; font-size: 0.75rem; color: var(--text-dim);">
-                Powered by TinyIce<br>
-                Host: {{.Config.HostName}}
+                Powered by TinyIce<br>Host: {{.Config.HostName}}
             </div>
         </aside>
 
         <main>
             <div class="stat-cards">
-                <div class="stat-card">
-                    <div class="label">Total Listeners</div>
-                    <div class="value" id="global-listeners">0</div>
-                </div>
-                <div class="stat-card">
-                    <div class="label">Active Sources</div>
-                    <div class="value" id="global-sources">0</div>
-                </div>
-                <div class="stat-card">
-                    <div class="label">Total Bandwidth</div>
-                    <div class="value" id="global-bandwidth">0.0</div>
-                    <div style="font-size: 0.8rem; color: var(--text-dim); margin-top: 0.5rem;">MB Out</div>
-                </div>
+                <div class="stat-card"><div class="label">Listeners</div><div class="value" id="global-listeners">0</div></div>
+                <div class="stat-card"><div class="label">Sources</div><div class="value" id="global-sources">0</div></div>
+                <div class="stat-card"><div class="label">Traffic MB</div><div class="value" id="global-bandwidth">0.0</div></div>
             </div>
 
             <section>
                 <h2>Network Traffic</h2>
                 <div class="card" style="padding: 1.5rem; padding-bottom: 0.5rem;">
-                    <canvas id="trafficChart" style="width: 100%; height: 200px;"></canvas>
+                    <canvas id="trafficChart" style="width: 100%; height: 180px;"></canvas>
                     <div style="display: flex; gap: 2rem; justify-content: center; margin-top: 0.5rem; font-size: 0.85rem;">
                         <span>Out: <strong id="outRate" style="color: #38bdf8">0</strong> KB/s</span>
                         <span>In: <strong id="inRate" style="color: #10b981">0</strong> KB/s</span>
@@ -195,22 +101,13 @@
             <section>
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
                     <h2>Active Broadcasts</h2>
-                    <form action="/admin/kick-all-listeners" method="POST" onsubmit="return confirm('Kick all listeners?')">
-                        <button type="submit" class="btn btn-danger btn-sm">KICK ALL LISTENERS</button>
-                    </form>
+                    {{if eq .User.Role "superadmin"}}
+                    <form action="/admin/kick-all-listeners" method="POST" onsubmit="return confirm('Kick ALL?')"><button type="submit" class="btn btn-danger btn-sm">KICK ALL LISTENERS</button></form>
+                    {{end}}
                 </div>
                 <div class="card" style="padding: 0; overflow: hidden;">
                     <table>
-                        <thead>
-                            <tr>
-                                <th>Mount</th>
-                                <th>Now Playing</th>
-                                <th>Listeners</th>
-                                <th>Traffic In/Out</th>
-                                <th>Uptime</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
+                        <thead><tr><th>Mount</th><th>Now Playing</th><th>Listeners</th><th>Traffic</th><th>Uptime</th><th>Actions</th></tr></thead>
                         <tbody id="streamsBody"></tbody>
                     </table>
                 </div>
@@ -221,59 +118,77 @@
                     <h2>Add/Update Station</h2>
                     <div class="card">
                         <form action="/admin/add-mount" method="POST">
-                            <div class="form-group">
-                                <label>Mount Path</label>
-                                <input type="text" id="add-mount-path" name="mount" placeholder="/live" required>
-                            </div>
-                            <div class="form-group">
-                                <label>Source Password</label>
-                                <div style="display: flex; gap: 0.5rem;">
-                                    <input type="text" name="password" id="new-mount-pw" required placeholder="Select or generate password">
-                                    <button type="button" id="gen-pw" class="btn btn-outline btn-sm">GENERATE</button>
-                                </div>
-                            </div>
+                            <div class="form-group"><label>Mount Path</label><input type="text" id="add-mount-path" name="mount" placeholder="/live" required></div>
+                            <div class="form-group"><label>Source Password</label><div style="display: flex; gap: 0.5rem;"><input type="text" name="password" id="new-mount-pw" required><button type="button" id="gen-pw" class="btn btn-outline btn-sm">GEN</button></div></div>
                             <button type="submit" class="btn btn-primary" style="width: 100%;">Save Station</button>
                         </form>
                     </div>
                 </section>
 
                 <section>
-                    <h2>Configured Stations</h2>
+                    <h2>Your Configured Stations</h2>
                     <div class="card" style="padding: 0;">
                         <table>
-                            <thead>
-                                <tr>
-                                    <th>Mount</th>
-                                    <th>Status</th>
-                                    <th>Actions</th>
-                                </tr>
-                            </thead>
+                            <thead><tr><th>Mount</th><th>Status</th><th>Actions</th></tr></thead>
                             <tbody>
-                                {{range $mount, $pass := .Config.Mounts}}
+                                {{range $mount, $pass := .User.Mounts}}
                                 {{ $disabled := index $.Config.DisabledMounts $mount }}
                                 <tr>
                                     <td><span class="mount-code {{if $disabled}}mount-disabled{{end}}">{{$mount}}</span></td>
-                                    <td><span style="color: {{if $disabled}}var(--danger){{else}}var(--success){{end}}; font-size: 0.8rem;">● {{if $disabled}}DISABLED{{else}}ACTIVE{{end}}</span></td>
+                                    <td><span style="color:{{if $disabled}}var(--danger){{else}}var(--success){{end}}">● {{if $disabled}}OFF{{else}}ON{{end}}</span></td>
                                     <td>
-                                        <div style="display: flex; gap: 0.4rem;">
+                                        <div style="display:flex; gap:0.3rem">
                                             <button type="button" class="btn btn-outline btn-sm edit-mount" data-mount="{{$mount}}">EDIT</button>
-                                            <form action="/admin/toggle-hidden" method="POST">
-                                                <input type="hidden" name="mount" value="{{$mount}}">
-                                                <button type="submit" class="btn btn-outline btn-sm">
-                                                    {{if index $.Config.HiddenMounts $mount}}SHOW{{else}}HIDE{{end}}
-                                                </button>
-                                            </form>
-                                            <form action="/admin/toggle-mount" method="POST">
-                                                <input type="hidden" name="mount" value="{{$mount}}">
-                                                <button type="submit" class="btn {{if $disabled}}btn-primary{{else}}btn-warning{{end}} btn-sm">
-                                                    {{if $disabled}}ENABLE{{else}}DISABLE{{end}}
-                                                </button>
-                                            </form>
-                                            <form action="/admin/remove-mount" method="POST" onsubmit="return confirm('Permanently remove this station?')">
-                                                <input type="hidden" name="mount" value="{{$mount}}">
-                                                <button type="submit" class="btn btn-danger btn-sm">REMOVE</button>
-                                            </form>
+                                            <form action="/admin/toggle-hidden" method="POST"><input type="hidden" name="mount" value="{{$mount}}"><button type="submit" class="btn btn-outline btn-sm">{{if index $.Config.HiddenMounts $mount}}SHOW{{else}}HIDE{{end}}</button></form>
+                                            <form action="/admin/toggle-mount" method="POST"><input type="hidden" name="mount" value="{{$mount}}"><button type="submit" class="btn {{if $disabled}}btn-primary{{else}}btn-warning{{end}} btn-sm">TG</button></form>
+                                            <form action="/admin/remove-mount" method="POST" onsubmit="return confirm('Remove?')"><input type="hidden" name="mount" value="{{$mount}}"><button type="submit" class="btn btn-danger btn-sm">X</button></form>
                                         </div>
+                                    </td>
+                                </tr>
+                                {{end}}
+                                {{if eq .User.Role "superadmin"}}
+                                    {{range $mount, $pass := .Config.Mounts}}
+                                    {{ $disabled := index $.Config.DisabledMounts $mount }}
+                                    <tr>
+                                        <td><span class="mount-code {{if $disabled}}mount-disabled{{end}}">{{$mount}}</span> (Global)</td>
+                                        <td><span style="color:{{if $disabled}}var(--danger){{else}}var(--success){{end}}">● {{if $disabled}}OFF{{else}}ON{{end}}</span></td>
+                                        <td><div style="display:flex;gap:0.3rem"><button type="button" class="btn btn-outline btn-sm edit-mount" data-mount="{{$mount}}">EDIT</button><form action="/admin/remove-mount" method="POST"><input type="hidden" name="mount" value="{{$mount}}"><button type="submit" class="btn btn-danger btn-sm">X</button></form></div></td>
+                                    </tr>
+                                    {{end}}
+                                {{end}}
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            </div>
+
+            {{if eq .User.Role "superadmin"}}
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin-top: 2rem;">
+                <section>
+                    <h2>Manage Users</h2>
+                    <div class="card">
+                        <form action="/admin/add-user" method="POST">
+                            <div class="form-group"><label>Username</label><input type="text" name="username" required></div>
+                            <div class="form-group"><label>Admin Password</label><input type="password" name="password" required></div>
+                            <button type="submit" class="btn btn-primary" style="width: 100%;">Create Admin</button>
+                        </form>
+                    </div>
+                </section>
+                <section>
+                    <h2>Existing Users</h2>
+                    <div class="card" style="padding: 0;">
+                        <table>
+                            <thead><tr><th>User</th><th>Role</th><th>Mounts</th><th>Action</th></tr></thead>
+                            <tbody>
+                                {{range .Config.Users}}
+                                <tr>
+                                    <td><strong>{{.Username}}</strong></td>
+                                    <td><span class="role-badge {{if eq .Role "superadmin"}}role-super{{else}}role-admin{{end}}">{{.Role}}</span></td>
+                                    <td>{{len .Mounts}}</td>
+                                    <td>
+                                        {{if ne .Role "superadmin"}}
+                                        <form action="/admin/remove-user" method="POST"><input type="hidden" name="username" value="{{.Username}}"><button type="submit" class="btn btn-danger btn-sm">REMOVE</button></form>
+                                        {{end}}
                                     </td>
                                 </tr>
                                 {{end}}
@@ -282,139 +197,64 @@
                     </div>
                 </section>
             </div>
+            {{end}}
         </main>
     </div>
 
     <template id="stream-row-template">
         <tr>
-            <td>
-                <span class="mount-code row-mount"></span><br>
-                <span style="font-size:0.7rem;color:var(--text-dim)" class="row-ip"></span>
-            </td>
+            <td><span class="mount-code row-mount"></span><br><span style="font-size:0.7rem;color:var(--text-dim)" class="row-ip"></span></td>
             <td><span class="song-title row-song"></span></td>
             <td style="font-weight:700;color:var(--primary);" class="row-listeners"></td>
-            <td>
-                <span style="color:var(--success)" class="row-in"></span> / 
-                <span style="color:var(--primary)" class="row-out"></span>
-            </td>
+            <td><span style="color:var(--success)" class="row-in"></span> / <span style="color:var(--primary)" class="row-out"></span></td>
             <td style="font-family:monospace;" class="row-uptime"></td>
-            <td>
-                <div style="display:flex;gap:0.5rem;">
-                    <a href="" target="_blank" class="btn btn-outline btn-sm row-link">Listen</a>
-                    <form action="/admin/kick" method="POST" style="display:inline;" class="row-kick-form">
-                        <input type="hidden" name="mount" value="">
-                        <button type="submit" class="btn btn-danger btn-sm">KICK</button>
-                    </form>
-                </div>
-            </td>
+            <td><div style="display:flex;gap:0.5rem;"><a href="" target="_blank" class="btn btn-outline btn-sm row-link">Listen</a><form action="/admin/kick" method="POST" style="display:inline;" class="row-kick-form"><input type="hidden" name="mount" value=""><button type="submit" class="btn btn-danger btn-sm">KICK</button></form></div></td>
         </tr>
     </template>
     
     <script>
         (function() {
-            var canvas = document.getElementById('trafficChart');
-            var ctx = canvas.getContext('2d');
-            var outRateEl = document.getElementById('outRate');
-            var inRateEl = document.getElementById('inRate');
-            var streamsBody = document.getElementById('streamsBody');
-            var rowTemplate = document.getElementById('stream-row-template');
-            var gListeners = document.getElementById('global-listeners');
-            var gSources = document.getElementById('global-sources');
-            var gBandwidth = document.getElementById('global-bandwidth');
-            
-            function resize() {
-                var rect = canvas.getBoundingClientRect();
-                canvas.width = rect.width * 2; canvas.height = rect.height * 2;
-                ctx.scale(2, 2);
-            }
-            window.addEventListener('resize', resize);
-            resize();
-
-            var historyLen = 60;
-            var dataIn = new Array(historyLen).fill(0);
-            var dataOut = new Array(historyLen).fill(0);
-            var lastIn = 0, lastOut = 0, first = true;
-            var chartMax = 10;
-            var streamHistory = {};
-
+            var canvas = document.getElementById('trafficChart'); var ctx = canvas.getContext('2d');
+            var outRateEl = document.getElementById('outRate'); var inRateEl = document.getElementById('inRate');
+            var streamsBody = document.getElementById('streamsBody'); var rowTemplate = document.getElementById('stream-row-template');
+            var gListeners = document.getElementById('global-listeners'); var gSources = document.getElementById('global-sources'); var gBandwidth = document.getElementById('global-bandwidth');
+            function resize() { var rect = canvas.getBoundingClientRect(); canvas.width = rect.width * 2; canvas.height = rect.height * 2; ctx.scale(2, 2); }
+            window.addEventListener('resize', resize); resize();
+            var historyLen = 60; var dataIn = new Array(historyLen).fill(0); var dataOut = new Array(historyLen).fill(0);
+            var lastIn = 0, lastOut = 0, first = true; var chartMax = 10; var streamHistory = {};
             function drawChart() {
                 var w = canvas.width / 2, h = canvas.height / 2, pX = 45, pY = 40, cH = h - pY * 1.5 - 20, cW = w - pX - 20;
-                ctx.clearRect(0, 0, w, h);
-                var targetMax = Math.max.apply(Math, dataIn.concat(dataOut).concat([10])) * 1.2; 
-                chartMax += (targetMax - chartMax) * 0.1;
+                ctx.clearRect(0, 0, w, h); var targetMax = Math.max.apply(Math, dataIn.concat(dataOut).concat([10])) * 1.2; chartMax += (targetMax - chartMax) * 0.1;
                 ctx.strokeStyle = 'rgba(45, 55, 72, 0.5)'; ctx.fillStyle = '#94a3b8'; ctx.font = '10px Inter'; ctx.lineWidth = 1;
                 ctx.beginPath(); ctx.moveTo(pX, h - pY); ctx.lineTo(w - 20, h - pY); ctx.stroke();
-                ctx.textAlign = 'right';
-                for(var i=0; i<=4; i++) {
-                    var val = (chartMax / 4) * i, y = (h - pY) - (val / chartMax) * cH;
-                    ctx.globalAlpha = 0.5; ctx.beginPath(); ctx.moveTo(pX, y); ctx.lineTo(w - 20, y); ctx.stroke();
-                    ctx.globalAlpha = 1; ctx.fillText(Math.round(val) + ' KB/s', pX - 8, y + 4);
-                }
+                ctx.textAlign = 'right'; for(var i=0; i<=4; i++) { var val = (chartMax / 4) * i, y = (h - pY) - (val / chartMax) * cH; ctx.globalAlpha = 0.5; ctx.beginPath(); ctx.moveTo(pX, y); ctx.lineTo(w - 20, y); ctx.stroke(); ctx.globalAlpha = 1; ctx.fillText(Math.round(val) + ' KB/s', pX - 8, y + 4); }
                 var drawCurve = function(data, color) {
-                    ctx.strokeStyle = color; ctx.lineWidth = 3; ctx.lineJoin = 'round'; ctx.beginPath();
-                    var step = cW / (historyLen - 1);
-                    var points = data.map(function(v, i) { return { x: pX + i * step, y: (h - pY) - (v / chartMax) * cH }; });
-                    ctx.moveTo(points[0].x, points[0].y);
-                    for (var i = 0; i < points.length - 1; i++) {
-                        var xc = (points[i].x + points[i + 1].x) / 2, yc = (points[i].y + points[i + 1].y) / 2;
-                        ctx.quadraticCurveTo(points[i].x, points[i].y, xc, yc);
-                    }
-                    ctx.stroke();
-                    var grad = ctx.createLinearGradient(0, pY, 0, h - pY);
-                    grad.addColorStop(0, color + '40'); grad.addColorStop(1, color + '05');
-                    ctx.fillStyle = grad; ctx.lineTo(pX + cW, h - pY); ctx.lineTo(pX, h - pY); ctx.fill();
+                    ctx.strokeStyle = color; ctx.lineWidth = 3; ctx.lineJoin = 'round'; ctx.beginPath(); var step = cW / (historyLen - 1);
+                    var points = data.map(function(v, i) { return { x: pX + i * step, y: (h - pY) - (v / chartMax) * cH }; }); ctx.moveTo(points[0].x, points[0].y);
+                    for (var i = 0; i < points.length - 1; i++) { var xc = (points[i].x + points[i + 1].x) / 2, yc = (points[i].y + points[i + 1].y) / 2; ctx.quadraticCurveTo(points[i].x, points[i].y, xc, yc); }
+                    ctx.stroke(); var grad = ctx.createLinearGradient(0, pY, 0, h - pY); grad.addColorStop(0, color + '40'); grad.addColorStop(1, color + '05'); ctx.fillStyle = grad; ctx.lineTo(pX + cW, h - pY); ctx.lineTo(pX, h - pY); ctx.fill();
                 };
                 drawCurve(dataOut, '#38bdf8'); drawCurve(dataIn, '#10b981');
             }
-
             var es = new EventSource("/admin/events");
             es.onmessage = function(e) {
-                var data = JSON.parse(e.data);
-                if (first) { lastIn = data.bytes_in; lastOut = data.bytes_out; first = false; return; }
-                var rIn = (data.bytes_in - lastIn) / 1024, rOut = (data.bytes_out - lastOut) / 1024;
-                lastIn = data.bytes_in; lastOut = data.bytes_out;
-                inRateEl.innerText = rIn.toFixed(1); outRateEl.innerText = rOut.toFixed(1);
-                dataIn.shift(); dataIn.push(rIn); dataOut.shift(); dataOut.push(rOut);
-                drawChart();
-
-                gListeners.innerText = data.total_listeners;
-                gSources.innerText = data.total_sources;
-                gBandwidth.innerText = (data.bytes_out / (1024 * 1024)).toFixed(1);
-
-                streamsBody.innerHTML = '';
-                if (data.streams.length > 0) {
+                var data = JSON.parse(e.data); if (first) { lastIn = data.bytes_in; lastOut = data.bytes_out; first = false; return; }
+                var rIn = (data.bytes_in - lastIn) / 1024, rOut = (data.bytes_out - lastOut) / 1024; lastIn = data.bytes_in; lastOut = data.bytes_out;
+                inRateEl.innerText = rIn.toFixed(1); outRateEl.innerText = rOut.toFixed(1); dataIn.shift(); dataIn.push(rIn); dataOut.shift(); dataOut.push(rOut); drawChart();
+                gListeners.innerText = data.total_listeners; gSources.innerText = data.total_sources; gBandwidth.innerText = (data.bytes_out / (1024 * 1024)).toFixed(1);
+                streamsBody.innerHTML = ''; if (data.streams.length > 0) {
                     data.streams.forEach(function(s) {
-                        var prev = streamHistory[s.mount] || { in: s.bytes_in, out: s.bytes_out };
-                        var curIn = (s.bytes_in - prev.in) / 1024, curOut = (s.bytes_out - prev.out) / 1024;
-                        streamHistory[s.mount] = { in: s.bytes_in, out: s.bytes_out };
-                        
-                        var clone = rowTemplate.content.cloneNode(true);
-                        clone.querySelector('.row-mount').textContent = s.mount;
-                        clone.querySelector('.row-ip').textContent = s.ip;
-                        clone.querySelector('.row-song').textContent = s.song;
-                        clone.querySelector('.row-listeners').textContent = s.listeners;
-                        clone.querySelector('.row-in').textContent = curIn.toFixed(1);
-                        clone.querySelector('.row-out').textContent = curOut.toFixed(1);
-                        clone.querySelector('.row-uptime').textContent = s.uptime;
-                        clone.querySelector('.row-link').setAttribute('href', s.mount);
-                        clone.querySelector('.row-kick-form input').value = s.mount;
-                        streamsBody.appendChild(clone);
+                        var prev = streamHistory[s.mount] || { in: s.bytes_in, out: s.bytes_out }; var curIn = (s.bytes_in - prev.in) / 1024, curOut = (s.bytes_out - prev.out) / 1024; streamHistory[s.mount] = { in: s.bytes_in, out: s.bytes_out };
+                        var clone = rowTemplate.content.cloneNode(true); clone.querySelector('.row-mount').textContent = s.mount; clone.querySelector('.row-ip').textContent = s.ip; clone.querySelector('.row-song').textContent = s.song;
+                        clone.querySelector('.row-listeners').textContent = s.listeners; clone.querySelector('.row-in').textContent = curIn.toFixed(1); clone.querySelector('.row-out').textContent = curOut.toFixed(1);
+                        clone.querySelector('.row-uptime').textContent = s.uptime; clone.querySelector('.row-link').setAttribute('href', s.mount); clone.querySelector('.row-kick-form input').value = s.mount; streamsBody.appendChild(clone);
                     });
                 }
             };
-
             document.getElementById('gen-pw').addEventListener('click', function() {
-                var chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-                var pw = ""; for (var i = 0; i < 16; i++) pw += chars.charAt(Math.floor(Math.random() * chars.length));
-                document.getElementById('new-mount-pw').value = pw;
+                var chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"; var pw = ""; for (var i = 0; i < 16; i++) pw += chars.charAt(Math.floor(Math.random() * chars.length)); document.getElementById('new-mount-pw').value = pw;
             });
-
-            document.addEventListener('click', function(e) {
-                if (e.target.classList.contains('edit-mount')) {
-                    document.getElementById('add-mount-path').value = e.target.dataset.mount;
-                    document.getElementById('new-mount-pw').focus();
-                }
-            });
+            document.addEventListener('click', function(e) { if (e.target.classList.contains('edit-mount')) { document.getElementById('add-mount-path').value = e.target.dataset.mount; document.getElementById('new-mount-pw').focus(); } });
             drawChart();
         })();
     </script>

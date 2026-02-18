@@ -6,7 +6,20 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+const (
+	RoleSuperAdmin = "superadmin"
+	RoleAdmin      = "admin"
+)
+
+type User struct {
+	Username string            `json:"username"`
+	Password string            `json:"password"` // Hashed
+	Role     string            `json:"role"`
+	Mounts   map[string]string `json:"mounts"` // map[mount]password (hashed)
+}
+
 type Config struct {
+	BindHost              string            `json:"bind_host"`
 	Port                  string            `json:"port"`
 	DefaultSourcePassword string            `json:"default_source_password"`
 	Mounts                map[string]string `json:"mounts"`
@@ -37,6 +50,9 @@ type Config struct {
 	// Directory Listing (YP)
 	DirectoryListing bool   `json:"directory_listing"`
 	DirectoryServer  string `json:"directory_server"`
+
+	// Multi-tenant
+	Users map[string]*User `json:"users"`
 }
 
 func HashPassword(p string) (string, error) {
@@ -65,12 +81,24 @@ func LoadConfig(path string) (*Config, error) {
 
 	config.ConfigPath = path
 
+	if config.BindHost == "" { config.BindHost = "0.0.0.0" }
 	if config.Port == "" { config.Port = "8000" }
 	if config.AdminUser == "" { config.AdminUser = "admin" }
 	if config.Mounts == nil { config.Mounts = make(map[string]string) }
 	if config.MaxListeners == 0 { config.MaxListeners = 100 }
 	if config.DisabledMounts == nil { config.DisabledMounts = make(map[string]bool) }
 	if config.HiddenMounts == nil { config.HiddenMounts = make(map[string]bool) }
+	if config.Users == nil { config.Users = make(map[string]*User) }
+
+	// Migration/Backward compatibility: Ensure AdminUser is in Users map as superadmin
+	if config.AdminUser != "" && config.Users[config.AdminUser] == nil {
+		config.Users[config.AdminUser] = &User{
+			Username: config.AdminUser,
+			Password: config.AdminPassword,
+			Role:     RoleSuperAdmin,
+			Mounts:   make(map[string]string),
+		}
+	}
 
 	if config.PageTitle == "" { config.PageTitle = "TinyIce" }
 	if config.PageSubtitle == "" { config.PageSubtitle = "Live streaming network powered by Go" }
