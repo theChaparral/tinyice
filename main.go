@@ -93,7 +93,38 @@ func main() {
 	flag.Parse()
 
 	authLogger := initLogging()
+	handleDaemonMode()
 
+	if *pidFile != "" {
+		if err := os.WriteFile(*pidFile, []byte(fmt.Sprintf("%d", os.Getpid())), 0644); err != nil {
+			logrus.Errorf("Failed to write PID file: %v", err)
+		}
+		defer os.Remove(*pidFile)
+	}
+
+	ensureConfigExists()
+
+	cfg, err := config.LoadConfig(*configPath)
+	if err != nil {
+		logrus.Fatalf("Failed to load config: %v", err)
+	}
+
+	srv := server.NewServer(cfg, authLogger)
+
+	// Signal handling
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+
+	go func() {
+		if err := srv.Start(); err != nil && err.Error() != "http: Server closed" {
+			logrus.Fatalf("Server failed: %v", err)
+		}
+	}()
+
+	runEventLoop(srv, sigs)
+}
+
+func handleDaemonMode() {
 	if *daemon && os.Getenv("TINYICE_DAEMON") != "1" {
 		args := []string{}
 		for _, arg := range os.Args[1:] {
@@ -109,14 +140,9 @@ func main() {
 		fmt.Printf("TinyIce starting in background (PID: %d)\n", cmd.Process.Pid)
 		os.Exit(0)
 	}
+}
 
-	if *pidFile != "" {
-		if err := os.WriteFile(*pidFile, []byte(fmt.Sprintf("%d", os.Getpid())), 0644); err != nil {
-			logrus.Errorf("Failed to write PID file: %v", err)
-		}
-		defer os.Remove(*pidFile)
-	}
-
+func ensureConfigExists() {
 	if _, err := os.Stat(*configPath); os.IsNotExist(err) {
 		logrus.Info("Config file not found, generating secure defaults...")
 
@@ -171,24 +197,9 @@ func main() {
 		logrus.WithField("path", *configPath).Info("Starting TinyIce with existing configuration")
 		fmt.Printf("Note: To reset all credentials, run: rm %s && ./tinyice\n", *configPath)
 	}
+}
 
-	cfg, err := config.LoadConfig(*configPath)
-	if err != nil {
-		logrus.Fatalf("Failed to load config: %v", err)
-	}
-
-	srv := server.NewServer(cfg, authLogger)
-
-	// Signal handling
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
-
-	go func() {
-		if err := srv.Start(); err != nil && err.Error() != "http: Server closed" {
-			logrus.Fatalf("Server failed: %v", err)
-		}
-	}()
-
+func runEventLoop(srv *server.Server, sigs chan os.Signal) {
 	for {
 		sig := <-sigs
 		switch sig {

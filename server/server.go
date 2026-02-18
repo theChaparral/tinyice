@@ -519,15 +519,12 @@ func (s *Server) handleListener(w http.ResponseWriter, r *http.Request) {
 	}
 
 	flusher, _ := w.(http.Flusher)
-	buf := make([]byte, 16384)
 	id := r.RemoteAddr + "-" + fmt.Sprintf("%d", time.Now().UnixNano())
 
-	// Recovery ticker: check if primary is back every 10s if we are on fallback
 	recoveryTicker := time.NewTicker(10 * time.Second)
 	defer recoveryTicker.Stop()
 
 	for {
-		// If we are currently on a fallback, check if original mount is back
 		if mount != originalMount {
 			if _, ok := s.Relay.GetStream(originalMount); ok {
 				logrus.WithField("mount", originalMount).Info("Primary stream returned, recovering from fallback")
@@ -537,20 +534,17 @@ func (s *Server) handleListener(w http.ResponseWriter, r *http.Request) {
 
 		stream, ok := s.Relay.GetStream(mount)
 		if !ok {
-			// Check if we have a fallback
 			fallback, hasFallback := s.Config.FallbackMounts[mount]
 			if hasFallback && fallback != mount {
 				logrus.WithFields(logrus.Fields{"from": mount, "to": fallback}).Info("Primary stream down, falling back")
 				mount = fallback
 				continue
 			}
-			// If even the fallback is not found, and we are not on original, try original again
 			if mount != originalMount {
 				mount = originalMount
 				time.Sleep(1 * time.Second)
 				continue
 			}
-
 			http.NotFound(w, r)
 			return
 		}
@@ -565,52 +559,53 @@ func (s *Server) handleListener(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 		}
 
-		offset, signal := stream.Subscribe(id)
-
-		runStream := true
-		for runStream {
-			select {
-			case <-r.Context().Done():
-				stream.Unsubscribe(id)
-				return
-			case <-recoveryTicker.C:
-				// If we are on fallback, check if primary came back
-				if mount != originalMount {
-					if _, ok := s.Relay.GetStream(originalMount); ok {
-						runStream = false // Break to switch back to primary
-					}
-				}
-			case _, ok := <-signal:
-				if !ok {
-					// Stream closed/source disconnected
-					runStream = false
-					break
-				}
-				// Read all available data from the buffer
-				for {
-					n, next, skipped := stream.Buffer.ReadAt(offset, buf)
-					if n == 0 {
-						break
-					}
-					if skipped {
-						atomic.AddInt64(&stream.BytesDropped, next-offset)
-					}
-					offset = next
-					if _, err := w.Write(buf[:n]); err != nil {
-						stream.Unsubscribe(id)
-						return
-					}
-					atomic.AddInt64(&s.Relay.BytesOut, int64(n))
-					atomic.AddInt64(&stream.BytesOut, int64(n))
-				}
-				if flusher != nil {
-					flusher.Flush()
-				}
-			}
+		if !s.serveStreamData(w, r, stream, id, originalMount, mount, recoveryTicker) {
+			return
 		}
-		stream.Unsubscribe(id)
 		// Loop will continue and check for fallback or re-connect to primary
 		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+func (s *Server) serveStreamData(w http.ResponseWriter, r *http.Request, stream *relay.Stream, id, originalMount, currentMount string, recoveryTicker *time.Ticker) bool {
+	offset, signal := stream.Subscribe(id)
+	defer stream.Unsubscribe(id)
+	buf := make([]byte, 16384)
+	flusher, _ := w.(http.Flusher)
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return false
+		case <-recoveryTicker.C:
+			if currentMount != originalMount {
+				if _, ok := s.Relay.GetStream(originalMount); ok {
+					return true // Break to switch back to primary
+				}
+			}
+		case _, ok := <-signal:
+			if !ok {
+				return true // Stream closed/source disconnected
+			}
+			for {
+				n, next, skipped := stream.Buffer.ReadAt(offset, buf)
+				if n == 0 {
+					break
+				}
+				if skipped {
+					atomic.AddInt64(&stream.BytesDropped, next-offset)
+				}
+				offset = next
+				if _, err := w.Write(buf[:n]); err != nil {
+					return false
+				}
+				atomic.AddInt64(&s.Relay.BytesOut, int64(n))
+				atomic.AddInt64(&stream.BytesOut, int64(n))
+			}
+			if flusher != nil {
+				flusher.Flush()
+			}
+		}
 	}
 }
 
@@ -1198,6 +1193,94 @@ func (s *Server) reportToDirectory(st relay.StreamStats) {
 	}
 }
 
+type streamEventInfo struct {
+	Mount        string `json:"mount"`
+	Name         string `json:"name"`
+	Listeners    int    `json:"listeners"`
+	Bitrate      string `json:"bitrate"`
+	Uptime       string `json:"uptime"`
+	ContentType  string `json:"type"`
+	SourceIP     string `json:"ip"`
+	BytesIn      int64  `json:"bytes_in"`
+	BytesOut     int64  `json:"bytes_out"`
+	BytesDropped int64  `json:"bytes_dropped"`
+	CurrentSong  string `json:"song"`
+}
+
+type relayEventInfo struct {
+	URL     string `json:"url"`
+	Mount   string `json:"mount"`
+	Active  bool   `json:"active"`
+	Enabled bool   `json:"enabled"`
+}
+
+func (s *Server) collectStatsPayload(user *config.User) ([]byte, error) {
+	bi, bo := s.Relay.GetMetrics()
+	allStreams := s.Relay.Snapshot()
+	tl := 0
+	var info []streamEventInfo
+	tr, ts := 0, 0
+	for _, st := range allStreams {
+		if s.hasAccess(user, st.MountName) {
+			lc := st.ListenersCount
+			tl += lc
+			info = append(info, streamEventInfo{
+				Mount: st.MountName, Name: st.Name, Listeners: lc, Bitrate: st.Bitrate,
+				Uptime: st.Uptime, ContentType: st.ContentType, SourceIP: st.SourceIP,
+				BytesIn: st.BytesIn, BytesOut: st.BytesOut, BytesDropped: st.BytesDropped,
+				CurrentSong: st.CurrentSong,
+			})
+			if st.SourceIP == "relay-pull" {
+				tr++
+			} else {
+				ts++
+			}
+		}
+	}
+	if user.Role != config.RoleSuperAdmin {
+		var ubi, ubo int64
+		for _, st := range info {
+			ubi += st.BytesIn
+			ubo += st.BytesOut
+		}
+		bi, bo = ubi, ubo
+	}
+
+	relays := make([]relayEventInfo, len(s.Config.Relays))
+	for i, rc := range s.Config.Relays {
+		relays[i] = relayEventInfo{URL: rc.URL, Mount: rc.Mount, Active: false, Enabled: rc.Enabled}
+		if st, ok := s.Relay.GetStream(rc.Mount); ok && st.SourceIP == "relay-pull" {
+			relays[i].Active = true
+		}
+	}
+
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+	totalDropped := int64(0)
+	for _, st := range allStreams {
+		totalDropped += st.BytesDropped
+	}
+
+	return json.Marshal(map[string]interface{}{
+		"bytes_in":        bi,
+		"bytes_out":       bo,
+		"total_listeners": tl,
+		"total_sources":   len(info),
+		"total_relays":    tr,
+		"total_streamers": ts,
+		"streams":         info,
+		"relays":          relays,
+		"visible_mounts":  s.Config.VisibleMounts,
+		"sys_ram":         m.Sys,
+		"heap_alloc":      m.HeapAlloc,
+		"stack_sys":       m.StackSys,
+		"num_gc":          m.NumGC,
+		"goroutines":      runtime.NumGoroutine(),
+		"total_dropped":   totalDropped,
+		"server_uptime":   time.Since(s.startTime).Round(time.Second).String(),
+	})
+}
+
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	user, ok := s.checkAuth(r)
 	if !ok {
@@ -1210,107 +1293,19 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	flusher, _ := w.(http.Flusher)
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
-	type StreamInfo struct {
-		Mount        string `json:"mount"`
-		Name         string `json:"name"`
-		Listeners    int    `json:"listeners"`
-		Bitrate      string `json:"bitrate"`
-		Uptime       string `json:"uptime"`
-		ContentType  string `json:"type"`
-		SourceIP     string `json:"ip"`
-		BytesIn      int64  `json:"bytes_in"`
-		BytesOut     int64  `json:"bytes_out"`
-		BytesDropped int64  `json:"bytes_dropped"`
-		CurrentSong  string `json:"song"`
-	}
+
 	send := func() error {
-		bi, bo := s.Relay.GetMetrics()
-		allStreams := s.Relay.Snapshot()
-		tl := 0
-		var info []StreamInfo
-		tr, ts := 0, 0
-		for _, st := range allStreams {
-			if s.hasAccess(user, st.MountName) {
-				lc := st.ListenersCount
-				tl += lc
-				info = append(info, StreamInfo{Mount: st.MountName, Name: st.Name, Listeners: lc, Bitrate: st.Bitrate, Uptime: st.Uptime, ContentType: st.ContentType, SourceIP: st.SourceIP, BytesIn: st.BytesIn, BytesOut: st.BytesOut, BytesDropped: st.BytesDropped, CurrentSong: st.CurrentSong})
-				if st.SourceIP == "relay-pull" {
-					tr++
-				} else {
-					ts++
-				}
-			}
+		payload, err := s.collectStatsPayload(user)
+		if err != nil {
+			return err
 		}
-		if user.Role != config.RoleSuperAdmin {
-			var ubi, ubo int64
-			for _, st := range info {
-				ubi += st.BytesIn
-				ubo += st.BytesOut
-			}
-			bi, bo = ubi, ubo
-		}
-		type RelayInfo struct {
-			URL     string `json:"url"`
-			Mount   string `json:"mount"`
-			Active  bool   `json:"active"`
-			Enabled bool   `json:"enabled"`
-		}
-		relays := make([]RelayInfo, len(s.Config.Relays))
-		for i, rc := range s.Config.Relays {
-			relays[i] = RelayInfo{URL: rc.URL, Mount: rc.Mount, Active: false, Enabled: rc.Enabled}
-			if st, ok := s.Relay.GetStream(rc.Mount); ok && st.SourceIP == "relay-pull" {
-				relays[i].Active = true
-			}
-		}
-		var m runtime.MemStats
-		runtime.ReadMemStats(&m)
-
-		totalDropped := int64(0)
-		for _, st := range allStreams {
-			totalDropped += st.BytesDropped
-		}
-
-		payload, _ := json.Marshal(map[string]interface{}{
-
-			"bytes_in": bi,
-
-			"bytes_out": bo,
-
-			"total_listeners": tl,
-
-			"total_sources": len(info),
-
-			"total_relays": tr,
-
-			"total_streamers": ts,
-
-			"streams": info,
-
-			"relays": relays,
-
-			"visible_mounts": s.Config.VisibleMounts,
-
-			"sys_ram": m.Sys,
-
-			"heap_alloc": m.HeapAlloc,
-
-			"stack_sys": m.StackSys,
-
-			"num_gc": m.NumGC,
-
-			"goroutines": runtime.NumGoroutine(),
-
-			"total_dropped": totalDropped,
-
-			"server_uptime": time.Since(s.startTime).Round(time.Second).String(),
-		})
-
 		if _, err := fmt.Fprintf(w, "data: %s\n\n", payload); err != nil {
 			return err
 		}
 		flusher.Flush()
 		return nil
 	}
+
 	if err := send(); err != nil {
 		return
 	}

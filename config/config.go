@@ -108,6 +108,12 @@ func LoadConfig(path string) (*Config, error) {
 }
 
 func (config *Config) setDefaults() {
+	config.setBasicDefaults()
+	config.initMapsAndArrays()
+	config.handleMigrations()
+}
+
+func (config *Config) setBasicDefaults() {
 	if config.BindHost == "" {
 		config.BindHost = "0.0.0.0"
 	}
@@ -117,11 +123,26 @@ func (config *Config) setDefaults() {
 	if config.AdminUser == "" {
 		config.AdminUser = "admin"
 	}
-	if config.Mounts == nil {
-		config.Mounts = make(map[string]string)
-	}
 	if config.MaxListeners == 0 {
 		config.MaxListeners = 100
+	}
+	if config.PageTitle == "" {
+		config.PageTitle = "TinyIce"
+	}
+	if config.PageSubtitle == "" {
+		config.PageSubtitle = "Live Streaming Server powered by Go"
+	}
+	if config.HTTPSPort == "" {
+		config.HTTPSPort = "443"
+	}
+	if config.DirectoryServer == "" {
+		config.DirectoryServer = "http://dir.xiph.org/cgi-bin/yp-cgi"
+	}
+}
+
+func (config *Config) initMapsAndArrays() {
+	if config.Mounts == nil {
+		config.Mounts = make(map[string]string)
 	}
 	if config.DisabledMounts == nil {
 		config.DisabledMounts = make(map[string]bool)
@@ -135,18 +156,20 @@ func (config *Config) setDefaults() {
 	if config.Users == nil {
 		config.Users = make(map[string]*User)
 	}
-
 	if config.AdvancedMounts == nil {
 		config.AdvancedMounts = make(map[string]*MountSettings)
 	}
 	if config.Relays == nil {
 		config.Relays = make([]*RelayConfig, 0)
 	}
-	for _, r := range config.Relays {
-		r.Enabled = true // Migration logic
-	}
 	if config.BannedIPs == nil {
 		config.BannedIPs = make([]string, 0)
+	}
+}
+
+func (config *Config) handleMigrations() {
+	for _, r := range config.Relays {
+		r.Enabled = true // Migration logic
 	}
 
 	// Migration/Backward compatibility
@@ -157,19 +180,6 @@ func (config *Config) setDefaults() {
 			Role:     RoleSuperAdmin,
 			Mounts:   make(map[string]string),
 		}
-	}
-
-	if config.PageTitle == "" {
-		config.PageTitle = "TinyIce"
-	}
-	if config.PageSubtitle == "" {
-		config.PageSubtitle = "Live Streaming Server powered by Go"
-	}
-	if config.HTTPSPort == "" {
-		config.HTTPSPort = "443"
-	}
-	if config.DirectoryServer == "" {
-		config.DirectoryServer = "http://dir.xiph.org/cgi-bin/yp-cgi"
 	}
 }
 
