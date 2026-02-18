@@ -5,6 +5,7 @@ package server
 
 import (
 	"syscall"
+	"golang.org/x/sys/unix"
 )
 
 func setReusePort(fd uintptr) error {
@@ -12,6 +13,5 @@ func setReusePort(fd uintptr) error {
 	if err != nil {
 		return err
 	}
-	// 0x0f is SO_REUSEPORT on most Unix systems
-	return syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, 0x0f, 1)
+	return syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, unix.SO_REUSEPORT, 1)
 }
