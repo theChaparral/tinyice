@@ -6,11 +6,19 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"log"
 	"os"
+	"strings"
 
+	"github.com/sirupsen/logrus"
 	"github.com/syso/tinyice/config"
 	"github.com/syso/tinyice/server"
+)
+
+var (
+	configPath = flag.String("config", "tinyice.json", "Path to configuration file")
+	logFile    = flag.String("log-file", "", "Path to log file (default is stdout)")
+	logLevel   = flag.String("log-level", "info", "Log level (debug, info, warn, error)")
+	jsonLogs   = flag.Bool("json-logs", false, "Enable JSON logging format")
 )
 
 func generateRandomString(n int) string {
@@ -21,25 +29,67 @@ func generateRandomString(n int) string {
 	return hex.EncodeToString(b)
 }
 
+func initLogging() {
+	// Set Level
+	level, err := logrus.ParseLevel(strings.ToLower(*logLevel))
+	if err != nil {
+		logrus.Warnf("Invalid log level '%s', defaulting to info", *logLevel)
+		level = logrus.InfoLevel
+	}
+	logrus.SetLevel(level)
+
+	// Set Format
+	if *jsonLogs {
+		logrus.SetFormatter(&logrus.JSONFormatter{})
+	} else {
+		logrus.SetFormatter(&logrus.TextFormatter{
+			FullTimestamp: true,
+		})
+	}
+
+	// Set Output
+	if *logFile != "" {
+		f, err := os.OpenFile(*logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			logrus.Fatalf("Failed to open log file %s: %v", *logFile, err)
+		}
+		// MultiWriter to log to both file and stdout if needed, 
+		// but standard practice for "background" is just file.
+		// Let's stick to the file if provided.
+		logrus.SetOutput(f)
+	} else {
+		logrus.SetOutput(os.Stdout)
+	}
+}
+
 func main() {
-	configPath := flag.String("config", "tinyice.json", "Path to configuration file")
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage of TinyIce:\n")
+		flag.PrintDefaults()
+	}
 	flag.Parse()
 
+	initLogging()
+
 	if _, err := os.Stat(*configPath); os.IsNotExist(err) {
-		log.Println("Config file not found, generating secure defaults...")
+		logrus.Info("Config file not found, generating secure defaults...")
 		
 		defaultSourcePass := generateRandomString(12)
 		liveMountPass := generateRandomString(12)
 		adminPass := generateRandomString(12)
 
+		hDefaultSource, _ := config.HashPassword(defaultSourcePass)
+		hLiveMount, _ := config.HashPassword(liveMountPass)
+		hAdmin, _ := config.HashPassword(adminPass)
+
 		defaultCfg := config.Config{
 			Port:                  "8000",
-			DefaultSourcePassword: config.HashPassword(defaultSourcePass),
+			DefaultSourcePassword: hDefaultSource,
 			Mounts: map[string]string{
-				"/live": config.HashPassword(liveMountPass),
+				"/live": hLiveMount,
 			},
 			AdminUser:     "admin",
-			AdminPassword: config.HashPassword(adminPass),
+			AdminPassword: hAdmin,
 			HostName:      "localhost",
 			Location:      "Earth",
 			AdminEmail:    "admin@localhost",
@@ -47,7 +97,7 @@ func main() {
 
 		data, _ := json.MarshalIndent(defaultCfg, "", "    ")
 		if err := os.WriteFile(*configPath, data, 0600); err != nil {
-			log.Fatalf("Failed to create secure config: %v", err)
+			logrus.Fatalf("Failed to create secure config: %v", err)
 		}
 
 		fmt.Println("**************************************************")
@@ -59,17 +109,17 @@ func main() {
 		fmt.Println("  Stored in:", *configPath)
 		fmt.Println("**************************************************")
 	} else {
-		log.Printf("Starting TinyIce with existing configuration: %s", *configPath)
+		logrus.WithField("path", *configPath).Info("Starting TinyIce with existing configuration")
 		fmt.Printf("Note: To reset all credentials, run: rm %s && ./tinyice\n", *configPath)
 	}
 
 	cfg, err := config.LoadConfig(*configPath)
 	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
+		logrus.Fatalf("Failed to load config: %v", err)
 	}
 
 	srv := server.NewServer(cfg)
 	if err := srv.Start(); err != nil {
-		log.Fatalf("Server failed: %v", err)
+		logrus.Fatalf("Server failed: %v", err)
 	}
 }
