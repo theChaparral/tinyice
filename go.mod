@@ -1,4 +1,4 @@
-module github.com/syso/tinyice
+module github.com/DatanoiseTV/tinyice
 
 go 1.25.1
 
