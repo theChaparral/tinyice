@@ -2,7 +2,10 @@ package relay
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -136,22 +139,65 @@ func (rm *RelayManager) performPull(ctx context.Context, inst *RelayInstance) {
 	bitrate := resp.Header.Get("Ice-Bitrate")
 	if bitrate == "" { bitrate = resp.Header.Get("Icy-Br") }
 
+	// Check for ICY metadata interval
+	var metaInt int
+	fmt.Sscanf(resp.Header.Get("Icy-Metaint"), "%d", &metaInt)
+
 	stream.UpdateMetadata(name, desc, genre, resp.Header.Get("Ice-Url"), bitrate, resp.Header.Get("Content-Type"), false, false)
 
+	// In-stream metadata parsing
+	if metaInt > 0 {
+		rm.pullWithMetadata(ctx, resp.Body, stream, metaInt)
+	} else {
+		rm.pullSimple(ctx, resp.Body, stream)
+	}
+}
+
+func (rm *RelayManager) pullSimple(ctx context.Context, body io.Reader, stream *Stream) {
 	buf := make([]byte, 8192)
 	for {
 		select {
-		case <-ctx.Done():
-			return
+		case <-ctx.Done(): return
 		default:
-			n, err := resp.Body.Read(buf)
-			if n > 0 {
-				stream.Broadcast(buf[:n], rm.relay)
-			}
-			if err != nil {
-				logrus.WithError(err).Warn("Relay pull interrupted")
-				rm.relay.RemoveStream(inst.Mount)
-				return
+			n, err := body.Read(buf)
+			if n > 0 { stream.Broadcast(buf[:n], rm.relay) }
+			if err != nil { return }
+		}
+	}
+}
+
+func (rm *RelayManager) pullWithMetadata(ctx context.Context, body io.Reader, stream *Stream, metaInt int) {
+	audioBuf := make([]byte, metaInt)
+	for {
+		select {
+		case <-ctx.Done(): return
+		default:
+			// 1. Read Audio Data
+			_, err := io.ReadFull(body, audioBuf)
+			if err != nil { return }
+			stream.Broadcast(audioBuf, rm.relay)
+
+			// 2. Read Metadata Length Byte
+			var metaLenByte [1]byte
+			_, err = io.ReadFull(body, metaLenByte[:])
+			if err != nil { return }
+			
+			metaLen := int(metaLenByte[0]) * 16
+			if metaLen > 0 {
+				// 3. Read Metadata String
+				metaBuf := make([]byte, metaLen)
+				_, err = io.ReadFull(body, metaBuf)
+				if err != nil { return }
+				
+				// Parse StreamTitle='Artist - Title';
+				metaStr := string(metaBuf)
+				if strings.Contains(metaStr, "StreamTitle='") {
+					title := strings.Split(metaStr, "StreamTitle='")[1]
+					title = strings.Split(title, "';")[0]
+					if title != "" {
+						stream.SetCurrentSong(title)
+					}
+				}
 			}
 		}
 	}
