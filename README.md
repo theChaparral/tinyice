@@ -118,6 +118,10 @@ To use TinyIce with a custom ACME CA (like Step-CA or Smallstep) in a homelab en
 
 See [PERFORMANCE.md](PERFORMANCE.md) for detailed hardware and traffic estimates.
 
+## Contributing
+
+Contributions are welcome! Please see [DEVELOPERS.md](DEVELOPERS.md) for an architectural overview, tech stack details, and onboarding guide.
+
 ## License
 
 Distributed under the Apache License 2.0. See `LICENSE` for more information.
