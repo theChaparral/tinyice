@@ -58,6 +58,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/", s.handleRoot)
 	mux.HandleFunc("/events", s.handlePublicEvents)
 	mux.HandleFunc("/status-json.xsl", s.handleLegacyStats)
+	mux.HandleFunc("/metrics", s.handleMetrics)
 
 	addr := s.Config.BindHost + ":" + s.Config.Port
 	
@@ -448,6 +449,40 @@ func (s *Server) handleLegacyStats(w http.ResponseWriter, r *http.Request) {
 	}
 	resp := map[string]interface{}{"icestats": map[string]interface{}{"admin": s.Config.AdminEmail, "host": s.Config.HostName, "location": s.Config.Location, "server_id": "Icecast 2.4.4 (TinyIce)", "server_start": time.Now().Format(time.RFC1123), "source": sources}}
 	w.Header().Set("Content-Type", "application/json"); w.Header().Set("Access-Control-Allow-Origin", "*"); json.NewEncoder(w).Encode(resp)
+}
+
+func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
+	bi, bo := s.Relay.GetMetrics()
+	streams := s.Relay.Snapshot()
+	
+	tl := 0
+	for _, st := range streams {
+		tl += st.ListenersCount
+	}
+
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+	
+	fmt.Fprintf(w, "# HELP tinyice_bandwidth_in_bytes_total Total bytes received from sources\n")
+	fmt.Fprintf(w, "# TYPE tinyice_bandwidth_in_bytes_total counter\n")
+	fmt.Fprintf(w, "tinyice_bandwidth_in_bytes_total %d\n\n", bi)
+
+	fmt.Fprintf(w, "# HELP tinyice_bandwidth_out_bytes_total Total bytes sent to listeners\n")
+	fmt.Fprintf(w, "# TYPE tinyice_bandwidth_out_bytes_total counter\n")
+	fmt.Fprintf(w, "tinyice_bandwidth_out_bytes_total %d\n\n", bo)
+
+	fmt.Fprintf(w, "# HELP tinyice_listeners_total Total number of active listeners\n")
+	fmt.Fprintf(w, "# TYPE tinyice_listeners_total gauge\n")
+	fmt.Fprintf(w, "tinyice_listeners_total %d\n\n", tl)
+
+	fmt.Fprintf(w, "# HELP tinyice_sources_total Total number of active sources\n")
+	fmt.Fprintf(w, "# TYPE tinyice_sources_total gauge\n")
+	fmt.Fprintf(w, "tinyice_sources_total %d\n\n", len(streams))
+
+	fmt.Fprintf(w, "# HELP tinyice_mount_listeners_current Listeners per mount point\n")
+	fmt.Fprintf(w, "# TYPE tinyice_mount_listeners_current gauge\n")
+	for _, st := range streams {
+		fmt.Fprintf(w, "tinyice_mount_listeners_current{mount=\"%s\",name=\"%s\"} %d\n", st.MountName, st.Name, st.ListenersCount)
+	}
 }
 
 func (s *Server) handlePublicEvents(w http.ResponseWriter, r *http.Request) {
