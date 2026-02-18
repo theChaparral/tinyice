@@ -15,14 +15,32 @@ type User struct {
 	Username string            `json:"username"`
 	Password string            `json:"password"` // Hashed
 	Role     string            `json:"role"`
-	Mounts   map[string]string `json:"mounts"` // map[mount]password (hashed)
+	Mounts   map[string]string `json:"mounts"` // Backward compatibility
+}
+
+type RelayConfig struct {
+	URL       string `json:"url"`       // e.g. http://master:8000/stream
+	Mount     string `json:"mount"`     // Local mount point
+	Password  string `json:"password"`  // If the master requires one
+	BurstSize int    `json:"burst_size"`
+}
+
+type MountSettings struct {
+	Password  string `json:"password"` // Hashed
+	BurstSize int    `json:"burst_size"`
 }
 
 type Config struct {
 	BindHost              string            `json:"bind_host"`
 	Port                  string            `json:"port"`
 	DefaultSourcePassword string            `json:"default_source_password"`
-	Mounts                map[string]string `json:"mounts"`
+	Mounts                map[string]string `json:"mounts"` // Legacy global mounts
+	
+	// New Advanced Settings
+	AdvancedMounts map[string]*MountSettings `json:"advanced_mounts"`
+	Relays         []*RelayConfig            `json:"relays"`
+	BannedIPs      []string                  `json:"banned_ips"`
+
 	AdminPassword         string            `json:"admin_password"`
 	AdminUser             string            `json:"admin_user"`
 	Location              string            `json:"location"`
@@ -89,6 +107,9 @@ func LoadConfig(path string) (*Config, error) {
 	if config.DisabledMounts == nil { config.DisabledMounts = make(map[string]bool) }
 	if config.HiddenMounts == nil { config.HiddenMounts = make(map[string]bool) }
 	if config.Users == nil { config.Users = make(map[string]*User) }
+	if config.AdvancedMounts == nil { config.AdvancedMounts = make(map[string]*MountSettings) }
+	if config.Relays == nil { config.Relays = make([]*RelayConfig, 0) }
+	if config.BannedIPs == nil { config.BannedIPs = make([]string, 0) }
 
 	// Migration/Backward compatibility: Ensure AdminUser is in Users map as superadmin
 	if config.AdminUser != "" && config.Users[config.AdminUser] == nil {

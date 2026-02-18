@@ -239,6 +239,13 @@ func (s *Stream) SetHidden(hidden bool) {
 	s.Hidden = hidden
 }
 
+// SetBurstSize updates the burst buffer size thread-safely
+func (s *Stream) SetBurstSize(size int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.burstSize = size
+}
+
 // ListenersCount returns the number of active listeners
 func (s *Stream) ListenersCount() int {
 	s.mu.RLock()

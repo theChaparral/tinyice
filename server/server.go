@@ -55,6 +55,8 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/admin/toggle-hidden", s.handleToggleHidden)
 	mux.HandleFunc("/admin/add-user", s.handleAddUser)
 	mux.HandleFunc("/admin/remove-user", s.handleRemoveUser)
+	mux.HandleFunc("/admin/add-banned-ip", s.handleAddBannedIP)
+	mux.HandleFunc("/admin/remove-banned-ip", s.handleRemoveBannedIP)
 	mux.HandleFunc("/", s.handleRoot)
 	mux.HandleFunc("/events", s.handlePublicEvents)
 	mux.HandleFunc("/status-json.xsl", s.handleLegacyStats)
@@ -129,6 +131,11 @@ func (s *Server) Start() error {
 		go s.directoryReportingTask()
 	}
 
+	// Start Pull Relays
+	for _, rc := range s.Config.Relays {
+		s.Relay.StartPullRelay(rc.URL, rc.Mount, rc.Password, rc.BurstSize)
+	}
+
 	logrus.Infof("Starting HTTPS server on %s", httpsAddr)
 	if certManager != nil {
 		return httpsSrv.ListenAndServeTLS("", "")
@@ -170,7 +177,22 @@ func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 	s.handleStatus(w, r)
 }
 
+func (s *Server) isBanned(ip string) bool {
+	// RemoteAddr usually includes port, strip it
+	if strings.Contains(ip, ":") {
+		ip = strings.Split(ip, ":")[0]
+	}
+	for _, banned := range s.Config.BannedIPs {
+		if banned == ip { return true }
+	}
+	return false
+}
+
 func (s *Server) handleSource(w http.ResponseWriter, r *http.Request) {
+	if s.isBanned(r.RemoteAddr) {
+		logrus.WithField("ip", r.RemoteAddr).Warn("Banned IP attempted source connection")
+		return
+	}
 	mount := r.URL.Path
 	var requiredPass string
 	found := false
@@ -248,6 +270,11 @@ func (s *Server) handleSource(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListener(w http.ResponseWriter, r *http.Request) {
+	if s.isBanned(r.RemoteAddr) {
+		logrus.WithField("ip", r.RemoteAddr).Warn("Banned IP attempted to listen")
+		http.Error(w, "Access Denied", http.StatusForbidden)
+		return
+	}
 	mount := r.URL.Path
 	stream, ok := s.Relay.GetStream(mount)
 	if !ok { http.NotFound(w, r); return }
@@ -427,6 +454,33 @@ func (s *Server) handleRemoveUser(w http.ResponseWriter, r *http.Request) {
 	if !ok || user.Role != config.RoleSuperAdmin { return }
 	username := r.FormValue("username")
 	if username != user.Username { delete(s.Config.Users, username); s.Config.SaveConfig() }
+	http.Redirect(w, r, "/admin", http.StatusSeeOther)
+}
+
+func (s *Server) handleAddBannedIP(w http.ResponseWriter, r *http.Request) {
+	if !s.isCSRFSafe(r) { return }
+	user, ok := s.checkAuth(r)
+	if !ok || user.Role != config.RoleSuperAdmin { return }
+	ip := r.FormValue("ip")
+	if ip != "" {
+		s.Config.BannedIPs = append(s.Config.BannedIPs, ip)
+		s.Config.SaveConfig()
+	}
+	http.Redirect(w, r, "/admin", http.StatusSeeOther)
+}
+
+func (s *Server) handleRemoveBannedIP(w http.ResponseWriter, r *http.Request) {
+	if !s.isCSRFSafe(r) { return }
+	user, ok := s.checkAuth(r)
+	if !ok || user.Role != config.RoleSuperAdmin { return }
+	ip := r.FormValue("ip")
+	for i, b := range s.Config.BannedIPs {
+		if b == ip {
+			s.Config.BannedIPs = append(s.Config.BannedIPs[:i], s.Config.BannedIPs[i+1:]...)
+			s.Config.SaveConfig()
+			break
+		}
+	}
 	http.Redirect(w, r, "/admin", http.StatusSeeOther)
 }
 
