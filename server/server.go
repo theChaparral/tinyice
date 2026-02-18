@@ -117,6 +117,9 @@ func (s *Server) Shutdown(ctx context.Context) error {
 
 	// Stop relays immediately to prevent dual-pulling if a new instance starts
 	s.RelayM.StopAll()
+	
+	// Force signal all listeners to stop reading
+	s.Relay.DisconnectAllListeners()
 
 	var wg sync.WaitGroup
 	for _, srv := range s.httpServers {
