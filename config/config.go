@@ -127,7 +127,7 @@ func LoadConfig(path string) (*Config, error) {
 	}
 
 	if config.PageTitle == "" { config.PageTitle = "TinyIce" }
-	if config.PageSubtitle == "" { config.PageSubtitle = "Live streaming network powered by Go" }
+	if config.PageSubtitle == "" { config.PageSubtitle = "Live Streaming Server powered by Go" }
 	if config.HTTPSPort == "" { config.HTTPSPort = "443" }
 	if config.DirectoryServer == "" { config.DirectoryServer = "http://dir.xiph.org/cgi-bin/yp-cgi" }
 
