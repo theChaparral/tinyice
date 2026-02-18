@@ -6,68 +6,67 @@
     <title>TinyIce Streams</title>
     <style>
         :root {
-            --bg: #0b0f1a; --surface: #161b2c; --primary: #38bdf8;
-            --text: #f1f5f9; --text-dim: #94a3b8; --border: #2d3748;
-            --success: #10b981; --warning: #f59e0b;
+            --bg: #05070a; --card: #11141d; --border: #1f222c;
+            --primary: #38bdf8; --secondary: #94a3b8;
+            --success: #10b981; --warning: #fbbf24;
         }
-        body { font-family: 'Inter', system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 0; line-height: 1.5; display: flex; justify-content: center; }
-        .container { width: 100%; max-width: 1100px; padding: 4rem 2rem; }
-        header { margin-bottom: 4rem; text-align: center; }
-        .logo { font-size: 2.5rem; font-weight: 800; color: var(--primary); margin-bottom: 0.5rem; }
-        .streams-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 2rem; }
+        body { font-family: 'Inter', system-ui, -apple-system, sans-serif; background: var(--bg); color: #fff; margin: 0; padding: 0; line-height: 1.6; }
+        .container { width: 100%; max-width: 1200px; margin: 0 auto; padding: 4rem 2rem; }
+        
+        header { margin-bottom: 5rem; text-align: center; }
+        .logo { font-size: 3.5rem; font-weight: 900; letter-spacing: -2px; color: #fff; margin-bottom: 0.5rem; }
+        .subtitle { color: var(--secondary); font-size: 1.1rem; }
+
+        .streams-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 2.5rem; }
         
         .card { 
-            background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 2rem; 
-            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.3s; 
-            position: relative; overflow: hidden; height: 420px; display: flex; flex-direction: column; 
+            background: var(--card); border: 1px solid var(--border); border-radius: 24px; padding: 2.5rem; 
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1); 
+            display: flex; flex-direction: column; position: relative; height: 440px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
         }
-        .card:hover { transform: translateY(-4px); border-color: var(--primary); }
-        .live-indicator { position: absolute; top: 1.5rem; right: 1.5rem; display: flex; align-items: center; gap: 0.5rem; background: rgba(16, 185, 129, 0.1); padding: 0.25rem 0.75rem; border-radius: 100px; font-size: 0.75rem; font-weight: 700; color: var(--success); border: 1px solid rgba(16, 185, 129, 0.2); z-index: 10; }
+        .card:hover { transform: translateY(-8px); border-color: var(--primary); box-shadow: 0 20px 40px rgba(0,0,0,0.7), 0 0 20px rgba(56, 189, 248, 0.1); }
+        
+        .live-tag { position: absolute; top: 1.5rem; right: 1.5rem; display: flex; align-items: center; gap: 0.5rem; background: rgba(16, 185, 129, 0.1); padding: 0.4rem 0.8rem; border-radius: 100px; font-size: 0.7rem; font-weight: 800; color: var(--success); border: 1px solid rgba(16, 185, 129, 0.2); text-transform: uppercase; }
         .live-dot { width: 6px; height: 6px; background: var(--success); border-radius: 50%; animation: pulse 2s infinite; }
         @keyframes pulse { 0% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.5); opacity: 0.5; } 100% { transform: scale(1); opacity: 1; } }
 
-        .stream-name { font-size: 1.5rem; font-weight: 700; margin-bottom: 0.5rem; padding-right: 4.5rem; height: 2.4rem; position: relative; overflow: hidden; }
-        .scroll-wrapper { white-space: nowrap; display: inline-block; position: relative; }
+        .stream-name { font-size: 1.75rem; font-weight: 800; margin-bottom: 1.5rem; letter-spacing: -0.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 3rem; }
         
-        .scroll-active { animation: marquee linear infinite; }
-        @keyframes marquee { 
-            0% { transform: translateX(0); }
-            10% { transform: translateX(0); }
-            90% { transform: translateX(var(--scroll-dist)); }
-            100% { transform: translateX(var(--scroll-dist)); }
-        }
+        .now-playing-box { background: rgba(251, 191, 36, 0.05); border: 1px solid rgba(251, 191, 36, 0.1); border-radius: 16px; padding: 1rem; margin-bottom: 2rem; position: relative; }
+        .now-playing-box label { font-size: 0.65rem; text-transform: uppercase; color: var(--secondary); font-weight: 700; margin-bottom: 0.25rem; display: block; letter-spacing: 1px; }
+        .song-title { font-weight: 700; color: var(--warning); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; font-size: 1rem; }
 
-        .now-playing { background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.2); color: var(--warning); padding: 0.75rem; border-radius: 10px; margin-bottom: 1.5rem; font-size: 0.9rem; font-weight: 600; min-height: 54px; position: relative; overflow: hidden; }
-        .now-playing label { font-size: 0.65rem; text-transform: uppercase; color: var(--text-dim); opacity: 0.8; display: block; position: relative; z-index: 2; }
-        .song-val-wrap { display: block; position: relative; height: 1.2rem; overflow: hidden; }
-        .song-scroll { white-space: nowrap; display: inline-block; }
-        
-        .meta-list { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 2rem; flex-grow: 1; }
-        .meta-item { background: rgba(0,0,0,0.2); padding: 0.75rem; border-radius: 10px; display: flex; flex-direction: column; justify-content: center; height: 50px; }
-        .meta-label { font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase; margin-bottom: 0.2rem; }
-        .meta-value { font-weight: 600; font-size: 0.9rem; color: var(--primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 2.5rem; flex-grow: 1; }
+        .stat-item { background: rgba(255,255,255,0.03); padding: 1rem; border-radius: 16px; display: flex; flex-direction: column; justify-content: center; }
+        .stat-label { font-size: 0.65rem; color: var(--secondary); text-transform: uppercase; margin-bottom: 0.2rem; font-weight: 600; letter-spacing: 0.5px; }
+        .stat-value { font-weight: 700; font-size: 1rem; color: var(--primary); }
 
-        .btn-play { display: flex; align-items: center; justify-content: center; gap: 0.75rem; background: var(--primary); color: var(--bg); padding: 1rem; border-radius: 12px; text-decoration: none; font-weight: 700; margin-top: auto; }
-        .footer { margin-top: 4rem; text-align: center; color: var(--text-dim); font-size: 0.85rem; border-top: 1px solid var(--border); padding-top: 2rem; }
-        .footer a { color: var(--text-dim); text-decoration: none; font-weight: 600; }
-        .empty-state { grid-column: 1/-1; text-align: center; padding: 5rem 2rem; background: var(--surface); border-radius: 24px; border: 2px dashed var(--border); }
+        .btn-listen { display: flex; align-items: center; justify-content: center; gap: 0.75rem; background: #fff; color: #000; padding: 1.25rem; border-radius: 18px; text-decoration: none; font-weight: 800; transition: all 0.2s; font-size: 1rem; margin-top: auto; }
+        .btn-listen:hover { background: var(--primary); transform: scale(1.02); }
 
-        .pagination { display: flex; justify-content: center; gap: 0.5rem; margin-top: 3rem; }
-        .page-btn { background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 0.5rem 1rem; border-radius: 8px; cursor: pointer; transition: all 0.2s; }
-        .page-btn:hover:not(:disabled) { border-color: var(--primary); color: var(--primary); }
-        .page-btn.active { background: var(--primary); color: var(--bg); border-color: var(--primary); }
-        .page-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+        .pagination { display: flex; justify-content: center; gap: 0.75rem; margin-top: 5rem; }
+        .page-btn { background: var(--card); border: 1px solid var(--border); color: var(--secondary); padding: 0.75rem 1.25rem; border-radius: 12px; cursor: pointer; font-weight: 600; }
+        .page-btn:hover:not(:disabled) { border-color: var(--primary); color: #fff; }
+        .page-btn.active { background: var(--primary); color: #000; border-color: var(--primary); }
+        .page-btn:disabled { opacity: 0.2; cursor: not-allowed; }
+
+        .footer { margin-top: 6rem; text-align: center; color: var(--secondary); font-size: 0.9rem; border-top: 1px solid var(--border); padding-top: 3rem; }
+        .footer a { color: #fff; text-decoration: none; font-weight: 700; }
+        .footer a:hover { color: var(--primary); }
+
+        .empty-state { grid-column: 1/-1; text-align: center; padding: 8rem 2rem; background: var(--card); border-radius: 32px; border: 2px dashed var(--border); color: var(--secondary); }
     </style>
 </head>
 <body>
     <div class="container">
         <header>
             <div class="logo">{{.Config.PageTitle}}</div>
-            <p style="color: var(--text-dim);">{{.Config.PageSubtitle}}</p>
+            <p class="subtitle">{{.Config.PageSubtitle}}</p>
         </header>
 
         <div class="streams-grid" id="streams-container">
-            <!-- Rendered via JS -->
+            <!-- Dynamically populated -->
         </div>
 
         <div id="pagination" class="pagination"></div>
@@ -76,20 +75,20 @@
 
     <template id="card-template">
         <div class="card">
-            <div class="live-indicator"><div class="live-dot"></div> LIVE</div>
-            <div class="stream-name"><div class="scroll-wrapper name-scroll"></div></div>
-            <div class="now-playing">
+            <div class="live-tag"><div class="live-dot"></div> LIVE</div>
+            <div class="stream-name"></div>
+            <div class="now-playing-box">
                 <label>Now Playing</label>
-                <div class="song-val-wrap"><div class="song-scroll"></div></div>
+                <span class="song-title"></span>
             </div>
-            <div class="meta-list">
-                <div class="meta-item"><div class="meta-label">Listeners</div><div class="meta-value listener-val"></div></div>
-                <div class="meta-item"><div class="meta-label">Bitrate</div><div class="meta-value bitrate-val"></div></div>
-                <div class="meta-item"><div class="meta-label">Genre</div><div class="meta-value genre-val"></div></div>
-                <div class="meta-item"><div class="meta-label">Uptime</div><div class="meta-value uptime-val"></div></div>
+            <div class="stats-grid">
+                <div class="stat-item"><div class="stat-label">Listeners</div><div class="stat-value val-listeners"></div></div>
+                <div class="stat-item"><div class="stat-label">Bitrate</div><div class="stat-value val-bitrate"></div></div>
+                <div class="stat-item"><div class="stat-label">Genre</div><div class="stat-value val-genre"></div></div>
+                <div class="stat-item"><div class="stat-label">Uptime</div><div class="stat-value val-uptime"></div></div>
             </div>
-            <a href="" class="btn-play">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> TUNE IN NOW
+            <a href="" class="btn-listen">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> TUNE IN NOW
             </a>
         </div>
     </template>
@@ -105,53 +104,31 @@
             var pageSize = 6;
             var currentPage = 1;
 
-            function checkScroll(el) {
-                var parent = el.parentElement;
-                if (el.scrollWidth > parent.offsetWidth) {
-                    var dist = parent.offsetWidth - el.scrollWidth - 20;
-                    el.style.setProperty('--scroll-dist', dist + 'px');
-                    el.classList.add('scroll-active');
-                    var duration = el.scrollWidth / 30; 
-                    el.style.animationDuration = Math.max(duration, 5) + 's';
-                } else {
-                    el.classList.remove('scroll-active');
-                    el.style.transform = 'translateX(0)';
-                }
-            }
-
             function render() {
                 var totalPages = Math.ceil(allStreams.length / pageSize);
                 if (currentPage > totalPages && totalPages > 0) currentPage = totalPages;
                 
                 if (allStreams.length === 0) {
-                    container.innerHTML = '<div class="empty-state"><div style="font-size: 3rem; margin-bottom: 1.5rem;">📡</div><h2 style="margin-bottom: 0.5rem;">Off the Air</h2><p style="color: var(--text-dim);">No stations are currently broadcasting.</p></div>';
+                    container.innerHTML = '<div class="empty-state"><div style="font-size: 4rem; margin-bottom: 2rem;">📡</div><h2>Off the Air</h2><p>No stations are currently broadcasting. Check back later!</p></div>';
                     paginationEl.innerHTML = '';
                     return;
                 }
 
-                var start = (currentPage - 1) * pageSize;
-                var end = start + pageSize;
-                var pagedStreams = allStreams.slice(start, end);
-
+                var pagedStreams = allStreams.slice((currentPage - 1) * pageSize, currentPage * pageSize);
                 container.innerHTML = '';
+                
                 pagedStreams.forEach(function(s) {
                     var clone = template.content.cloneNode(true);
                     var card = clone.querySelector('.card');
                     card.setAttribute('data-mount', s.mount);
-                    
-                    clone.querySelector('.name-scroll').textContent = s.name || s.mount;
-                    clone.querySelector('.song-scroll').textContent = s.song || 'N/A';
-                    clone.querySelector('.listener-val').textContent = s.listeners;
-                    clone.querySelector('.bitrate-val').textContent = s.bitrate + ' kbps';
-                    clone.querySelector('.genre-val').textContent = s.genre;
-                    clone.querySelector('.uptime-val').textContent = s.uptime;
-                    clone.querySelector('.btn-play').setAttribute('href', s.mount);
+                    clone.querySelector('.stream-name').textContent = s.name || s.mount;
+                    clone.querySelector('.song-title').textContent = s.song || 'Live Stream';
+                    clone.querySelector('.val-listeners').textContent = s.listeners;
+                    clone.querySelector('.val-bitrate').textContent = s.bitrate + ' kbps';
+                    clone.querySelector('.val-genre').textContent = s.genre || 'N/A';
+                    clone.querySelector('.val-uptime').textContent = s.uptime;
+                    clone.querySelector('.btn-listen').setAttribute('href', s.mount);
                     container.appendChild(clone);
-
-                    // Re-calculate after DOM insertion
-                    var cardInDom = container.querySelector('.card[data-mount="' + s.mount + '"]');
-                    checkScroll(cardInDom.querySelector('.name-scroll'));
-                    checkScroll(cardInDom.querySelector('.song-scroll'));
                 });
 
                 if (totalPages > 1) {
@@ -165,11 +142,7 @@
             }
 
             window.setPage = function(p) { currentPage = p; render(); };
-
-            es.onmessage = function(e) {
-                allStreams = JSON.parse(e.data);
-                render();
-            };
+            es.onmessage = function(e) { allStreams = JSON.parse(e.data); render(); };
         })();
     </script>
 </body>
