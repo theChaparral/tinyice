@@ -204,11 +204,33 @@ func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 		s.handlePlaylist(w, r)
 		return
 	}
+	if strings.HasSuffix(r.URL.Path, ".pls") {
+		s.handlePLS(w, r)
+		return
+	}
 	if r.Method == "GET" && r.URL.Path != "/" && r.URL.Path != "/favicon.ico" && r.URL.Path != "/admin" {
 		s.handleListener(w, r)
 		return
 	}
 	s.handleStatus(w, r)
+}
+
+func (s *Server) handlePLS(w http.ResponseWriter, r *http.Request) {
+	mount := strings.TrimSuffix(r.URL.Path, ".pls")
+	st, ok := s.Relay.GetStream(mount)
+	if !ok { http.NotFound(w, r); return }
+
+	baseURL := s.Config.BaseURL
+	if baseURL == "" {
+		proto := "http://"
+		if s.Config.UseHTTPS || r.Header.Get("X-Forwarded-Proto") == "https" { proto = "https://" }
+		baseURL = proto + r.Host
+	}
+	baseURL = strings.TrimSuffix(baseURL, "/")
+
+	w.Header().Set("Content-Type", "audio/x-scpls")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s.pls\"", st.Name))
+	fmt.Fprintf(w, "[playlist]\nNumberOfEntries=1\nFile1=%s%s\nTitle1=%s\nLength1=-1\nVersion=2\n", baseURL, mount, st.Name)
 }
 
 func (s *Server) handlePlaylist(w http.ResponseWriter, r *http.Request) {
