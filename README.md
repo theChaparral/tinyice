@@ -1,6 +1,6 @@
 # TinyIce ❄️
 
-![TinyIce Logo](assets/logo.png)
+![TinyIce Logo](https://raw.githubusercontent.com/DatanoiseTV/tinyice/main/assets/logo.png?v=2)
 
 **Run it, and you've got a ready Icecast server in seconds.**
 
