@@ -7,6 +7,7 @@ import (
 	"html/template"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -282,6 +283,7 @@ func (s *Server) handleAdmin(w http.ResponseWriter, r *http.Request) {
 	}
 	var allMounts []string
 	for m := range mountMap { allMounts = append(allMounts, m) }
+	sort.Strings(allMounts)
 
 	w.Header().Set("Content-Type", "text/html")
 	data := map[string]interface{}{"Streams": streams, "Config": s.Config, "User": user, "Mounts": allMounts}
