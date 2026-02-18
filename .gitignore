@@ -1,3 +1,4 @@
 tinyice
 tinyice.json
 *.log
+.DS_Store
