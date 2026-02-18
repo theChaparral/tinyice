@@ -19,6 +19,19 @@ type Config struct {
 	LowLatencyMode        bool              `json:"low_latency_mode"`
 	MaxListeners          int               `json:"max_listeners"`
 	DisabledMounts        map[string]bool   `json:"disabled_mounts"`
+
+	// UI Customization
+	PageTitle    string `json:"page_title"`
+	PageSubtitle string `json:"page_subtitle"`
+
+	// HTTPS Configuration
+	UseHTTPS   bool     `json:"use_https"`
+	AutoHTTPS  bool     `json:"auto_https"` // ACME
+	HTTPSPort  string   `json:"https_port"`
+	CertFile   string   `json:"cert_file"`
+	KeyFile    string   `json:"key_file"`
+	ACMEEmail  string   `json:"acme_email"`
+	Domains    []string `json:"domains"`
 }
 
 func HashPassword(p string) (string, error) {
@@ -52,6 +65,10 @@ func LoadConfig(path string) (*Config, error) {
 	if config.Mounts == nil { config.Mounts = make(map[string]string) }
 	if config.MaxListeners == 0 { config.MaxListeners = 100 }
 	if config.DisabledMounts == nil { config.DisabledMounts = make(map[string]bool) }
+
+	if config.PageTitle == "" { config.PageTitle = "TinyIce" }
+	if config.PageSubtitle == "" { config.PageSubtitle = "Live streaming network powered by Go" }
+	if config.HTTPSPort == "" { config.HTTPSPort = "443" }
 
 	return config, nil
 }

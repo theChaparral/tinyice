@@ -13,7 +13,7 @@ TinyIce is a lightweight, high-performance, and secure Icecast2-compatible strea
 Traditional streaming servers can be complex to configure and resource-heavy. TinyIce aims to solve this by providing:
 
 -   **Zero Dependencies**: A single binary with all assets including templates and icons embedded at compile time.
--   **Production-Grade Security**: Automatic unique credential generation on the first run, industry-standard **bcrypt** password hashing, and built-in CSRF protection for administrative actions.
+-   **Production-Grade Security**: Automatic unique credential generation on the first run, industry-standard **bcrypt** password hashing, built-in CSRF protection, and support for **Automatic HTTPS (ACME/Let's Encrypt)**.
 -   **No Default Passwords**: Unique secure credentials are automatically generated on the first run.
 -   **Modern UI**: Real-time dashboards powered by Server-Sent Events (SSE) with smooth, hardware-accelerated traffic charts.
 -   **Super Low Latency**: A dedicated mode that disables server-side buffering for near-real-time broadcasting.
@@ -22,6 +22,8 @@ Traditional streaming servers can be complex to configure and resource-heavy. Ti
 ## Features
 
 -   **Icecast2 Compatible**: Fully supports standard source clients such as BUTT, OBS, Mixxx, and LadioCast, as well as players like VLC and modern web browsers.
+-   **Dual-Protocol Listening**: Support for HTTPS (Auto or Manual) while maintaining an HTTP listener for legacy source clients that do not support TLS.
+-   **UI Customization**: Personalized page titles and subtitles configurable via JSON.
 -   **Dynamic Mount Management**: Add, update, disable, or remove mount points through the admin panel without requiring a server restart.
 -   **Real-time Analytics**: Visual traffic charts for Inbound and Outbound data flow along with global server statistics (Total Listeners, Active Sources, Bandwidth).
 -   **Administrative Controls**: Capability to kick specific streamers, disconnect all listeners, or temporarily disable mount points.
@@ -76,6 +78,12 @@ The `tinyice.json` file allows for extensive customization:
 ```json
 {
     "port": "8000",
+    "page_title": "My Stream Portal",
+    "page_subtitle": "Broadcasting live from Earth",
+    "use_https": true,
+    "auto_https": true,
+    "acme_email": "admin@example.com",
+    "domains": ["radio.example.com"],
     "default_source_password": "$2a$12$...",
     "mounts": {
         "/radio1": "$2a$12$..."
@@ -93,9 +101,8 @@ The `tinyice.json` file allows for extensive customization:
 ### Super Low Latency Mode
 Enable this feature in the Admin Panel to disable the "burst-on-connect" buffer. This reduces playback delay from several seconds to less than one second, making it ideal for live interactions.
 
-### Metadata Updates
-TinyIce supports standard Icecast metadata updates:
-`GET /admin/metadata?mount=/live&mode=updinfo&song=Artist+-+Title`
+### Automatic HTTPS (ACME)
+TinyIce can automatically manage SSL certificates using Let's Encrypt. Set `auto_https: true`, provide a valid `acme_email`, and list your `domains`. Ensure ports 80 and 443 are reachable.
 
 ## License
 

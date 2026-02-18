@@ -93,6 +93,10 @@ func main() {
 			HostName:      "localhost",
 			Location:      "Earth",
 			AdminEmail:    "admin@localhost",
+			PageTitle:     "TinyIce",
+			PageSubtitle:  "Live streaming network powered by Go",
+			UseHTTPS:      false,
+			HTTPSPort:     "443",
 		}
 
 		data, _ := json.MarshalIndent(defaultCfg, "", "    ")

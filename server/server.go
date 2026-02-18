@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"golang.org/x/crypto/acme/autocert"
 	"github.com/syso/tinyice/config"
 	"github.com/syso/tinyice/relay"
 )
@@ -55,17 +56,83 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/events", s.handlePublicEvents)
 
 	addr := ":" + s.Config.Port
-	logrus.Infof("Starting TinyIce on %s", addr)
-
-	srv := &http.Server{
-		Addr:         addr,
-		Handler:      mux,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 0, // Streaming needs no timeout here
-		IdleTimeout:  120 * time.Second,
+	
+	if !s.Config.UseHTTPS {
+		logrus.Infof("Starting TinyIce on %s (HTTP)", addr)
+		srv := &http.Server{
+			Addr:         addr,
+			Handler:      mux,
+			ReadTimeout:  10 * time.Second,
+			WriteTimeout: 0,
+			IdleTimeout:  120 * time.Second,
+		}
+		return srv.ListenAndServe()
 	}
 
-	return srv.ListenAndServe()
+	// HTTPS Enabled
+	httpsAddr := ":" + s.Config.HTTPSPort
+	var certManager *autocert.Manager
+
+	if s.Config.AutoHTTPS {
+		certManager = &autocert.Manager{
+			Prompt:     autocert.AcceptTOS,
+			HostPolicy: autocert.HostWhitelist(s.Config.Domains...),
+			Cache:      autocert.DirCache("certs"),
+			Email:      s.Config.ACMEEmail,
+		}
+	}
+
+	// HTTPS Server
+	httpsSrv := &http.Server{
+		Addr:         httpsAddr,
+		Handler:      mux,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 0,
+		IdleTimeout:  120 * time.Second,
+	}
+	if certManager != nil {
+		httpsSrv.TLSConfig = certManager.TLSConfig()
+	}
+
+	// HTTP Server (Redirects for Web/Listeners, direct for Sources)
+	httpSrv := &http.Server{
+		Addr: addr,
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// If it's a source connection (PUT/SOURCE), don't redirect
+			if r.Method == "PUT" || r.Method == "SOURCE" {
+				mux.ServeHTTP(w, r)
+				return
+			}
+			
+			// Handle ACME challenge if auto-https is on
+			if certManager != nil && strings.HasPrefix(r.URL.Path, "/.well-known/acme-challenge/") {
+				certManager.HTTPHandler(nil).ServeHTTP(w, r)
+				return
+			}
+
+			// Redirect others to HTTPS
+			target := "https://" + r.Host + r.URL.Path
+			if len(r.URL.RawQuery) > 0 {
+				target += "?" + r.URL.RawQuery
+			}
+			http.Redirect(w, r, target, http.StatusMovedPermanently)
+		}),
+		ReadTimeout: 10 * time.Second,
+		IdleTimeout: 120 * time.Second,
+	}
+
+	go func() {
+		logrus.Infof("Starting HTTP listener on %s", addr)
+		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logrus.Fatalf("HTTP server failed: %v", err)
+		}
+	}()
+
+	logrus.Infof("Starting HTTPS server on %s", httpsAddr)
+	if certManager != nil {
+		return httpsSrv.ListenAndServeTLS("", "")
+	}
+	return httpsSrv.ListenAndServeTLS(s.Config.CertFile, s.Config.KeyFile)
 }
 
 func (s *Server) checkAuth(r *http.Request, user, pass string) bool {
