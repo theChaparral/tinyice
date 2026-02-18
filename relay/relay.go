@@ -86,6 +86,8 @@ type Stream struct {
 	Public       bool
 	Visible      bool
 
+	LastDataReceived time.Time
+
 	Buffer    *CircularBuffer
 	listeners map[string]chan struct{} // Signal channel for new data
 	mu        sync.RWMutex
@@ -187,6 +189,8 @@ func (r *Relay) DisconnectAllListeners() {
 func (s *Stream) Broadcast(data []byte, relay *Relay) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	s.LastDataReceived = time.Now()
 
 	// Update Metrics (Incoming)
 	atomic.AddInt64(&relay.BytesIn, int64(len(data)))
@@ -314,12 +318,41 @@ type StreamStats struct {
 	Visible        bool
 	ListenersCount int
 	Uptime         string
+	Health         float64
 }
 
 // Snapshot returns a point-in-time copy of the stream's state
 func (s *Stream) Snapshot() StreamStats {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
+	bi := atomic.LoadInt64(&s.BytesIn)
+	bd := atomic.LoadInt64(&s.BytesDropped)
+	
+	// Health calculation
+	// 1. Loss-based health
+	health := 100.0
+	total := bi + bd
+	if total > 0 {
+		health = (float64(bi) / float64(total)) * 100.0
+	}
+
+	// 2. Source Stall Penalty (User Request)
+	// If we haven't received data for more than 5 seconds, health starts dropping
+	if !s.LastDataReceived.IsZero() {
+		silence := time.Since(s.LastDataReceived)
+		if silence > 5*time.Second {
+			penalty := float64(silence/time.Second) * 2.0 // 2% per second of silence
+			health -= penalty
+		}
+	} else if time.Since(s.Started) > 10*time.Second {
+		// Never received data and stream started > 10s ago
+		health = 0
+	}
+
+	if health < 0 {
+		health = 0
+	}
 
 	return StreamStats{
 		MountName:      s.MountName,
@@ -332,16 +365,18 @@ func (s *Stream) Snapshot() StreamStats {
 		Started:        s.Started,
 		SourceIP:       s.SourceIP,
 		Enabled:        s.Enabled,
-		BytesIn:        atomic.LoadInt64(&s.BytesIn),
+		BytesIn:        bi,
 		BytesOut:       atomic.LoadInt64(&s.BytesOut),
-		BytesDropped:   atomic.LoadInt64(&s.BytesDropped),
+		BytesDropped:   bd,
 		CurrentSong:    s.CurrentSong,
 		Public:         s.Public,
 		Visible:        s.Visible,
 		ListenersCount: len(s.listeners),
-		Uptime:         s.uptimeLocked(), // We need a non-locked version of uptime
+		Uptime:         s.uptimeLocked(),
+		Health:         health,
 	}
 }
+
 
 // uptimeLocked returns the formatted uptime string assuming the lock is already held
 func (s *Stream) uptimeLocked() string {

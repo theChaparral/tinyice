@@ -292,10 +292,9 @@
                         var clone = rowTemplate.content.cloneNode(true); clone.querySelector('.row-mount').textContent = s.mount; clone.querySelector('.row-ip').textContent = s.ip; clone.querySelector('.row-song').textContent = s.song;
                         clone.querySelector('.row-listeners').textContent = s.listeners; clone.querySelector('.row-in').textContent = curIn.toFixed(1); clone.querySelector('.row-out').textContent = curOut.toFixed(1);
                         
-                        var total = s.bytes_out + s.bytes_dropped;
-                        var health = total > 0 ? ((s.bytes_out / total) * 100).toFixed(1) : 100;
+                        var health = s.health;
                         var hEl = clone.querySelector('.row-health');
-                        hEl.textContent = health + '%';
+                        hEl.textContent = health.toFixed(1) + '%';
                         hEl.style.color = health > 95 ? 'var(--success)' : (health > 80 ? 'var(--warning)' : 'var(--danger)');
                         hEl.style.fontWeight = 'bold';
 
