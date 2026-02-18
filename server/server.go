@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html/template"
 	"io/fs"
+	"net"
 	"net/http"
 	"net/url"
 	"runtime"
@@ -184,9 +185,15 @@ func (s *Server) checkAuth(r *http.Request) (*config.User, bool) {
 	}
 	user, exists := s.Config.Users[u]
 	if !exists {
+		logrus.WithFields(logrus.Fields{"user": u, "ip": r.RemoteAddr}).Warn("Admin auth failed: user not found")
 		return nil, false
 	}
-	return user, config.CheckPasswordHash(p, user.Password)
+	if !config.CheckPasswordHash(p, user.Password) {
+		logrus.WithFields(logrus.Fields{"user": u, "ip": r.RemoteAddr}).Warn("Admin auth failed: invalid password")
+		return nil, false
+	}
+	logrus.WithFields(logrus.Fields{"user": u, "ip": r.RemoteAddr}).Info("Admin auth successful")
+	return user, true
 }
 
 func (s *Server) hasAccess(user *config.User, mount string) bool {
@@ -283,12 +290,26 @@ func (s *Server) handlePlaylist(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "#EXTM3U\n#EXTINF:-1,%s\n%s%s\n", st.Name, baseURL, mount)
 }
 
-func (s *Server) isBanned(ip string) bool {
-	if strings.Contains(ip, ":") {
-		ip = strings.Split(ip, ":")[0]
+func (s *Server) isBanned(ipStr string) bool {
+	host, _, err := net.SplitHostPort(ipStr)
+	if err != nil {
+		host = ipStr
 	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+
 	for _, banned := range s.Config.BannedIPs {
-		if banned == ip {
+		// Try parsing as CIDR
+		if strings.Contains(banned, "/") {
+			_, ipnet, err := net.ParseCIDR(banned)
+			if err == nil && ipnet.Contains(ip) {
+				return true
+			}
+		}
+		// Fallback to exact match
+		if banned == host {
 			return true
 		}
 	}
@@ -326,10 +347,13 @@ func (s *Server) handleSource(w http.ResponseWriter, r *http.Request) {
 
 	_, p, ok := r.BasicAuth()
 	if !ok || !config.CheckPasswordHash(p, requiredPass) {
+		logrus.WithFields(logrus.Fields{"mount": mount, "ip": r.RemoteAddr}).Warn("Source auth failed")
 		w.Header().Set("WWW-Authenticate", `Basic realm="Icecast"`)
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
+
+	logrus.WithFields(logrus.Fields{"mount": mount, "ip": r.RemoteAddr}).Info("Source auth successful")
 
 	hj, ok := w.(http.Hijacker)
 	if !ok {
