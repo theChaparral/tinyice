@@ -23,6 +23,7 @@ var (
 	configPath  = flag.String("config", "tinyice.json", "Path to configuration file")
 	bindHost    = flag.String("host", "0.0.0.0", "Network interface to bind to")
 	bindPort    = flag.String("port", "", "Network port to bind to (overrides config)")
+	httpsPort   = flag.String("https-port", "", "Network port for HTTPS (overrides config)")
 	logFile     = flag.String("log-file", "", "Path to log file (default is stdout)")
 	logLevel    = flag.String("log-level", "info", "Log level (debug, info, warn, error)")
 	jsonLogs    = flag.Bool("json-logs", false, "Enable JSON logging format")
@@ -116,6 +117,9 @@ func main() {
 	}
 	if *bindPort != "" {
 		cfg.Port = *bindPort
+	}
+	if *httpsPort != "" {
+		cfg.HTTPSPort = *httpsPort
 	}
 
 	srv := server.NewServer(cfg, authLogger)

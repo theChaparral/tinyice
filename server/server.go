@@ -200,6 +200,13 @@ func (s *Server) startHTTPS(mux *http.ServeMux, addr string) error {
 	var certManager *autocert.Manager
 
 	if s.Config.AutoHTTPS {
+		if len(s.Config.Domains) == 0 {
+			logrus.Warn("Auto-HTTPS is enabled but no domains are configured in 'domains'. Certificates will not be issued.")
+		}
+		if s.Config.Port != "80" || s.Config.HTTPSPort != "443" {
+			logrus.Warnf("Auto-HTTPS usually requires port 80 and 443 to satisfy ACME challenges. Current ports: HTTP=%s, HTTPS=%s. Ensure you have port forwarding (80->%s, 443->%s) configured.", s.Config.Port, s.Config.HTTPSPort, s.Config.Port, s.Config.HTTPSPort)
+		}
+
 		certManager = &autocert.Manager{
 			Prompt:     autocert.AcceptTOS,
 			HostPolicy: autocert.HostWhitelist(s.Config.Domains...),
@@ -231,6 +238,10 @@ func (s *Server) startHTTPS(mux *http.ServeMux, addr string) error {
 				return
 			}
 			if certManager != nil && strings.HasPrefix(r.URL.Path, "/.well-known/acme-challenge/") {
+				logrus.WithFields(logrus.Fields{
+					"path": r.URL.Path,
+					"ip":   r.RemoteAddr,
+				}).Info("Handling ACME challenge request")
 				certManager.HTTPHandler(nil).ServeHTTP(w, r)
 				return
 			}

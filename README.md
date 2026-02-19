@@ -121,6 +121,8 @@ To use TinyIce with a custom ACME CA (like Step-CA or Smallstep) in a homelab en
 ```
 
 -   `-host`: Network interface to bind to (default: "0.0.0.0").
+-   `-port`: Port for HTTP/Icecast (default: "8000").
+-   `-https-port`: Port for HTTPS (default: "443").
 -   `-config`: Path to the configuration file.
 -   `-log-file`: Path to a file for log output.
 -   `-auth-log-file`: Path to a separate file for authentication audit logs.
