@@ -7,74 +7,79 @@
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
         :root {
-            --bg: #05070a; --card: #11141d; --border: #1f222c;
+            --bg: #05070a; --card: rgba(22, 27, 44, 0.6); --border: rgba(255, 255, 255, 0.08);
             --primary: #38bdf8; --secondary: #94a3b8;
         }
         body { 
             font-family: 'Inter', system-ui, -apple-system, sans-serif; 
             background-color: var(--bg); color: #fff; margin: 0; padding: 0; 
             line-height: 1.6; min-height: 100vh; display: flex; flex-direction: column;
+            background: radial-gradient(circle at top right, #1e293b, #05070a);
         }
         
         nav { 
-            display: flex; justify-content: space-between; align-items: center; padding: 1.25rem 10%; 
-            border-bottom: 1px solid var(--border); background: rgba(5,7,10,0.8); backdrop-filter: blur(12px);
+            display: flex; justify-content: space-between; align-items: center; padding: 1.5rem 10%; 
+            border-bottom: 1px solid var(--border); background: rgba(5,7,10,0.7); backdrop-filter: blur(12px);
             position: sticky; top: 0; z-index: 100;
         }
-        .nav-logo { font-size: 1.25rem; font-weight: 900; letter-spacing: -0.05em; text-decoration: none; color: #fff; }
-        .nav-links { display: flex; gap: 2rem; }
-        .nav-links a { color: var(--secondary); text-decoration: none; font-weight: 600; font-size: 0.9rem; transition: color 0.2s; letter-spacing: 0.01em; }
-        .nav-links a:hover { color: #fff; }
+        .nav-logo { font-size: 1.5rem; font-weight: 900; letter-spacing: -0.05em; text-decoration: none; color: #fff; }
+        .nav-links { display: flex; gap: 2.5rem; }
+        .nav-links a { color: var(--secondary); text-decoration: none; font-weight: 600; font-size: 0.9rem; transition: all 0.2s; letter-spacing: 0.01em; }
+        .nav-links a:hover { color: var(--primary); }
 
         .hero { 
-            padding: 8rem 10% 6rem; text-align: center; max-width: 900px; margin: 0 auto;
+            padding: 10rem 10% 6rem; text-align: center; max-width: 900px; margin: 0 auto;
         }
-        h1 { font-size: 4.5rem; font-weight: 900; letter-spacing: -0.04em; line-height: 1.1; margin-bottom: 1.5rem; }
-        .hero-subtitle { font-size: 1.25rem; color: var(--secondary); max-width: 600px; margin: 0 auto 3rem; letter-spacing: -0.01em; line-height: 1.5; }
+        h1 { font-size: clamp(3rem, 8vw, 5rem); font-weight: 900; letter-spacing: -0.04em; line-height: 1; margin-bottom: 1.5rem; }
+        .hero-subtitle { font-size: 1.25rem; color: var(--secondary); max-width: 600px; margin: 0 auto 4rem; line-height: 1.5; opacity: 0.9; }
 
         .landing-content { 
             text-align: left; background: var(--card); border: 1px solid var(--border); 
-            border-radius: 24px; padding: 3.5rem; margin-bottom: 4rem; font-size: 1.15rem;
-            color: #e2e8f0; line-height: 1.7; box-shadow: 0 20px 40px rgba(0,0,0,0.2);
-            letter-spacing: -0.01em;
+            border-radius: 32px; padding: 4rem; margin-bottom: 5rem; font-size: 1.15rem;
+            color: #e2e8f0; line-height: 1.7; box-shadow: 0 30px 60px rgba(0,0,0,0.4);
+            backdrop-filter: blur(20px);
         }
-        .landing-content h1, .landing-content h2, .landing-content h3 { color: #fff; margin-top: 0; letter-spacing: -0.03em; }
-        .landing-content h1 { font-size: 2.25rem; border-bottom: 1px solid var(--border); padding-bottom: 1.25rem; margin-bottom: 2rem; }
-        .landing-content p { margin-bottom: 1.5rem; }
-        .landing-content ul { padding-left: 1.5rem; }
-        .landing-content li { margin-bottom: 0.5rem; }
+        .landing-content h1, .landing-content h2, .landing-content h3 { color: #fff; margin-top: 0; letter-spacing: -0.02em; }
+        .landing-content h1 { font-size: 2.5rem; border-bottom: 1px solid var(--border); padding-bottom: 1rem; margin-bottom: 2rem; }
+        .landing-content ul { padding-left: 1.5rem; margin-bottom: 2rem; }
+        .landing-content li { margin-bottom: 0.75rem; }
         .landing-content a { color: var(--primary); text-decoration: none; font-weight: 700; }
         .landing-content a:hover { text-decoration: underline; }
 
-        .cta-box { display: flex; justify-content: center; gap: 1rem; }
-        .btn-primary { 
-            background: var(--primary); color: #000; padding: 1rem 2.5rem; 
-            border-radius: 14px; text-decoration: none; font-weight: 800; 
-            transition: all 0.2s; font-size: 1rem;
+        .cta-btn { 
+            display: inline-flex; align-items: center; gap: 1rem; 
+            background: #fff; color: #000; padding: 1.25rem 3rem; 
+            border-radius: 20px; text-decoration: none; font-weight: 900; 
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); font-size: 1.1rem;
+            box-shadow: 0 10px 30px rgba(255,255,255,0.1);
         }
-        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 10px 25px rgba(56, 189, 248, 0.3); }
+        .cta-btn:hover { transform: scale(1.05) translateY(-3px); background: var(--primary); box-shadow: 0 20px 40px rgba(56, 189, 248, 0.3); }
 
         .features-grid { 
-            display: grid; grid-template-columns: repeat(3, 1fr); gap: 2rem; padding: 4rem 10%; 
-            border-top: 1px solid var(--border); margin-top: 4rem;
+            display: grid; grid-template-columns: repeat(3, 1fr); gap: 3rem; padding: 6rem 10%; 
+            background: rgba(0,0,0,0.2); border-top: 1px solid var(--border);
         }
         .feature-item { text-align: left; }
-        .feature-item i { color: var(--primary); margin-bottom: 1rem; width: 24px; height: 24px; }
-        .feature-item h3 { font-size: 1.1rem; font-weight: 700; margin-bottom: 0.5rem; }
-        .feature-item p { font-size: 0.9rem; color: var(--secondary); }
+        .feature-item i { color: var(--primary); margin-bottom: 1.5rem; width: 32px; height: 32px; }
+        .feature-item h3 { font-size: 1.25rem; font-weight: 800; margin-bottom: 0.75rem; letter-spacing: -0.02em; }
+        .feature-item p { font-size: 1rem; color: var(--secondary); line-height: 1.5; }
 
         .footer { 
             margin-top: auto; padding: 4rem 10%; border-top: 1px solid var(--border); 
             display: flex; justify-content: space-between; align-items: center;
-            color: var(--secondary); font-size: 0.85rem;
+            color: var(--secondary); font-size: 0.9rem; background: var(--bg);
         }
-        .footer a { color: #fff; text-decoration: none; font-weight: 600; }
+        .footer a { color: #fff; text-decoration: none; font-weight: 700; transition: color 0.2s; }
+        .footer a:hover { color: var(--primary); }
 
         @media (max-width: 768px) {
-            h1 { font-size: 3rem; }
-            .features-grid { grid-template-columns: 1fr; }
-            .hero { padding: 4rem 5%; }
-            .footer { flex-direction: column; gap: 1.5rem; text-align: center; }
+            h1 { font-size: 3.5rem; }
+            .features-grid { grid-template-columns: 1fr; gap: 2.5rem; padding: 4rem 5%; }
+            .hero { padding: 6rem 5% 4rem; }
+            .landing-content { padding: 2.5rem 1.5rem; border-radius: 24px; }
+            .footer { flex-direction: column; gap: 2rem; text-align: center; padding: 3rem 5%; }
+            nav { padding: 1.25rem 5%; }
+            .nav-links { gap: 1.25rem; }
         }
     </style>
 </head>
@@ -95,33 +100,33 @@
             {{.LandingContent}}
         </div>
 
-        <div class="cta-box">
-            <a href="/explore" class="btn-primary">Start Listening Now</a>
-        </div>
+        <a href="/explore" class="cta-btn">
+            START LISTENING <i data-lucide="arrow-right"></i>
+        </a>
     </div>
 
     <div class="features-grid">
         <div class="feature-item">
             <i data-lucide="zap"></i>
-            <h3>High Performance</h3>
-            <p>Shared circular buffer architecture built for massive scalability.</p>
+            <h3>Zero Latency</h3>
+            <p>High-performance circular buffering ensures instant playback for every listener.</p>
         </div>
         <div class="feature-item">
-            <i data-lucide="shield"></i>
-            <h3>Secure by Default</h3>
-            <p>Auto-HTTPS with ACME and hardened authentication logs.</p>
+            <i data-lucide="shield-check"></i>
+            <h3>Hardened Security</h3>
+            <p>Automatic HTTPS via Let's Encrypt and detailed authentication audit logging.</p>
         </div>
         <div class="feature-item">
-            <i data-lucide="monitor"></i>
-            <h3>Modern Web Player</h3>
-            <p>Ready-to-use reactive players for every station.</p>
+            <i data-lucide="layout-grid"></i>
+            <h3>Modern Interface</h3>
+            <p>Beautiful reactive dashboards and embeddable players for every station.</p>
         </div>
     </div>
 
     <div class="footer">
-        <div>&copy; 2026 TinyICE. All rights reserved.</div>
+        <div>&copy; 2026 TinyICE &bull; High Performance Streaming</div>
         <div>
-            <a href="/admin">Admin</a> &nbsp;•&nbsp; 
+            <a href="/admin">Admin</a> &nbsp;&bull;&nbsp; 
             <a href="https://github.com/DatanoiseTV/tinyice" target="_blank">GitHub</a>
         </div>
     </div>
