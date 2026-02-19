@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{.Config.PageTitle}} - TinyIce</title>
-    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="/assets/js/lucide.min.js"></script>
     <style>
         :root {
             --bg: #05070a; --card: rgba(22, 27, 44, 0.6); --border: rgba(255, 255, 255, 0.08);
@@ -18,7 +18,7 @@
         }
         
         nav { 
-            display: flex; justify-content: space-between; align-items: center; padding: 1.5rem 10%; 
+            display: flex; justify-content: space-between; align-items: center; padding: 1.25rem 10%; 
             border-bottom: 1px solid var(--border); background: rgba(5,7,10,0.7); backdrop-filter: blur(12px);
             position: sticky; top: 0; z-index: 100;
         }
@@ -28,19 +28,19 @@
         .nav-links a:hover { color: var(--primary); }
 
         .hero { 
-            padding: 10rem 10% 6rem; text-align: center; max-width: 900px; margin: 0 auto;
+            padding: 8rem 10% 6rem; text-align: center; max-width: 900px; margin: 0 auto; flex-grow: 1;
         }
         h1 { font-size: clamp(3rem, 8vw, 5rem); font-weight: 900; letter-spacing: -0.04em; line-height: 1; margin-bottom: 1.5rem; }
         .hero-subtitle { font-size: 1.25rem; color: var(--secondary); max-width: 600px; margin: 0 auto 4rem; line-height: 1.5; opacity: 0.9; }
 
         .landing-content { 
             text-align: left; background: var(--card); border: 1px solid var(--border); 
-            border-radius: 32px; padding: 4rem; margin-bottom: 5rem; font-size: 1.15rem;
+            border-radius: 32px; padding: 3.5rem; margin-bottom: 5rem; font-size: 1.15rem;
             color: #e2e8f0; line-height: 1.7; box-shadow: 0 30px 60px rgba(0,0,0,0.4);
-            backdrop-filter: blur(20px);
+            backdrop-filter: blur(20px); letter-spacing: -0.01em;
         }
         .landing-content h1, .landing-content h2, .landing-content h3 { color: #fff; margin-top: 0; letter-spacing: -0.02em; }
-        .landing-content h1 { font-size: 2.5rem; border-bottom: 1px solid var(--border); padding-bottom: 1rem; margin-bottom: 2rem; }
+        .landing-content h1 { font-size: 2.25rem; border-bottom: 1px solid var(--border); padding-bottom: 1rem; margin-bottom: 2rem; }
         .landing-content ul { padding-left: 1.5rem; margin-bottom: 2rem; }
         .landing-content li { margin-bottom: 0.75rem; }
         .landing-content a { color: var(--primary); text-decoration: none; font-weight: 700; }
@@ -56,16 +56,15 @@
         .cta-btn:hover { transform: scale(1.05) translateY(-3px); background: var(--primary); box-shadow: 0 20px 40px rgba(56, 189, 248, 0.3); }
 
         .footer { 
-            margin-top: auto; padding: 4rem 10%; border-top: 1px solid var(--border); 
+            padding: 4rem 10%; border-top: 1px solid var(--border); 
             display: flex; justify-content: space-between; align-items: center;
-            color: var(--secondary); font-size: 0.9rem; background: var(--bg);
+            color: var(--secondary); font-size: 0.9rem; background: rgba(0,0,0,0.2);
         }
         .footer a { color: #fff; text-decoration: none; font-weight: 700; transition: color 0.2s; }
         .footer a:hover { color: var(--primary); }
 
         @media (max-width: 768px) {
             h1 { font-size: 3.5rem; }
-            .features-grid { grid-template-columns: 1fr; gap: 2.5rem; padding: 4rem 5%; }
             .hero { padding: 6rem 5% 4rem; }
             .landing-content { padding: 2.5rem 1.5rem; border-radius: 24px; }
             .footer { flex-direction: column; gap: 2rem; text-align: center; padding: 3rem 5%; }
@@ -92,14 +91,14 @@
         </div>
 
         <a href="/explore" class="cta-btn">
-            START LISTENING <i data-lucide="arrow-right"></i>
+            EXPLORE STATIONS <i data-lucide="compass"></i>
         </a>
     </div>
 
     <div class="footer">
         <div>&copy; 2026 TinyICE &bull; High Performance Streaming</div>
         <div>
-            <a href="/admin">Admin</a> &nbsp;&bull;&nbsp; 
+            <a href="/admin">Dashboard</a> &nbsp;&bull;&nbsp; 
             <a href="https://github.com/DatanoiseTV/tinyice" target="_blank">GitHub</a>
         </div>
     </div>
