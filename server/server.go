@@ -21,6 +21,9 @@ import (
 
 	"github.com/DatanoiseTV/tinyice/config"
 	"github.com/DatanoiseTV/tinyice/relay"
+	"github.com/gomarkdown/markdown"
+	"github.com/gomarkdown/markdown/html"
+	"github.com/gomarkdown/markdown/parser"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/crypto/acme"
 	"golang.org/x/crypto/acme/autocert"
@@ -708,16 +711,31 @@ func (s *Server) serveStreamData(w http.ResponseWriter, r *http.Request, stream 
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
-	landingContent := ""
+	md := ""
 	if data, err := os.ReadFile("LANDING.md"); err == nil {
-		landingContent = string(data)
+		md = string(data)
 	} else {
-		landingContent = "Welcome to TinyIce, a modern and lightweight streaming server. Explore our active stations to discover new music and live broadcasts."
+		md = `# Welcome to TinyIce
+Explore our high-performance live streaming network. Discover new music, live shows, and community broadcasts from around the world.
+
+* **High Performance**: Built with zero-allocation broadcasting.
+* **Smart Recovery**: Automatic fallback and primary stream recovery.
+* **Ready to Play**: Interactive web players for every station.`
 	}
+
+	extensions := parser.CommonExtensions | parser.NoEmptyLineBeforeBlock
+	p := parser.NewWithExtensions(extensions)
+	doc := p.Parse([]byte(md))
+
+	htmlFlags := html.CommonFlags | html.HrefTargetBlank
+	opts := html.RendererOptions{Flags: htmlFlags}
+	renderer := html.NewRenderer(opts)
+
+	content := markdown.Render(doc, renderer)
 
 	w.Header().Set("Content-Type", "text/html")
 	data := map[string]interface{}{
-		"LandingContent": landingContent,
+		"LandingContent": template.HTML(content),
 		"Config":         s.Config,
 	}
 	if err := s.tmpl.ExecuteTemplate(w, "index.html", data); err != nil {
