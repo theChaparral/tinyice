@@ -55,15 +55,6 @@
         }
         .cta-btn:hover { transform: scale(1.05) translateY(-3px); background: var(--primary); box-shadow: 0 20px 40px rgba(56, 189, 248, 0.3); }
 
-        .features-grid { 
-            display: grid; grid-template-columns: repeat(3, 1fr); gap: 3rem; padding: 6rem 10%; 
-            background: rgba(0,0,0,0.2); border-top: 1px solid var(--border);
-        }
-        .feature-item { text-align: left; }
-        .feature-item i { color: var(--primary); margin-bottom: 1.5rem; width: 32px; height: 32px; }
-        .feature-item h3 { font-size: 1.25rem; font-weight: 800; margin-bottom: 0.75rem; letter-spacing: -0.02em; }
-        .feature-item p { font-size: 1rem; color: var(--secondary); line-height: 1.5; }
-
         .footer { 
             margin-top: auto; padding: 4rem 10%; border-top: 1px solid var(--border); 
             display: flex; justify-content: space-between; align-items: center;
@@ -103,24 +94,6 @@
         <a href="/explore" class="cta-btn">
             START LISTENING <i data-lucide="arrow-right"></i>
         </a>
-    </div>
-
-    <div class="features-grid">
-        <div class="feature-item">
-            <i data-lucide="zap"></i>
-            <h3>Zero Latency</h3>
-            <p>High-performance circular buffering ensures instant playback for every listener.</p>
-        </div>
-        <div class="feature-item">
-            <i data-lucide="shield-check"></i>
-            <h3>Hardened Security</h3>
-            <p>Automatic HTTPS via Let's Encrypt and detailed authentication audit logging.</p>
-        </div>
-        <div class="feature-item">
-            <i data-lucide="layout-grid"></i>
-            <h3>Modern Interface</h3>
-            <p>Beautiful reactive dashboards and embeddable players for every station.</p>
-        </div>
     </div>
 
     <div class="footer">
