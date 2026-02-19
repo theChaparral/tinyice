@@ -559,6 +559,7 @@ func (s *Server) handleListener(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
 	if s.Config.LowLatencyMode {
 		w.Header().Set("X-Accel-Buffering", "no")
 	}
@@ -1191,6 +1192,7 @@ func (s *Server) handlePublicEvents(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
 	flusher, _ := w.(http.Flusher)
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
