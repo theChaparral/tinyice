@@ -102,15 +102,20 @@ TinyIce uses a JSON configuration file (`tinyice.json`). Below are the available
 }
 ```
 
-### Custom ACME (Homelab)
-To use TinyIce with a custom ACME CA (like Step-CA or Smallstep) in a homelab environment, set the `acme_directory_url` in your config:
+### Auto-HTTPS (Let's Encrypt)
+To use built-in SSL support, ensure the following:
+1.  **Ports**: Your server must be listening on (or have traffic forwarded to) **port 80 and 443**. Let's Encrypt requires these ports to verify your ownership of the domain.
+2.  **Domains**: Add your full domain name to the `domains` list in `tinyice.json`.
+3.  **Permissions**: Binding to ports 80/443 usually requires root/sudo permissions.
 
 ```json
 {
+    "use_https": true,
     "auto_https": true,
-    "acme_directory_url": "https://ca.internal/acme/acme/directory",
-    "acme_email": "admin@homelab.local",
-    "domains": ["radio.homelab.local"]
+    "port": "80",
+    "https_port": "443",
+    "domains": ["radio.example.com"],
+    "acme_email": "admin@example.com"
 }
 ```
 
