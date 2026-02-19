@@ -284,6 +284,13 @@ func (s *Stream) SetCurrentSong(song string, relay *Relay) {
 	}
 }
 
+// GetCurrentSong returns the current song info thread-safely
+func (s *Stream) GetCurrentSong() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.CurrentSong
+}
+
 // SetVisible updates the visibility of the stream thread-safely
 func (s *Stream) SetVisible(visible bool) {
 	s.mu.Lock()

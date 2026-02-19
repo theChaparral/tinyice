@@ -559,6 +559,14 @@ func (s *Server) handleListener(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Accel-Buffering", "no")
 	}
 
+	// ICY Metadata negotiation
+	metaint := 0
+	if r.Header.Get("Icy-MetaData") == "1" {
+		metaint = 16000 // Standard interval
+		w.Header().Set("icy-metaint", "16000")
+		w.Header().Set("icy-name", s.Config.PageTitle)
+	}
+
 	flusher, _ := w.(http.Flusher)
 	id := r.RemoteAddr + "-" + fmt.Sprintf("%d", time.Now().UnixNano())
 	logrus.WithFields(logrus.Fields{"mount": mount, "ip": r.RemoteAddr, "ua": r.Header.Get("User-Agent")}).Info("Listener connected")
@@ -602,7 +610,7 @@ func (s *Server) handleListener(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 		}
 
-		if !s.serveStreamData(w, r, stream, id, originalMount, mount, recoveryTicker) {
+		if !s.serveStreamData(w, r, stream, id, originalMount, mount, recoveryTicker, metaint) {
 			return
 		}
 		// Loop will continue and check for fallback or re-connect to primary
@@ -610,12 +618,15 @@ func (s *Server) handleListener(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) serveStreamData(w http.ResponseWriter, r *http.Request, stream *relay.Stream, id, originalMount, currentMount string, recoveryTicker *time.Ticker) bool {
+func (s *Server) serveStreamData(w http.ResponseWriter, r *http.Request, stream *relay.Stream, id, originalMount, currentMount string, recoveryTicker *time.Ticker, metaint int) bool {
 	// Subscribe with 64KB burst (approx 4s @ 128kbps) for instant start
 	offset, signal := stream.Subscribe(id, 65536)
 	defer stream.Unsubscribe(id)
 	buf := make([]byte, 16384)
 	flusher, _ := w.(http.Flusher)
+
+	bytesSentSinceMeta := 0
+	lastSong := ""
 
 	for {
 		select {
@@ -632,7 +643,16 @@ func (s *Server) serveStreamData(w http.ResponseWriter, r *http.Request, stream 
 				return true // Stream closed/source disconnected
 			}
 			for {
-				n, next, skipped := stream.Buffer.ReadAt(offset, buf)
+				// Calculate how much we can read before next metadata injection
+				readLimit := len(buf)
+				if metaint > 0 {
+					remaining := metaint - bytesSentSinceMeta
+					if remaining < readLimit {
+						readLimit = remaining
+					}
+				}
+
+				n, next, skipped := stream.Buffer.ReadAt(offset, buf[:readLimit])
 				if n == 0 {
 					break
 				}
@@ -640,9 +660,37 @@ func (s *Server) serveStreamData(w http.ResponseWriter, r *http.Request, stream 
 					atomic.AddInt64(&stream.BytesDropped, next-offset)
 				}
 				offset = next
+
 				if _, err := w.Write(buf[:n]); err != nil {
 					return false
 				}
+
+				if metaint > 0 {
+					bytesSentSinceMeta += n
+					if bytesSentSinceMeta >= metaint {
+						// Time to inject metadata
+						currentSong := stream.GetCurrentSong()
+						meta := ""
+						if currentSong != lastSong {
+							meta = fmt.Sprintf("StreamTitle='%s';", currentSong)
+							lastSong = currentSong
+						}
+
+						// Metadata block: [length byte] [data...]
+						// length = ceil(len(data) / 16)
+						// actual bytes = length * 16
+						l := (len(meta) + 15) / 16
+						res := make([]byte, 1+l*16)
+						res[0] = byte(l)
+						copy(res[1:], meta)
+
+						if _, err := w.Write(res); err != nil {
+							return false
+						}
+						bytesSentSinceMeta = 0
+					}
+				}
+
 				atomic.AddInt64(&s.Relay.BytesOut, int64(n))
 				atomic.AddInt64(&stream.BytesOut, int64(n))
 			}

@@ -42,6 +42,7 @@ Traditional streaming servers can be complex to configure and resource-heavy. Ti
 -   **Icecast2 Compatible**: Works with standard source clients (BUTT, OBS, Mixxx, LadioCast) and players (VLC, web browsers).
 -   **Approval Workflow**: New streams are hidden by default until approved by an administrator.
 -   **Stream Relaying**: Act as an edge node by pulling streams from remote servers.
+-   **Outbound ICY Metadata**: Injects song titles directly into the audio stream, ensuring "Now Playing" info appears on all traditional radio players (VLC, Winamp, etc.).
 -   **Web-Based Audio Player**: Every station gets a dedicated, modern player page with real-time metadata and a reactive audio visualizer.
 -   **Dual-Protocol Architecture**: Handles HTTPS for listeners while allowing legacy encoders to stream over plain HTTP.
 -   **Smart Fallback & Auto-Recovery**: Automatically switch listeners to a backup stream if the primary source drops, and seamlessly transition them back once the primary is restored.
