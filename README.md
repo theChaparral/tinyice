@@ -130,6 +130,8 @@ sudo setcap 'cap_net_bind_service=+ep' ./tinyice
 ./tinyice -port 80 -https-port 443
 ```
 
+> **Note**: Once the certificate is successfully obtained and stored in the `certs/` directory, you can revert TinyIce to custom ports (like 8000/8443) if needed. However, you will need to switch back to ports 80/443 for automatic renewals (typically every 60-90 days).
+
 ## Command Line Usage
 
 ```bash
