@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TinyIce Streams</title>
+    <script src="https://unpkg.com/lucide@latest"></script>
     <style>
         :root {
             --bg: #05070a; --card: #11141d; --border: #1f222c;
@@ -11,6 +12,17 @@
             --success: #10b981; --warning: #fbbf24;
         }
         body { font-family: 'Inter', system-ui, -apple-system, sans-serif; background: var(--bg); color: #fff; margin: 0; padding: 0; line-height: 1.6; }
+        
+        nav { 
+            display: flex; justify-content: center; align-items: center; padding: 1.5rem 2rem; 
+            background: rgba(17, 20, 29, 0.8); backdrop-filter: blur(10px); 
+            border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 100;
+        }
+        .nav-links { display: flex; gap: 2.5rem; align-items: center; }
+        .nav-links a { color: var(--secondary); text-decoration: none; font-weight: 600; font-size: 0.95rem; transition: color 0.2s; display: flex; align-items: center; gap: 0.5rem; }
+        .nav-links a:hover, .nav-links a.active { color: #fff; }
+        .nav-links a i { width: 18px; height: 18px; }
+
         .container { width: 100%; max-width: 1200px; margin: 0 auto; padding: 4rem 2rem; }
         
         header { margin-bottom: 5rem; text-align: center; }
@@ -62,6 +74,13 @@
     </style>
 </head>
 <body>
+    <nav>
+        <div class="nav-links">
+            <a href="/" class="active"><i data-lucide="home"></i> Home</a>
+            <a href="/explore"><i data-lucide="compass"></i> Explore</a>
+            <a href="https://github.com/DatanoiseTV/tinyice" target="_blank"><i data-lucide="github"></i> GitHub</a>
+        </div>
+    </nav>
     <div class="container">
         <header>
             <div class="logo">{{.Config.PageTitle}}</div>
@@ -156,6 +175,7 @@
 
             window.setPage = function(p) { currentPage = p; render(); };
             es.onmessage = function(e) { allStreams = JSON.parse(e.data); render(); };
+            lucide.createIcons();
         })();
     </script>
 </body>

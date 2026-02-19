@@ -89,6 +89,7 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/admin/history", s.handleHistory)
 	mux.HandleFunc("/admin/statistics", s.handleGetStats)
 	mux.HandleFunc("/admin/insights", s.handleInsights)
+	mux.HandleFunc("/explore", s.handleExplore)
 	mux.HandleFunc("/player/", s.handlePlayer)
 	mux.HandleFunc("/embed/", s.handleEmbed)
 	mux.HandleFunc("/", s.handleRoot)
@@ -1525,6 +1526,30 @@ func (s *Server) handleEmbed(w http.ResponseWriter, r *http.Request) {
 		"Config": s.Config,
 	}
 	if err := s.tmpl.ExecuteTemplate(w, "embed.html", data); err != nil {
+		logrus.WithError(err).Error("Template error")
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+	}
+}
+
+func (s *Server) handleExplore(w http.ResponseWriter, r *http.Request) {
+	allStreams := s.Relay.Snapshot()
+	// Filter only visible streams and sort by listeners (descending)
+	var visibleStreams []relay.StreamStats
+	for _, st := range allStreams {
+		if st.Visible {
+			visibleStreams = append(visibleStreams, st)
+		}
+	}
+	sort.Slice(visibleStreams, func(i, j int) bool {
+		return visibleStreams[i].ListenersCount > visibleStreams[j].ListenersCount
+	})
+
+	w.Header().Set("Content-Type", "text/html")
+	data := map[string]interface{}{
+		"Streams": visibleStreams,
+		"Config":  s.Config,
+	}
+	if err := s.tmpl.ExecuteTemplate(w, "explore.html", data); err != nil {
 		logrus.WithError(err).Error("Template error")
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 	}

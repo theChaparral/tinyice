@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Explore Streams - TinyIce</title>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        :root {
+            --bg: #05070a; --card: #11141d; --border: #1f222c;
+            --primary: #38bdf8; --secondary: #94a3b8;
+            --success: #10b981; --warning: #fbbf24;
+        }
+        body { font-family: 'Inter', sans-serif; background: var(--bg); color: #fff; margin: 0; padding: 0; }
+        
+        nav { 
+            display: flex; justify-content: center; align-items: center; padding: 1.5rem 2rem; 
+            background: rgba(17, 20, 29, 0.8); backdrop-filter: blur(10px); 
+            border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 100;
+        }
+        .nav-links { display: flex; gap: 2.5rem; align-items: center; }
+        .nav-links a { color: var(--secondary); text-decoration: none; font-weight: 600; font-size: 0.95rem; transition: color 0.2s; display: flex; align-items: center; gap: 0.5rem; }
+        .nav-links a:hover, .nav-links a.active { color: #fff; }
+        .nav-links a i { width: 18px; height: 18px; }
+
+        .container { max-width: 1200px; margin: 0 auto; padding: 4rem 2rem; }
+        header { margin-bottom: 4rem; text-align: center; }
+        h1 { font-size: 2.5rem; font-weight: 900; letter-spacing: -1px; margin-bottom: 0.5rem; }
+        .subtitle { color: var(--secondary); }
+
+        .explore-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 2rem; }
+        .compact-card { 
+            background: var(--card); border: 1px solid var(--border); border-radius: 20px; overflow: hidden;
+            transition: transform 0.2s, border-color 0.2s;
+        }
+        .compact-card:hover { transform: translateY(-4px); border-color: var(--primary); }
+        
+        .card-header { padding: 1.5rem; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+        .card-title { font-weight: 800; font-size: 1.1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .live-tag { display: flex; align-items: center; gap: 0.4rem; font-size: 0.65rem; font-weight: 800; color: var(--success); text-transform: uppercase; }
+        .live-dot { width: 6px; height: 6px; background: var(--success); border-radius: 50%; }
+
+        .embed-container { background: #000; height: 80px; }
+        iframe { width: 100%; height: 100%; border: none; }
+
+        .card-footer { padding: 1rem 1.5rem; background: rgba(255,255,255,0.02); display: flex; justify-content: space-between; align-items: center; }
+        .listeners { font-size: 0.85rem; color: var(--secondary); font-weight: 600; display: flex; align-items: center; gap: 0.4rem; }
+        .listeners i { width: 14px; height: 14px; color: var(--primary); }
+        .btn-view { font-size: 0.8rem; font-weight: 700; color: var(--primary); text-decoration: none; text-transform: uppercase; letter-spacing: 1px; }
+
+        .empty-state { grid-column: 1/-1; text-align: center; padding: 6rem 2rem; background: var(--card); border-radius: 24px; border: 2px dashed var(--border); color: var(--secondary); }
+    </style>
+</head>
+<body>
+    <nav>
+        <div class="nav-links">
+            <a href="/"><i data-lucide="home"></i> Home</a>
+            <a href="/explore" class="active"><i data-lucide="compass"></i> Explore</a>
+            <a href="https://github.com/DatanoiseTV/tinyice" target="_blank"><i data-lucide="github"></i> GitHub</a>
+        </div>
+    </nav>
+
+    <div class="container">
+        <header>
+            <h1>Trending Now</h1>
+            <p class="subtitle">Discovery the most popular broadcasts on TinyIce</p>
+        </header>
+
+        <div class="explore-grid">
+            {{range .Streams}}
+            <div class="compact-card">
+                <div class="card-header">
+                    <div class="card-title">{{.Name}}</div>
+                    <div class="live-tag"><div class="live-dot"></div> LIVE</div>
+                </div>
+                <div class="embed-container">
+                    <iframe src="/embed{{.MountName}}" scrolling="no"></iframe>
+                </div>
+                <div class="card-footer">
+                    <div class="listeners"><i data-lucide="users"></i> {{.ListenersCount}} Listening</div>
+                    <a href="/player{{.MountName}}" class="btn-view">Full Station</a>
+                </div>
+            </div>
+            {{else}}
+            <div class="empty-state">
+                <h2>No active streams</h2>
+                <p>Check back later when DJs are online.</p>
+            </div>
+            {{end}}
+        </div>
+    </div>
+
+    <script>lucide.createIcons();</script>
+</body>
+</html>
