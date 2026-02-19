@@ -106,22 +106,23 @@ type HistoricalStat struct {
 	BytesOut  int64     `json:"bytes_out"`
 }
 
-func (hm *HistoryManager) GetHistoricalStats(mount string, duration time.Duration) []HistoricalStat {
-	rows, err := hm.db.Query(`SELECT listeners, bytes_in, bytes_out, timestamp 
+func (hm *HistoryManager) GetAllHistoricalStats(duration time.Duration) map[string][]HistoricalStat {
+	rows, err := hm.db.Query(`SELECT mount, listeners, bytes_in, bytes_out, timestamp 
 		FROM listener_history 
-		WHERE mount = ? AND timestamp > ? 
-		ORDER BY timestamp ASC`, mount, time.Now().Add(-duration))
+		WHERE timestamp > ? 
+		ORDER BY timestamp ASC`, time.Now().Add(-duration))
 	if err != nil {
-		logrus.WithError(err).Error("Failed to fetch historical stats")
+		logrus.WithError(err).Error("Failed to fetch all historical stats")
 		return nil
 	}
 	defer rows.Close()
 
-	var stats []HistoricalStat
+	stats := make(map[string][]HistoricalStat)
 	for rows.Next() {
+		var mount string
 		var s HistoricalStat
-		rows.Scan(&s.Listeners, &s.BytesIn, &s.BytesOut, &s.Timestamp)
-		stats = append(stats, s)
+		rows.Scan(&mount, &s.Listeners, &s.BytesIn, &s.BytesOut, &s.Timestamp)
+		stats[mount] = append(stats[mount], s)
 	}
 	return stats
 }

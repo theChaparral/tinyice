@@ -1561,19 +1561,13 @@ func (s *Server) handleInsights(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	mount := r.URL.Query().Get("mount")
-	if mount == "" {
-		http.Error(w, "Mount required", http.StatusBadRequest)
-		return
-	}
-
 	if s.Relay.History == nil {
 		http.Error(w, "History disabled", http.StatusServiceUnavailable)
 		return
 	}
 
 	// Default to last 24 hours
-	stats := s.Relay.History.GetHistoricalStats(mount, 24*time.Hour)
+	stats := s.Relay.History.GetAllHistoricalStats(24 * time.Hour)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(stats)
 }
