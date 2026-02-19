@@ -339,7 +339,7 @@
                 var h = canvas.height = canvas.offsetHeight * 2;
                 ctx.scale(2, 2); w /= 2; h /= 2;
 
-                var pX = 40, pY = 30, cH = h - pY * 2, cW = w - pX * 2;
+                var pX = 50, pY = 30, cH = h - pY * 2, cW = w - pX * 1.5;
                 ctx.clearRect(0, 0, w, h);
 
                 var mounts = Object.keys(data);
@@ -356,9 +356,23 @@
                 });
                 maxL = Math.ceil((maxL || 1) * 1.2);
 
-                // Grid
-                ctx.strokeStyle = 'rgba(45, 55, 72, 0.5)'; ctx.lineWidth = 1; ctx.beginPath();
-                ctx.moveTo(pX, h-pY); ctx.lineTo(w-pX, h-pY); ctx.stroke();
+                // Draw Y-Axis Labels & Grid
+                ctx.strokeStyle = 'rgba(45, 55, 72, 0.3)'; ctx.fillStyle = '#94a3b8'; ctx.font = '10px Inter';
+                ctx.textAlign = 'right'; ctx.lineWidth = 1;
+                for(var i=0; i<=5; i++) {
+                    var val = Math.round((maxL / 5) * i);
+                    var y = (h - pY) - (val / maxL) * cH;
+                    ctx.beginPath(); ctx.moveTo(pX, y); ctx.lineTo(w - 20, y); ctx.stroke();
+                    ctx.fillText(val, pX - 10, y + 4);
+                }
+
+                // Draw X-Axis Labels (Time)
+                ctx.textAlign = 'center';
+                var timeLabels = ['-24h', '-18h', '-12h', '-6h', 'Now'];
+                for(var i=0; i<timeLabels.length; i++) {
+                    var x = pX + (cW / (timeLabels.length - 1)) * i;
+                    ctx.fillText(timeLabels[i], x, h - 10);
+                }
 
                 var legend = document.getElementById('insights-legend');
                 legend.innerHTML = '';
@@ -370,15 +384,13 @@
                     var color = colors[idx % colors.length];
                     var streamData = data[m];
                     
-                    // Add to legend
                     var item = document.createElement('div');
                     item.style.fontSize = '0.75rem'; item.style.color = color; item.style.fontWeight = 'bold';
                     item.innerHTML = `<span style="display:inline-block; width:10px; height:10px; background:${color}; border-radius:50%; margin-right:5px"></span> ${m}`;
                     legend.appendChild(item);
 
-                    // Draw Line
                     if (streamData.length > 1) {
-                        ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.beginPath();
+                        ctx.strokeStyle = color; ctx.lineWidth = 3; ctx.beginPath();
                         var step = cW / (streamData.length - 1);
                         streamData.forEach(function(d, i) {
                             var x = pX + i * step;
