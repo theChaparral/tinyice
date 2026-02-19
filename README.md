@@ -203,6 +203,12 @@ You can easily embed any of your stations into your own website using an `<ifram
 2.  **Autoplay**: Modern browsers often prevent audio from playing automatically. The embed player requires a user to click the "Play" button to start the stream.
 3.  **Responsiveness**: The player is designed to be responsive and will adjust its layout to fit the width of its container.
 
+## Ecosystem & Applications
+
+TinyIce is designed to be a flexible hub for many types of audio applications. 
+
+*   **Live Performance Streaming**: Check out [abletonlink-go](https://github.com/DatanoiseTV/abletonlink-go/tree/main/examples/icecast_stream) for an example of how to stream live Ableton Link-enabled jam sessions directly to a TinyIce server.
+
 ## Common Use Cases
 
 TinyIce is built to handle everything from a single home stream to large-scale distribution. Here is where it fits best:
