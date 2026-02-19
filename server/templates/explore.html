@@ -62,6 +62,10 @@
         .visualizer-mini { position: absolute; bottom: 0; left: 0; width: 100%; height: 100%; opacity: 0.3; pointer-events: none; }
         .viz-canvas { width: 100%; height: 100%; display: block; }
 
+        .now-playing-box { background: rgba(255, 255, 255, 0.03); border-radius: 12px; padding: 0.75rem; margin-bottom: 1rem; }
+        .now-playing-box label { font-size: 0.55rem; text-transform: uppercase; color: var(--secondary); font-weight: 800; margin-bottom: 0.1rem; display: block; letter-spacing: 1px; }
+        .song-title { font-weight: 700; color: var(--warning); display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; font-size: 0.85rem; line-height: 1.3; min-height: 1.1rem; }
+
         .live-tag { 
             display: flex; align-items: center; gap: 0.4rem; 
             background: rgba(16, 185, 129, 0.1); padding: 0.3rem 0.6rem; 
@@ -126,6 +130,12 @@
                     </div>
                     <audio class="explore-audio" data-mount="{{.MountName}}" src="{{.MountName}}"></audio>
                 </div>
+                <div style="padding: 1rem 1.5rem; background: rgba(255,255,255,0.01);">
+                    <div class="now-playing-box" style="margin-bottom: 0;">
+                        <label>Now Playing</label>
+                        <span class="song-title" data-mount="{{.MountName}}">{{.CurrentSong}}</span>
+                    </div>
+                </div>
                 <div class="card-footer">
                     <div class="listeners"><i data-lucide="users"></i> {{.ListenersCount}} Listening</div>
                     <div class="footer-actions">
@@ -142,9 +152,10 @@
             </div>
             {{end}}
         </div>
-        <div class="footer">
-            Powered by TinyICE - <a href="/admin">Admin Dashboard</a> - <a href="https://github.com/DatanoiseTV/tinyice" target="_blank">GitHub</a>
-        </div>
+    </div>
+
+    <div class="footer" style="text-align: center; color: var(--secondary); font-size: 0.9rem; padding: 2.5rem; border-top: 1px solid var(--border); margin-top: 5rem;">
+        Powered by TinyICE - <a href="/admin" style="color: #fff; text-decoration: none; font-weight: 700;">Admin Dashboard</a> - <a href="https://github.com/DatanoiseTV/tinyice" target="_blank" style="color: #fff; text-decoration: none; font-weight: 700;">GitHub</a>
     </div>
 
     <script>
@@ -218,6 +229,16 @@
             }
             draw();
         }
+
+        // Real-time metadata updates
+        const es = new EventSource("/events");
+        es.onmessage = (e) => {
+            const streams = JSON.parse(e.data);
+            streams.forEach(s => {
+                const el = document.querySelector(`.song-title[data-mount="${s.mount}"]`);
+                if (el) el.textContent = s.song || 'Live Stream';
+            });
+        };
     </script>
 </body>
 </html>

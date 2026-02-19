@@ -3,200 +3,115 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TinyIce Streams</title>
+    <title>{{.Config.PageTitle}} - TinyIce</title>
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
         :root {
-            --bg: #0a0c14; --card: rgba(22, 27, 44, 0.7); --border: rgba(255, 255, 255, 0.08);
+            --bg: #05070a; --card: rgba(22, 27, 44, 0.6); --border: rgba(255, 255, 255, 0.08);
             --primary: #38bdf8; --secondary: #94a3b8;
             --success: #10b981; --warning: #fbbf24;
         }
         body { 
             font-family: 'Inter', system-ui, -apple-system, sans-serif; 
-            background: radial-gradient(circle at top right, #1e293b, #0a0c14);
+            background: #05070a;
             color: #fff; margin: 0; padding: 0; line-height: 1.6; min-height: 100vh;
+            overflow-x: hidden;
         }
         
+        .hero-bg {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: radial-gradient(circle at 80% 20%, rgba(56, 189, 248, 0.15) 0%, transparent 40%),
+                        radial-gradient(circle at 20% 80%, rgba(16, 185, 129, 0.1) 0%, transparent 40%);
+            z-index: -1;
+        }
+
         nav { 
-            display: flex; justify-content: center; align-items: center; padding: 1.25rem 1rem; 
-            background: rgba(10, 12, 20, 0.8); backdrop-filter: blur(12px); 
+            display: flex; justify-content: center; align-items: center; padding: 1.5rem 2rem; 
+            background: rgba(5, 7, 10, 0.7); backdrop-filter: blur(12px); 
             border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 100;
         }
-        .nav-links { display: flex; gap: 2rem; align-items: center; }
+        .nav-links { display: flex; gap: 3rem; align-items: center; }
         .nav-links a { color: var(--secondary); text-decoration: none; font-weight: 600; font-size: 0.9rem; transition: all 0.2s; display: flex; align-items: center; gap: 0.5rem; }
-        .nav-links a:hover, .nav-links a.active { color: var(--primary); }
-        .nav-links a i { width: 16px; height: 18px; }
+        .nav-links a:hover, .nav-links a.active { color: #fff; }
+        .nav-links a i { width: 16px; height: 16px; }
 
-        .container { width: 100%; max-width: 1200px; margin: 0 auto; padding: 3rem 1.5rem; box-sizing: border-box; }
-        
-        header { margin-bottom: 4rem; text-align: center; }
-        .logo { font-size: 3rem; font-weight: 900; letter-spacing: -2px; color: #fff; margin-bottom: 0.5rem; }
-        .subtitle { color: var(--secondary); font-size: 1rem; opacity: 0.8; }
-
-        .streams-grid { 
-            display: grid; 
-            grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); 
-            gap: 1.5rem; 
+        .hero { 
+            max-width: 1000px; margin: 0 auto; padding: 8rem 2rem 4rem; 
+            text-align: center; position: relative;
         }
-        
-        .card { 
-            background: var(--card); border: 1px solid var(--border); border-radius: 24px; padding: 1.75rem; 
-            backdrop-filter: blur(8px);
-            transition: all 0.3s ease; 
-            display: flex; flex-direction: column; position: relative;
-            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
-            box-sizing: border-box;
+        .badge {
+            display: inline-flex; align-items: center; gap: 0.5rem;
+            background: rgba(56, 189, 248, 0.1); color: var(--primary);
+            padding: 0.5rem 1.25rem; border-radius: 100px; font-size: 0.75rem;
+            font-weight: 800; border: 1px solid rgba(56, 189, 248, 0.2);
+            margin-bottom: 2rem; text-transform: uppercase; letter-spacing: 1px;
         }
-        .card:hover { border-color: rgba(56, 189, 248, 0.4); transform: translateY(-4px); box-shadow: 0 15px 35px rgba(0,0,0,0.3); }
-        
-        .live-tag { 
-            position: absolute; top: 1.5rem; right: 1.5rem; 
-            display: flex; align-items: center; gap: 0.4rem; 
-            background: rgba(16, 185, 129, 0.1); padding: 0.35rem 0.75rem; 
-            border-radius: 100px; font-size: 0.65rem; font-weight: 800; color: var(--success); 
-            border: 1px solid rgba(16, 185, 129, 0.2); 
+        h1 { font-size: clamp(3rem, 8vw, 5.5rem); font-weight: 900; letter-spacing: -4px; line-height: 0.9; margin-bottom: 1.5rem; }
+        h1 span { color: var(--primary); }
+        .hero p { font-size: 1.25rem; color: var(--secondary); max-width: 600px; margin: 0 auto 3rem; }
+
+        .landing-card { 
+            background: var(--card); border: 1px solid var(--border); border-radius: 40px; 
+            padding: 4rem; backdrop-filter: blur(20px);
+            box-shadow: 0 30px 60px rgba(0,0,0,0.4);
+            text-align: left; max-width: 800px; margin: 0 auto 6rem;
+            font-size: 1.2rem; color: #cbd5e1; white-space: pre-wrap;
         }
-        .live-dot { width: 6px; height: 6px; background: var(--success); border-radius: 50%; animation: pulse 2s infinite; }
-        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
 
-        .stream-name { font-size: 1.4rem; font-weight: 800; margin-bottom: 1rem; letter-spacing: -0.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 4rem; }
-        
-        .now-playing-box { background: rgba(255, 255, 255, 0.03); border-radius: 16px; padding: 1rem; margin-bottom: 1.5rem; }
-        .now-playing-box label { font-size: 0.6rem; text-transform: uppercase; color: var(--secondary); font-weight: 800; margin-bottom: 0.25rem; display: block; letter-spacing: 1px; }
-        .song-title { font-weight: 700; color: var(--warning); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 0.95rem; line-height: 1.4; min-height: 2.8rem; }
-
-        .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 1.75rem; }
-        .stat-item { background: rgba(255,255,255,0.02); padding: 0.75rem; border-radius: 12px; display: flex; flex-direction: column; }
-        .stat-label { font-size: 0.55rem; color: var(--secondary); text-transform: uppercase; margin-bottom: 0.15rem; font-weight: 700; }
-        .stat-value { font-weight: 800; font-size: 0.9rem; color: var(--primary); }
-
-        .card-actions { display: flex; gap: 0.5rem; margin-top: auto; }
-        .btn-listen { display: flex; align-items: center; justify-content: center; gap: 0.6rem; background: #fff; color: #000; padding: 0.9rem; border-radius: 14px; text-decoration: none; font-weight: 800; transition: all 0.2s; font-size: 0.9rem; flex: 1; }
-        .btn-listen:hover { background: var(--primary); }
-        .btn-playlist { background: rgba(255,255,255,0.05); color: var(--secondary); width: 42px; height: 42px; border-radius: 12px; display: flex; align-items: center; justify-content: center; transition: all 0.2s; border: 1px solid var(--border); font-size: 0.65rem; font-weight: 800; flex-shrink: 0; }
-        .btn-playlist:hover { background: rgba(255,255,255,0.1); border-color: var(--primary); color: #fff; }
-
-        .pagination { display: flex; justify-content: center; gap: 0.5rem; margin-top: 4rem; }
-        .page-btn { background: var(--card); border: 1px solid var(--border); color: var(--secondary); padding: 0.75rem 1.25rem; border-radius: 12px; cursor: pointer; font-weight: 600; }
-        .page-btn.active { background: var(--primary); color: #000; border-color: var(--primary); }
-
-        .footer { margin-top: 5rem; text-align: center; color: var(--secondary); font-size: 0.85rem; padding: 2rem; }
-        .footer a { color: #fff; text-decoration: none; font-weight: 700; }
-
-        @media (max-width: 600px) {
-            .container { padding: 2rem 1rem; }
-            .logo { font-size: 2.25rem; }
-            .nav-links { gap: 1rem; }
-            .card { padding: 1.25rem; }
-            .stream-name { font-size: 1.25rem; }
-            .stats-grid { grid-template-columns: 1fr; }
-            .stat-item { flex-direction: row; justify-content: space-between; align-items: center; padding: 0.6rem 1rem; }
-            .stat-label { margin-bottom: 0; }
+        .cta-btn { 
+            display: inline-flex; align-items: center; gap: 1rem; 
+            background: #fff; color: #000; padding: 1.5rem 3.5rem; 
+            border-radius: 24px; text-decoration: none; font-weight: 900; 
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); font-size: 1.25rem;
+            box-shadow: 0 10px 30px rgba(255,255,255,0.1);
         }
+        .cta-btn:hover { transform: scale(1.05) translateY(-5px); background: var(--primary); box-shadow: 0 20px 40px rgba(56, 189, 248, 0.3); }
+
+        .footer { text-align: center; color: var(--secondary); font-size: 0.9rem; padding: 4rem 2rem; border-top: 1px solid var(--border); background: rgba(0,0,0,0.2); }
+        .footer a { color: #fff; text-decoration: none; font-weight: 700; transition: color 0.2s; }
+        .footer a:hover { color: var(--primary); }
+
+        @media (max-width: 768px) {
+            .hero { padding: 6rem 1.5rem 3rem; }
+            h1 { font-size: 3.5rem; letter-spacing: -2px; }
+            .landing-card { padding: 2.5rem 1.5rem; font-size: 1.1rem; border-radius: 30px; }
+            .cta-btn { padding: 1.25rem 2.5rem; font-size: 1.1rem; width: 100%; justify-content: center; box-sizing: border-box; }
+            .nav-links { gap: 1.5rem; }
+        }
+        @keyframes pulse { 0% { opacity: 1; transform: scale(1); } 50% { opacity: 0.4; transform: scale(1.5); } 100% { opacity: 1; transform: scale(1); } }
     </style>
 </head>
 <body>
+    <div class="hero-bg"></div>
     <nav>
         <div class="nav-links">
             <a href="/" class="active"><i data-lucide="home"></i> Home</a>
             <a href="/explore"><i data-lucide="compass"></i> Explore</a>
         </div>
     </nav>
-    <div class="container">
-        <header>
-            <div class="logo">{{.Config.PageTitle}}</div>
-            <p class="subtitle">{{.Config.PageSubtitle}}</p>
-        </header>
 
-        <div class="streams-grid" id="streams-container">
-            <!-- Dynamically populated -->
+    <div class="hero">
+        <div class="badge"><div class="live-dot" style="width:8px; height:8px; background:var(--primary); border-radius:50%; animation: pulse 2s infinite"></div> Open Source Streaming</div>
+        <h1>{{.Config.PageTitle}} <span>.</span></h1>
+        <p>{{.Config.PageSubtitle}}</p>
+        
+        <div class="landing-card">
+            {{.LandingContent}}
         </div>
 
-        <div id="pagination" class="pagination"></div>
-        <div class="footer">
-            Powered by TinyICE - <a href="/admin">Admin Dashboard</a> - <a href="https://github.com/DatanoiseTV/tinyice" target="_blank">GitHub</a>
-        </div>
+        <a href="/explore" class="cta-btn">
+            START LISTENING <i data-lucide="arrow-right"></i>
+        </a>
     </div>
 
-    <template id="card-template">
-        <div class="card">
-            <div class="live-tag"><div class="live-dot"></div> LIVE</div>
-            <div class="stream-name"></div>
-            <div class="now-playing-box">
-                <label>Now Playing</label>
-                <span class="song-title"></span>
-            </div>
-            <div class="stats-grid">
-                <div class="stat-item"><div class="stat-label">Listeners</div><div class="stat-value val-listeners"></div></div>
-                <div class="stat-item"><div class="stat-label">Bitrate</div><div class="stat-value val-bitrate"></div></div>
-                <div class="stat-item"><div class="stat-label">Genre</div><div class="stat-value val-genre"></div></div>
-                <div class="stat-item"><div class="stat-label">Uptime</div><div class="stat-value val-uptime"></div></div>
-            </div>
-            <div class="card-actions">
-                <a href="" class="btn-listen">
-                    <i data-lucide="play-circle"></i> TUNE IN
-                </a>
-                <a href="" class="btn-playlist playlist-link" title="M3U8">M3U8</a>
-                <a href="" class="btn-playlist pls-link" title="PLS">PLS</a>
-            </div>
-        </div>
-    </template>
+    <div class="footer">
+        Powered by <strong>TinyICE</strong> &nbsp;•&nbsp; 
+        <a href="/admin">Dashboard</a> &nbsp;•&nbsp; 
+        <a href="https://github.com/DatanoiseTV/tinyice" target="_blank">GitHub</a>
+    </div>
 
     <script>
-        (function() {
-            var container = document.getElementById('streams-container');
-            var paginationEl = document.getElementById('pagination');
-            var template = document.getElementById('card-template');
-            var es = new EventSource("/events");
-            
-            var allStreams = [];
-            var pageSize = 6;
-            var currentPage = 1;
-
-            function render() {
-                var totalPages = Math.ceil(allStreams.length / pageSize);
-                if (currentPage > totalPages && totalPages > 0) currentPage = totalPages;
-                
-                if (allStreams.length === 0) {
-                    container.innerHTML = '<div class="empty-state"><h2>Off the Air</h2><p>No stations are currently broadcasting.</p></div>';
-                    paginationEl.innerHTML = '';
-                    return;
-                }
-
-                var pagedStreams = allStreams.slice((currentPage - 1) * pageSize, currentPage * pageSize);
-                container.innerHTML = '';
-                
-                pagedStreams.forEach(function(s) {
-                    var clone = template.content.cloneNode(true);
-                    var card = clone.querySelector('.card');
-                    card.setAttribute('data-mount', s.mount);
-                    clone.querySelector('.stream-name').textContent = s.name || s.mount;
-                    clone.querySelector('.song-title').textContent = s.song || 'Live Stream';
-                    clone.querySelector('.val-listeners').textContent = s.listeners;
-                    clone.querySelector('.val-bitrate').textContent = s.bitrate + ' kbps';
-                    clone.querySelector('.val-genre').textContent = s.genre || 'N/A';
-                    clone.querySelector('.val-uptime').textContent = s.uptime;
-                    clone.querySelector('.btn-listen').setAttribute('href', '/player' + s.mount);
-                    clone.querySelector('.playlist-link').setAttribute('href', s.mount + '.m3u8');
-                    clone.querySelector('.pls-link').setAttribute('href', s.mount + '.pls');
-                    container.appendChild(clone);
-                });
-
-                if (totalPages > 1) {
-                    var html = '<button class="page-btn" ' + (currentPage === 1 ? 'disabled' : '') + ' onclick="setPage(' + (currentPage - 1) + ')">Prev</button>';
-                    for (var i = 1; i <= totalPages; i++) {
-                        html += '<button class="page-btn ' + (i === currentPage ? 'active' : '') + '" onclick="setPage(' + i + ')">' + i + '</button>';
-                    }
-                    html += '<button class="page-btn" ' + (currentPage === totalPages ? 'disabled' : '') + ' onclick="setPage(' + (currentPage + 1) + ')">Next</button>';
-                    paginationEl.innerHTML = html;
-                } else { paginationEl.innerHTML = ''; }
-                lucide.createIcons();
-            }
-
-            window.setPage = function(p) { currentPage = p; render(); };
-            es.onmessage = function(e) { allStreams = JSON.parse(e.data); render(); };
-            lucide.createIcons();
-        })();
+        lucide.createIcons();
     </script>
 </body>
 </html>

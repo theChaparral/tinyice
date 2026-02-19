@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"runtime"
 	"sort"
 	"strings"
@@ -707,15 +708,18 @@ func (s *Server) serveStreamData(w http.ResponseWriter, r *http.Request, stream 
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
-	allStreams := s.Relay.Snapshot()
-	var streams []relay.StreamStats
-	for _, st := range allStreams {
-		if st.Visible {
-			streams = append(streams, st)
-		}
+	landingContent := ""
+	if data, err := os.ReadFile("LANDING.md"); err == nil {
+		landingContent = string(data)
+	} else {
+		landingContent = "Welcome to TinyIce, a modern and lightweight streaming server. Explore our active stations to discover new music and live broadcasts."
 	}
+
 	w.Header().Set("Content-Type", "text/html")
-	data := map[string]interface{}{"Streams": streams, "Config": s.Config}
+	data := map[string]interface{}{
+		"LandingContent": landingContent,
+		"Config":         s.Config,
+	}
 	if err := s.tmpl.ExecuteTemplate(w, "index.html", data); err != nil {
 		if !strings.Contains(err.Error(), "broken pipe") {
 			logrus.WithError(err).Error("Template error")
