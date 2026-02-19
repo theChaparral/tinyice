@@ -80,10 +80,16 @@
             .nav-links a { font-size: 0.85rem; }
             .streams-grid { grid-template-columns: 1fr; gap: 1.5rem; }
             .card { height: auto; padding: 1.5rem; border-radius: 20px; }
-            .stream-name { font-size: 1.2rem; }
-            .song-title { font-size: 0.85rem; }
-            .stats-grid { margin-bottom: 1.5rem; }
+            .stream-name { font-size: 1.2rem; margin-bottom: 0.5rem; }
+            .now-playing-box { margin-bottom: 1rem; padding: 0.6rem; }
+            .song-title { font-size: 0.8rem; white-space: normal; -webkit-line-clamp: 2; display: -webkit-box; -webkit-box-orient: vertical; min-height: 2.2rem; }
+            .stats-grid { grid-template-columns: 1fr; gap: 0.5rem; margin-bottom: 1.5rem; }
+            .stat-item { padding: 0.5rem; flex-direction: row; justify-content: space-between; }
+            .stat-label { margin-bottom: 0; }
             .btn-listen { padding: 0.8rem; font-size: 0.85rem; }
+            .card-actions { flex-direction: column; }
+            .playlist-buttons { width: 100%; display: flex; gap: 0.5rem; }
+            .playlist-buttons a { flex: 1; }
         }
     </style>
 </head>
@@ -123,16 +129,14 @@
                 <div class="stat-item"><div class="stat-label">Genre</div><div class="stat-value val-genre"></div></div>
                 <div class="stat-item"><div class="stat-label">Uptime</div><div class="stat-value val-uptime"></div></div>
             </div>
-            <div style="display: flex; gap: 0.5rem; margin-top: auto;">
+            <div style="display: flex; gap: 0.5rem; margin-top: auto;" class="card-actions">
                 <a href="" class="btn-listen" style="flex: 1;">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> TUNE IN NOW
                 </a>
-                <a href="" class="btn-playlist playlist-link" title="Download M3U8 Playlist">
-                    M3U8
-                </a>
-                <a href="" class="btn-playlist pls-link" title="Download PLS Playlist">
-                    PLS
-                </a>
+                <div class="playlist-buttons">
+                    <a href="" class="btn-playlist playlist-link" title="Download M3U8 Playlist">M3U8</a>
+                    <a href="" class="btn-playlist pls-link" title="Download PLS Playlist">PLS</a>
+                </div>
             </div>
         </div>
     </template>
