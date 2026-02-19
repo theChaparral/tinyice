@@ -134,14 +134,22 @@ sudo setcap 'cap_net_bind_service=+ep' ./tinyice
 
 ## Command Line Usage
 
+By default, TinyIce will look for `tinyice.json` in the current directory and bind to all interfaces:
+
 ```bash
-./tinyice -host 0.0.0.0 -port 8000 -daemon -log-file tinyice.log
+./tinyice
+```
+
+### Advanced Options
+
+```bash
+./tinyice -host 0.0.0.0 -port 8000 -https-port 443 -daemon -log-file tinyice.log
 ```
 
 -   `-host`: Network interface to bind to (default: "0.0.0.0").
 -   `-port`: Port for HTTP/Icecast (default: "8000").
 -   `-https-port`: Port for HTTPS (default: "443").
--   `-config`: Path to the configuration file.
+-   `-config`: Path to the configuration file (default: "tinyice.json").
 -   `-log-file`: Path to a file for log output.
 -   `-auth-log-file`: Path to a separate file for authentication audit logs.
 -   `-log-level`: `debug`, `info`, `warn`, `error`.
