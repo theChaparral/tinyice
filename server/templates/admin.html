@@ -70,12 +70,12 @@
                 <button class="nav-link active" onclick="showTab('tab-overview')"><i data-lucide="layout-dashboard"></i> Dashboard</button>
                 <button class="nav-link" onclick="showTab('tab-stations')"><i data-lucide="tower-control"></i> Your Stations</button>
                 <button class="nav-link" onclick="showTab('tab-history')"><i data-lucide="file-audio"></i> Play History</button>
-                <button class="nav-link" onclick="showTab('tab-insights')"><i data-lucide="trending-up"></i> Insights</button>
                 {{if eq .User.Role "superadmin"}}
                 <button class="nav-link" onclick="showTab('tab-users')"><i data-lucide="users"></i> User Management</button>
                 <button class="nav-link" onclick="showTab('tab-relays')"><i data-lucide="refresh-ccw"></i> Edge Relays</button>
                 <button class="nav-link" onclick="showTab('tab-security')"><i data-lucide="shield-check"></i> Security & Bans</button>
                 {{end}}
+                <button class="nav-link" onclick="showTab('tab-insights')"><i data-lucide="trending-up"></i> Insights</button>
                 <button class="nav-link" onclick="showTab('tab-statistics')"><i data-lucide="bar-chart-3"></i> Statistics</button>
             </div>
             <div style="margin-top: auto; padding-top: 2rem;">
