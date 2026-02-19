@@ -130,7 +130,31 @@ sudo setcap 'cap_net_bind_service=+ep' ./tinyice
 ./tinyice -port 80 -https-port 443
 ```
 
-> **Note**: Once the certificate is successfully obtained and stored in the `certs/` directory, you can revert TinyIce to custom ports (like 8000/8443) if needed. However, you will need to switch back to ports 80/443 for automatic renewals (typically every 60-90 days).
+### Fail2Ban Integration
+TinyIce provides a dedicated authentication log that is easy to parse with Fail2Ban. To enable this, run TinyIce with the `-auth-log-file` flag:
+
+`./tinyice -auth-log-file tinyice-auth.log`
+
+**Example Filter (`/etc/fail2ban/filter.d/tinyice.conf`):**
+```ini
+[Definition]
+failregex = ^.*level=warning.*Authentication failed for user '.*' from <HOST>:.*$
+ignoreregex =
+```
+
+**Example Jail (`/etc/fail2ban/jail.local`):**
+```ini
+[tinyice]
+enabled = true
+port = 80,443,8000
+filter = tinyice
+logpath = /path/to/tinyice-auth.log
+maxretry = 5
+bantime = 3600
+```
+
+> **Note**: Once the certificate is successfully obtained and stored in the `certs/` directory, you can revert TinyIce to custom ports (like 8000/8443) if needed.
+ However, you will need to switch back to ports 80/443 for automatic renewals (typically every 60-90 days).
 
 ## Command Line Usage
 

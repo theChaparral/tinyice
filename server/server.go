@@ -286,6 +286,16 @@ func (s *Server) logAuth() *logrus.Entry {
 	return logrus.WithField("subsystem", "auth")
 }
 
+func (s *Server) logAuthFailed(user, ip, reason string) {
+	// Format designed for fail2ban parsing
+	host, _, _ := net.SplitHostPort(ip)
+	s.logAuth().WithFields(logrus.Fields{
+		"user":   user,
+		"ip":     host,
+		"reason": reason,
+	}).Warnf("Authentication failed for user '%s' from %s: %s", user, host, reason)
+}
+
 func (s *Server) checkAuth(r *http.Request) (*config.User, bool) {
 	u, p, ok := r.BasicAuth()
 	if !ok {
@@ -293,14 +303,16 @@ func (s *Server) checkAuth(r *http.Request) (*config.User, bool) {
 	}
 	user, exists := s.Config.Users[u]
 	if !exists {
-		s.logAuth().WithFields(logrus.Fields{"user": u, "ip": r.RemoteAddr}).Warn("Admin auth failed: user not found")
+		s.logAuthFailed(u, r.RemoteAddr, "user not found")
 		return nil, false
 	}
 	if !config.CheckPasswordHash(p, user.Password) {
-		s.logAuth().WithFields(logrus.Fields{"user": u, "ip": r.RemoteAddr}).Warn("Admin auth failed: invalid password")
+		s.logAuthFailed(u, r.RemoteAddr, "invalid password")
 		return nil, false
 	}
-	s.logAuth().WithFields(logrus.Fields{"user": u, "ip": r.RemoteAddr}).Info("Admin auth successful")
+	
+	host, _, _ := net.SplitHostPort(r.RemoteAddr)
+	s.logAuth().WithFields(logrus.Fields{"user": u, "ip": host}).Info("Admin auth successful")
 	return user, true
 }
 
@@ -456,13 +468,18 @@ func (s *Server) handleSource(w http.ResponseWriter, r *http.Request) {
 
 	_, p, ok := r.BasicAuth()
 	if !ok || !config.CheckPasswordHash(p, requiredPass) {
-		s.logAuth().WithFields(logrus.Fields{"mount": mount, "ip": r.RemoteAddr}).Warn("Source auth failed")
+		u, _, _ := r.BasicAuth()
+		if u == "" {
+			u = "unknown"
+		}
+		s.logAuthFailed(u, r.RemoteAddr, "source password mismatch")
 		w.Header().Set("WWW-Authenticate", `Basic realm="Icecast"`)
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
-	s.logAuth().WithFields(logrus.Fields{"mount": mount, "ip": r.RemoteAddr}).Info("Source auth successful")
+	host, _, _ := net.SplitHostPort(r.RemoteAddr)
+	s.logAuth().WithFields(logrus.Fields{"mount": mount, "ip": host}).Info("Source auth successful")
 
 	// Record Source User-Agent
 	if s.Relay.History != nil {
