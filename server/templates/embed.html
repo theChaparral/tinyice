@@ -69,6 +69,7 @@
         let isPlaying = false;
         let audioCtx, analyser, source, animationId;
         let smoothedAvg = 0;
+        let reconnectAttempts = 0;
 
         function initVisualizer() {
             if (audioCtx) return;
@@ -135,12 +136,20 @@
 
         function reconnect() {
             if (isPlaying) {
-                console.log("Stream interrupted, attempting reconnect...");
-                const url = new URL(audio.src, window.location.origin);
-                audio.src = url.pathname + '?t=' + new Date().getTime();
-                audio.play().catch(e => {
-                    setTimeout(reconnect, 2000);
-                });
+                reconnectAttempts++;
+                const delay = Math.min(1000 * Math.pow(1.5, reconnectAttempts), 10000);
+                songTitle.textContent = "Reconnecting...";
+                
+                setTimeout(() => {
+                    if (!isPlaying) return;
+                    const url = new URL(audio.src, window.location.origin);
+                    audio.src = url.pathname + '?t=' + new Date().getTime();
+                    audio.play().then(() => {
+                        reconnectAttempts = 0;
+                    }).catch(e => {
+                        reconnect();
+                    });
+                }, delay);
             }
         }
 
