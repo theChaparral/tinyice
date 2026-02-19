@@ -207,7 +207,7 @@ You can easily embed any of your stations into your own website using an `<ifram
 
 TinyIce is designed to be a flexible hub for many types of audio applications. 
 
-*   **Live Performance Streaming**: Check out [abletonlink-go](https://github.com/DatanoiseTV/abletonlink-go/tree/main/examples/icecast_stream) for an example of how to stream live Ableton Link-enabled jam sessions directly to a TinyIce server.
+*   **Live Performance Streaming**: Check out [abletonlink-go](https://github.com/DatanoiseTV/abletonlink-go/tree/main/examples/icecast_stream) for an example of how to stream **Ableton Link Audio** (multichannel audio streaming via Ableton's new beta protocol) directly to a TinyIce server.
 
 ## Common Use Cases
 
