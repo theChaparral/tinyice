@@ -99,6 +99,33 @@ func (hm *HistoryManager) GetTopUAs(uaType string, limit int) []UAStat {
 	return stats
 }
 
+type HistoricalStat struct {
+	Timestamp time.Time `json:"timestamp"`
+	Listeners int       `json:"listeners"`
+	BytesIn   int64     `json:"bytes_in"`
+	BytesOut  int64     `json:"bytes_out"`
+}
+
+func (hm *HistoryManager) GetHistoricalStats(mount string, duration time.Duration) []HistoricalStat {
+	rows, err := hm.db.Query(`SELECT listeners, bytes_in, bytes_out, timestamp 
+		FROM listener_history 
+		WHERE mount = ? AND timestamp > ? 
+		ORDER BY timestamp ASC`, mount, time.Now().Add(-duration))
+	if err != nil {
+		logrus.WithError(err).Error("Failed to fetch historical stats")
+		return nil
+	}
+	defer rows.Close()
+
+	var stats []HistoricalStat
+	for rows.Next() {
+		var s HistoricalStat
+		rows.Scan(&s.Listeners, &s.BytesIn, &s.BytesOut, &s.Timestamp)
+		stats = append(stats, s)
+	}
+	return stats
+}
+
 func (hm *HistoryManager) Add(mount, song string) {
 	if song == "" || song == "N/A" || song == "-" {
 		return

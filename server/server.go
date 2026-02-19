@@ -88,6 +88,7 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/admin/delete-relay", s.handleDeleteRelay)
 	mux.HandleFunc("/admin/history", s.handleHistory)
 	mux.HandleFunc("/admin/statistics", s.handleGetStats)
+	mux.HandleFunc("/admin/insights", s.handleInsights)
 	mux.HandleFunc("/player/", s.handlePlayer)
 	mux.HandleFunc("/embed/", s.handleEmbed)
 	mux.HandleFunc("/", s.handleRoot)
@@ -1527,4 +1528,27 @@ func (s *Server) handleEmbed(w http.ResponseWriter, r *http.Request) {
 		logrus.WithError(err).Error("Template error")
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 	}
+}
+
+func (s *Server) handleInsights(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.checkAuth(r); !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	mount := r.URL.Query().Get("mount")
+	if mount == "" {
+		http.Error(w, "Mount required", http.StatusBadRequest)
+		return
+	}
+
+	if s.Relay.History == nil {
+		http.Error(w, "History disabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Default to last 24 hours
+	stats := s.Relay.History.GetHistoricalStats(mount, 24*time.Hour)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(stats)
 }
