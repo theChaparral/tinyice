@@ -15,8 +15,8 @@
         
         .bg-glow { 
             position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
-            background: radial-gradient(circle at center, rgba(56, 189, 248, 0.15) 0%, rgba(5, 7, 10, 0) 70%);
-            z-index: -1; pointer-events: none; transition: opacity 0.5s ease;
+            background: radial-gradient(circle at center, rgba(56, 189, 248, 0.05) 0%, rgba(5, 7, 10, 0) 80%);
+            z-index: -1; pointer-events: none; transition: background 0.8s ease-out;
         }
 
         .player-container { width: 100%; max-width: 500px; padding: 2rem; text-align: center; position: relative; z-index: 1; }
@@ -105,6 +105,7 @@
         
         let isPlaying = false;
         let audioCtx, analyser, source, animationId;
+        let smoothedAvg = 0;
 
         function initVisualizer() {
             if (audioCtx) return;
@@ -141,10 +142,12 @@
                     x += barWidth;
                 }
 
-                // Update background glow based on average frequency
-                const avg = total / bufferLength;
-                const glowScale = 0.1 + (avg / 255) * 0.3;
-                const glowSize = 50 + (avg / 255) * 50;
+                // Smooth the average volume for background glow
+                const currentAvg = total / bufferLength;
+                smoothedAvg = smoothedAvg * 0.9 + currentAvg * 0.1;
+
+                const glowScale = 0.02 + (smoothedAvg / 255) * 0.1;
+                const glowSize = 60 + (smoothedAvg / 255) * 40;
                 bgGlow.style.background = `radial-gradient(circle at center, rgba(56, 189, 248, ${glowScale}) 0%, rgba(5, 7, 10, 0) ${glowSize}%)`;
             }
             
