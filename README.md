@@ -41,6 +41,7 @@ Traditional streaming servers can be complex to configure and resource-heavy. Ti
 -   **Icecast2 Compatible**: Works with standard source clients (BUTT, OBS, Mixxx, LadioCast) and players (VLC, web browsers).
 -   **Approval Workflow**: New streams are hidden by default until approved by an administrator.
 -   **Stream Relaying**: Act as an edge node by pulling streams from remote servers.
+-   **Web-Based Audio Player**: Every station gets a dedicated, modern player page with real-time metadata and a reactive audio visualizer.
 -   **Dual-Protocol Architecture**: Handles HTTPS for listeners while allowing legacy encoders to stream over plain HTTP.
 -   **Smart Fallback & Auto-Recovery**: Automatically switch listeners to a backup stream if the primary source drops, and seamlessly transition them back once the primary is restored.
 -   **Playback Tracking**: View the last 100 songs played per station in the admin dashboard.
@@ -133,6 +134,7 @@ TinyIce is built to handle everything from a single home stream to large-scale d
 
 *   **Global Edge Distribution**: Use TinyIce as a lightweight "edge" node to offload bandwidth from your main studio. It can handle thousands of listeners on a tiny VPS with near-zero overhead.
 *   **Multi-DJ Community Radio**: Host multiple independent stations on one server. Give every DJ their own login and mount point so they can manage their own stats and history without seeing anyone else's data.
+*   **Ready-to-Use Listener Pages**: No need to build your own website. Every mount point comes with a beautiful, built-in player page featuring real-time "Now Playing" titles and a live visualizer.
 *   **Private Home Streaming**: The single-binary setup makes it a breeze to run on a Raspberry Pi or a home server. Stream your local music collection to your phone or smart speakers securely using the built-in HTTPS support.
 *   **Custom Audio Apps**: If you're building a modern web player or a mobile app, TinyIce's real-time SSE metadata and JSON API mean your "Now Playing" widgets update instantly without any heavy polling.
 
