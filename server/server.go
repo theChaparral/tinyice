@@ -327,6 +327,7 @@ func (s *Server) isCSRFSafe(r *http.Request) bool {
 }
 
 func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
+	logrus.WithFields(logrus.Fields{"method": r.Method, "path": r.URL.Path}).Debug("Root handler request")
 	if r.Method == "PUT" || r.Method == "SOURCE" {
 		s.handleSource(w, r)
 		return
@@ -339,7 +340,7 @@ func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 		s.handlePLS(w, r)
 		return
 	}
-	if r.Method == "GET" && r.URL.Path != "/" && r.URL.Path != "/favicon.ico" && r.URL.Path != "/admin" {
+	if r.Method == "GET" && r.URL.Path != "/" && r.URL.Path != "/favicon.ico" && r.URL.Path != "/admin" && !strings.HasPrefix(r.URL.Path, "/player") {
 		s.handleListener(w, r)
 		return
 	}
@@ -543,6 +544,8 @@ func (s *Server) handleListener(w http.ResponseWriter, r *http.Request) {
 
 	flusher, _ := w.(http.Flusher)
 	id := r.RemoteAddr + "-" + fmt.Sprintf("%d", time.Now().UnixNano())
+	logrus.WithFields(logrus.Fields{"mount": mount, "ip": r.RemoteAddr, "ua": r.Header.Get("User-Agent")}).Info("Listener connected")
+	defer logrus.WithFields(logrus.Fields{"mount": mount, "ip": r.RemoteAddr}).Info("Listener disconnected")
 
 	recoveryTicker := time.NewTicker(10 * time.Second)
 	defer recoveryTicker.Stop()
