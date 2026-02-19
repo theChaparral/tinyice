@@ -52,6 +52,16 @@
         .card-header { padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
         .card-title { font-weight: 800; font-size: 1.1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 1rem; }
         
+        .play-btn { 
+            width: 48px; height: 48px; border-radius: 50%; background: #fff; color: #000; border: none; cursor: pointer; 
+            display: flex; align-items: center; justify-content: center; transition: all 0.2s; z-index: 10;
+        }
+        .play-btn:hover { transform: scale(1.05); background: var(--primary); }
+        .play-btn i { width: 20px; height: 20px; }
+
+        .visualizer-mini { position: absolute; bottom: 0; left: 0; width: 100%; height: 100%; opacity: 0.3; pointer-events: none; }
+        .viz-canvas { width: 100%; height: 100%; display: block; }
+
         .live-tag { 
             display: flex; align-items: center; gap: 0.4rem; 
             background: rgba(16, 185, 129, 0.1); padding: 0.3rem 0.6rem; 
@@ -91,7 +101,6 @@
         <div class="nav-links">
             <a href="/"><i data-lucide="home"></i> Home</a>
             <a href="/explore" class="active"><i data-lucide="compass"></i> Explore</a>
-            <a href="https://github.com/DatanoiseTV/tinyice" target="_blank"><i data-lucide="github"></i> GitHub</a>
         </div>
     </nav>
 
@@ -108,8 +117,14 @@
                     <div class="card-title">{{.Name}}</div>
                     <div class="live-tag"><div class="live-dot"></div> LIVE</div>
                 </div>
-                <div class="embed-container">
-                    <iframe src="/embed{{.MountName}}" scrolling="no" allow="autoplay; encrypted-media" loading="lazy"></iframe>
+                <div class="embed-container" style="display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.2); position: relative;">
+                    <button class="play-btn" onclick="toggleExplorePlay(this, '{{.MountName}}')">
+                        <i data-lucide="play"></i>
+                    </button>
+                    <div class="visualizer-mini">
+                        <canvas class="viz-canvas" data-mount="{{.MountName}}"></canvas>
+                    </div>
+                    <audio class="explore-audio" data-mount="{{.MountName}}" src="{{.MountName}}"></audio>
                 </div>
                 <div class="card-footer">
                     <div class="listeners"><i data-lucide="users"></i> {{.ListenersCount}} Listening</div>
@@ -127,8 +142,82 @@
             </div>
             {{end}}
         </div>
+        <div class="footer">
+            Powered by TinyICE - <a href="/admin">Admin Dashboard</a> - <a href="https://github.com/DatanoiseTV/tinyice" target="_blank">GitHub</a>
+        </div>
     </div>
 
-    <script>lucide.createIcons();</script>
+    <script>
+        lucide.createIcons();
+        let audioCtx;
+        const analysers = {};
+
+        function toggleExplorePlay(btn, mount) {
+            const audio = document.querySelector(`audio[data-mount="${mount}"]`);
+            const allAudios = document.querySelectorAll('.explore-audio');
+            const allBtns = document.querySelectorAll('.play-btn');
+
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+
+            if (!audio.paused) {
+                audio.pause();
+                btn.innerHTML = '<i data-lucide="play"></i>';
+                lucide.createIcons();
+                return;
+            }
+
+            // Stop all others
+            allAudios.forEach(a => a.pause());
+            allBtns.forEach(b => {
+                b.innerHTML = '<i data-lucide="play"></i>';
+            });
+
+            // Reload to ensure instant playback
+            const currentSrc = audio.src.split('?')[0];
+            audio.src = currentSrc + '?t=' + new Date().getTime();
+            
+            audio.play();
+            btn.innerHTML = '<i data-lucide="pause"></i>';
+            lucide.createIcons();
+            
+            initExploreVisualizer(audio, mount);
+        }
+
+        function initExploreVisualizer(audio, mount) {
+            if (analysers[mount]) return;
+
+            const canvas = document.querySelector(`canvas[data-mount="${mount}"]`);
+            const ctx = canvas.getContext('2d');
+            canvas.width = canvas.offsetWidth;
+            canvas.height = canvas.offsetHeight;
+
+            const source = audioCtx.createMediaElementSource(audio);
+            const analyser = audioCtx.createAnalyser();
+            analyser.fftSize = 32;
+            source.connect(analyser);
+            analyser.connect(audioCtx.destination);
+            analysers[mount] = analyser;
+
+            const bufferLength = analyser.frequencyBinCount;
+            const dataArray = new Uint8Array(bufferLength);
+
+            function draw() {
+                requestAnimationFrame(draw);
+                analyser.getByteFrequencyData(dataArray);
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                const barWidth = (canvas.width / bufferLength);
+                let x = 0;
+                for (let i = 0; i < bufferLength; i++) {
+                    const barHeight = (dataArray[i] / 255) * canvas.height;
+                    ctx.fillStyle = '#38bdf8';
+                    ctx.fillRect(x, canvas.height - barHeight, barWidth - 1, barHeight);
+                    x += barWidth;
+                }
+            }
+            draw();
+        }
+    </script>
 </body>
 </html>
