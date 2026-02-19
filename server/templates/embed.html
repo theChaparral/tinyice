@@ -127,8 +127,8 @@
         function reconnect() {
             if (isPlaying) {
                 console.log("Stream interrupted, attempting reconnect...");
-                const currentSrc = audio.src.split('?')[0];
-                audio.src = currentSrc + '?t=' + new Date().getTime();
+                const url = new URL(audio.src, window.location.origin);
+                audio.src = url.pathname + '?t=' + new Date().getTime();
                 audio.play().catch(e => {
                     setTimeout(reconnect, 2000);
                 });
