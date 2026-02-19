@@ -46,6 +46,8 @@
         .card-footer { padding: 1rem 1.5rem; background: rgba(255,255,255,0.02); display: flex; justify-content: space-between; align-items: center; }
         .listeners { font-size: 0.85rem; color: var(--secondary); font-weight: 600; display: flex; align-items: center; gap: 0.4rem; }
         .listeners i { width: 14px; height: 14px; color: var(--primary); }
+        .btn-playlist { background: rgba(255,255,255,0.05); color: var(--secondary); padding: 0.2rem 0.5rem; border-radius: 8px; text-decoration: none; border: 1px solid var(--border); font-size: 0.65rem; font-weight: 800; transition: all 0.2s; }
+        .btn-playlist:hover { background: var(--primary); color: #000; border-color: var(--primary); }
         .btn-view { font-size: 0.8rem; font-weight: 700; color: var(--primary); text-decoration: none; text-transform: uppercase; letter-spacing: 1px; }
 
         .empty-state { grid-column: 1/-1; text-align: center; padding: 6rem 2rem; background: var(--card); border-radius: 24px; border: 2px dashed var(--border); color: var(--secondary); }
@@ -78,7 +80,11 @@
                 </div>
                 <div class="card-footer">
                     <div class="listeners"><i data-lucide="users"></i> {{.ListenersCount}} Listening</div>
-                    <a href="/player{{.MountName}}" class="btn-view">Full Station</a>
+                    <div style="display: flex; gap: 0.5rem; align-items: center;">
+                        <a href="{{.MountName}}.m3u8" class="btn-playlist" title="M3U8 Playlist">M3U8</a>
+                        <a href="{{.MountName}}.pls" class="btn-playlist" title="PLS Playlist">PLS</a>
+                        <a href="/player{{.MountName}}" class="btn-view">Full Station</a>
+                    </div>
                 </div>
             </div>
             {{else}}
