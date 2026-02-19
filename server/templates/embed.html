@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Embed - {{.Stream.Name}}</title>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        :root {
+            --bg: #05070a; --card: #11141d; --border: #1f222c;
+            --primary: #38bdf8; --secondary: #94a3b8;
+        }
+        body { font-family: 'Inter', sans-serif; background: transparent; color: #fff; margin: 0; padding: 0; height: 100vh; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+        
+        .embed-card { 
+            width: 100%; height: 100%; background: var(--card); border: 1px solid var(--border); 
+            display: flex; align-items: center; padding: 0 1rem; box-sizing: border-box; gap: 1rem;
+            position: relative; overflow: hidden;
+        }
+
+        .bg-glow { 
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
+            background: radial-gradient(circle at center, rgba(56, 189, 248, 0.05) 0%, rgba(5, 7, 10, 0) 80%);
+            z-index: 0; pointer-events: none;
+        }
+
+        .play-btn { 
+            width: 48px; height: 48px; border-radius: 50%; background: #fff; color: #000; border: none; cursor: pointer; 
+            display: flex; align-items: center; justify-content: center; transition: all 0.2s; z-index: 1; flex-shrink: 0;
+        }
+        .play-btn:hover { transform: scale(1.05); background: var(--primary); }
+        .play-btn i { width: 20px; height: 20px; }
+
+        .info { flex-grow: 1; min-width: 0; z-index: 1; }
+        .station-name { font-size: 0.65rem; text-transform: uppercase; color: var(--secondary); font-weight: 800; letter-spacing: 1px; margin-bottom: 2px; }
+        .song-title { font-size: 0.95rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+        .visualizer { position: absolute; bottom: 0; left: 0; width: 100%; height: 30px; opacity: 0.3; z-index: 0; }
+        canvas { width: 100%; height: 100%; }
+    </style>
+</head>
+<body>
+    <div class="bg-glow" id="bg-glow"></div>
+    <div class="embed-card">
+        <button class="play-btn" id="play-btn"><i data-lucide="play"></i></button>
+        <div class="info">
+            <div class="station-name">{{.Stream.Name}}</div>
+            <div class="song-title" id="song-title">Connecting...</div>
+        </div>
+        <div class="visualizer">
+            <canvas id="visualizer"></canvas>
+        </div>
+    </div>
+
+    <audio id="audio-player" src="{{.Stream.MountName}}" crossorigin="anonymous"></audio>
+
+    <script>
+        lucide.createIcons();
+        const audio = document.getElementById('audio-player');
+        const playBtn = document.getElementById('play-btn');
+        const songTitle = document.getElementById('song-title');
+        const canvas = document.getElementById('visualizer');
+        const bgGlow = document.getElementById('bg-glow');
+        const ctx = canvas.getContext('2d');
+        
+        let isPlaying = false;
+        let audioCtx, analyser, source, animationId;
+        let smoothedAvg = 0;
+
+        function initVisualizer() {
+            if (audioCtx) return;
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            analyser = audioCtx.createAnalyser();
+            source = audioCtx.createMediaElementSource(audio);
+            source.connect(analyser);
+            analyser.connect(audioCtx.destination);
+            analyser.fftSize = 64;
+            const bufferLength = analyser.frequencyBinCount;
+            const dataArray = new Uint8Array(bufferLength);
+
+            function draw() {
+                animationId = requestAnimationFrame(draw);
+                analyser.getByteFrequencyData(dataArray);
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                const barWidth = (canvas.width / bufferLength) * 2.5;
+                let x = 0; let total = 0;
+                for (let i = 0; i < bufferLength; i++) {
+                    const barHeight = (dataArray[i] / 255) * canvas.height;
+                    total += dataArray[i];
+                    ctx.fillStyle = '#38bdf8';
+                    ctx.fillRect(x, canvas.height - barHeight, barWidth - 2, barHeight);
+                    x += barWidth;
+                }
+                const currentAvg = total / bufferLength;
+                smoothedAvg = smoothedAvg * 0.9 + currentAvg * 0.1;
+                const glowScale = 0.02 + (smoothedAvg / 255) * 0.1;
+                bgGlow.style.background = `radial-gradient(circle at center, rgba(56, 189, 248, ${glowScale}) 0%, rgba(5, 7, 10, 0) 80%)`;
+            }
+            canvas.width = canvas.offsetWidth;
+            canvas.height = canvas.offsetHeight;
+            draw();
+        }
+
+        playBtn.onclick = () => {
+            if (isPlaying) {
+                audio.pause();
+                playBtn.innerHTML = '<i data-lucide="play"></i>';
+            } else {
+                if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+                initVisualizer();
+                const currentSrc = audio.src; audio.src = ''; audio.src = currentSrc;
+                audio.play();
+                playBtn.innerHTML = '<i data-lucide="pause"></i>';
+            }
+            isPlaying = !isPlaying;
+            lucide.createIcons();
+        };
+
+        const es = new EventSource("/events");
+        const mount = "{{.Stream.MountName}}";
+        es.onmessage = (e) => {
+            const streams = JSON.parse(e.data);
+            const stream = streams.find(s => s.mount === mount);
+            if (stream) songTitle.textContent = stream.song || 'Live Stream';
+        };
+    </script>
+</body>
+</html>

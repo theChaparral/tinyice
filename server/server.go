@@ -89,6 +89,7 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/admin/history", s.handleHistory)
 	mux.HandleFunc("/admin/statistics", s.handleGetStats)
 	mux.HandleFunc("/player/", s.handlePlayer)
+	mux.HandleFunc("/embed/", s.handleEmbed)
 	mux.HandleFunc("/", s.handleRoot)
 	mux.HandleFunc("/events", s.handlePublicEvents)
 	mux.HandleFunc("/status-json.xsl", s.handleLegacyStats)
@@ -1491,6 +1492,38 @@ func (s *Server) handlePlayer(w http.ResponseWriter, r *http.Request) {
 		"Config": s.Config,
 	}
 	if err := s.tmpl.ExecuteTemplate(w, "player.html", data); err != nil {
+		logrus.WithError(err).Error("Template error")
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+	}
+}
+
+func (s *Server) handleEmbed(w http.ResponseWriter, r *http.Request) {
+	mount := strings.TrimPrefix(r.URL.Path, "/embed")
+	if mount == "" || mount == "/" {
+		http.NotFound(w, r)
+		return
+	}
+
+	stream, ok := s.Relay.GetStream(mount)
+	if !ok {
+		fallback, hasFallback := s.Config.FallbackMounts[mount]
+		if hasFallback {
+			stream, ok = s.Relay.GetStream(fallback)
+		}
+	}
+
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html")
+	w.Header().Set("X-Frame-Options", "ALLOWALL") // Allow embedding
+	data := map[string]interface{}{
+		"Stream": stream.Snapshot(),
+		"Config": s.Config,
+	}
+	if err := s.tmpl.ExecuteTemplate(w, "embed.html", data); err != nil {
 		logrus.WithError(err).Error("Template error")
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 	}
