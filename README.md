@@ -119,6 +119,17 @@ To use built-in SSL support, ensure the following:
 }
 ```
 
+### Running on Port 80/443 without Root (Linux)
+To satisfy Let's Encrypt challenges, TinyIce must be reachable on ports 80 and 443. On Linux, binding to ports below 1024 usually requires root. You can allow TinyIce to bind to these ports as a regular user by granting it the `CAP_NET_BIND_SERVICE` capability:
+
+```bash
+# Grant permission to the binary
+sudo setcap 'cap_net_bind_service=+ep' ./tinyice
+
+# Now you can run it as a normal user on port 80/443
+./tinyice -port 80 -https-port 443
+```
+
 ## Command Line Usage
 
 ```bash
