@@ -208,14 +208,20 @@
         };
 
         // Handle stream errors/disconnects
-        audio.onerror = () => {
+        function reconnect() {
             if (isPlaying) {
                 console.log("Stream interrupted, attempting reconnect...");
-                setTimeout(() => {
-                    if (isPlaying) audio.play();
-                }, 2000);
+                const currentSrc = audio.src.split('?')[0];
+                audio.src = currentSrc + '?t=' + new Date().getTime(); // Prevent cache
+                audio.play().catch(e => {
+                    console.log("Reconnect failed, retrying in 2s...");
+                    setTimeout(reconnect, 2000);
+                });
             }
-        };
+        }
+
+        audio.onerror = reconnect;
+        audio.onended = reconnect;
     </script>
 </body>
 </html>

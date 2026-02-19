@@ -123,6 +123,20 @@
             const stream = streams.find(s => s.mount === mount);
             if (stream) songTitle.textContent = stream.song || 'Live Stream';
         };
+
+        function reconnect() {
+            if (isPlaying) {
+                console.log("Stream interrupted, attempting reconnect...");
+                const currentSrc = audio.src.split('?')[0];
+                audio.src = currentSrc + '?t=' + new Date().getTime();
+                audio.play().catch(e => {
+                    setTimeout(reconnect, 2000);
+                });
+            }
+        }
+
+        audio.onerror = reconnect;
+        audio.onended = reconnect;
     </script>
 </body>
 </html>
