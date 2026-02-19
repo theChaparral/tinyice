@@ -7,89 +7,91 @@
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
         :root {
-            --bg: #05070a; --card: #11141d; --border: #1f222c;
+            --bg: #0a0c14; --card: rgba(22, 27, 44, 0.7); --border: rgba(255, 255, 255, 0.08);
             --primary: #38bdf8; --secondary: #94a3b8;
             --success: #10b981; --warning: #fbbf24;
         }
-        body { font-family: 'Inter', system-ui, -apple-system, sans-serif; background: var(--bg); color: #fff; margin: 0; padding: 0; line-height: 1.6; }
+        body { 
+            font-family: 'Inter', system-ui, -apple-system, sans-serif; 
+            background: radial-gradient(circle at top right, #1e293b, #0a0c14);
+            color: #fff; margin: 0; padding: 0; line-height: 1.6; min-height: 100vh;
+        }
         
         nav { 
-            display: flex; justify-content: center; align-items: center; padding: 1.5rem 2rem; 
-            background: rgba(17, 20, 29, 0.8); backdrop-filter: blur(10px); 
+            display: flex; justify-content: center; align-items: center; padding: 1.25rem 1rem; 
+            background: rgba(10, 12, 20, 0.8); backdrop-filter: blur(12px); 
             border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 100;
         }
-        .nav-links { display: flex; gap: 2.5rem; align-items: center; }
-        .nav-links a { color: var(--secondary); text-decoration: none; font-weight: 600; font-size: 0.95rem; transition: color 0.2s; display: flex; align-items: center; gap: 0.5rem; }
-        .nav-links a:hover, .nav-links a.active { color: #fff; }
-        .nav-links a i { width: 18px; height: 18px; }
+        .nav-links { display: flex; gap: 2rem; align-items: center; }
+        .nav-links a { color: var(--secondary); text-decoration: none; font-weight: 600; font-size: 0.9rem; transition: all 0.2s; display: flex; align-items: center; gap: 0.5rem; }
+        .nav-links a:hover, .nav-links a.active { color: var(--primary); }
+        .nav-links a i { width: 16px; height: 18px; }
 
-        .container { width: 100%; max-width: 1200px; margin: 0 auto; padding: 4rem 2rem; box-sizing: border-box; }
+        .container { width: 100%; max-width: 1200px; margin: 0 auto; padding: 3rem 1.5rem; box-sizing: border-box; }
         
-        header { margin-bottom: 5rem; text-align: center; }
-        .logo { font-size: 3.5rem; font-weight: 900; letter-spacing: -2px; color: #fff; margin-bottom: 0.5rem; line-height: 1; }
-        .subtitle { color: var(--secondary); font-size: 1.1rem; }
+        header { margin-bottom: 4rem; text-align: center; }
+        .logo { font-size: 3rem; font-weight: 900; letter-spacing: -2px; color: #fff; margin-bottom: 0.5rem; }
+        .subtitle { color: var(--secondary); font-size: 1rem; opacity: 0.8; }
 
-        .streams-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 2rem; }
+        .streams-grid { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); 
+            gap: 1.5rem; 
+        }
         
         .card { 
-            background: var(--card); border: 1px solid var(--border); border-radius: 28px; padding: 2rem; 
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); 
-            display: flex; flex-direction: column; position: relative; min-height: 420px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+            background: var(--card); border: 1px solid var(--border); border-radius: 24px; padding: 1.75rem; 
+            backdrop-filter: blur(8px);
+            transition: all 0.3s ease; 
+            display: flex; flex-direction: column; position: relative;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
             box-sizing: border-box;
         }
-        .card:hover { border-color: var(--primary); transform: translateY(-5px); }
+        .card:hover { border-color: rgba(56, 189, 248, 0.4); transform: translateY(-4px); box-shadow: 0 15px 35px rgba(0,0,0,0.3); }
         
-        .live-tag { position: absolute; top: 1.5rem; right: 1.5rem; display: flex; align-items: center; gap: 0.4rem; background: rgba(16, 185, 129, 0.1); padding: 0.4rem 0.8rem; border-radius: 100px; font-size: 0.7rem; font-weight: 800; color: var(--success); border: 1px solid rgba(16, 185, 129, 0.2); text-transform: uppercase; }
+        .live-tag { 
+            position: absolute; top: 1.5rem; right: 1.5rem; 
+            display: flex; align-items: center; gap: 0.4rem; 
+            background: rgba(16, 185, 129, 0.1); padding: 0.35rem 0.75rem; 
+            border-radius: 100px; font-size: 0.65rem; font-weight: 800; color: var(--success); 
+            border: 1px solid rgba(16, 185, 129, 0.2); 
+        }
         .live-dot { width: 6px; height: 6px; background: var(--success); border-radius: 50%; animation: pulse 2s infinite; }
-        @keyframes pulse { 0% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.5); opacity: 0.5; } 100% { transform: scale(1); opacity: 1; } }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
 
-        .stream-name { font-size: 1.6rem; font-weight: 800; margin-bottom: 1.2rem; letter-spacing: -0.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 4rem; }
+        .stream-name { font-size: 1.4rem; font-weight: 800; margin-bottom: 1rem; letter-spacing: -0.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 4rem; }
         
-        .now-playing-box { background: rgba(251, 191, 36, 0.05); border: 1px solid rgba(251, 191, 36, 0.1); border-radius: 16px; padding: 1rem; margin-bottom: 1.5rem; position: relative; min-height: 60px; }
-        .now-playing-box label { font-size: 0.65rem; text-transform: uppercase; color: var(--secondary); font-weight: 800; margin-bottom: 0.2rem; display: block; letter-spacing: 1px; }
-        .song-title { font-weight: 700; color: var(--warning); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 1rem; line-height: 1.3; min-height: 2.6rem; }
+        .now-playing-box { background: rgba(255, 255, 255, 0.03); border-radius: 16px; padding: 1rem; margin-bottom: 1.5rem; }
+        .now-playing-box label { font-size: 0.6rem; text-transform: uppercase; color: var(--secondary); font-weight: 800; margin-bottom: 0.25rem; display: block; letter-spacing: 1px; }
+        .song-title { font-weight: 700; color: var(--warning); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 0.95rem; line-height: 1.4; min-height: 2.8rem; }
 
-        .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 2rem; flex-grow: 1; }
-        .stat-item { background: rgba(255,255,255,0.03); padding: 0.8rem; border-radius: 14px; display: flex; flex-direction: column; justify-content: center; }
-        .stat-label { font-size: 0.6rem; color: var(--secondary); text-transform: uppercase; margin-bottom: 0.2rem; font-weight: 700; letter-spacing: 0.5px; }
-        .stat-value { font-weight: 800; font-size: 1rem; color: var(--primary); }
+        .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 1.75rem; }
+        .stat-item { background: rgba(255,255,255,0.02); padding: 0.75rem; border-radius: 12px; display: flex; flex-direction: column; }
+        .stat-label { font-size: 0.55rem; color: var(--secondary); text-transform: uppercase; margin-bottom: 0.15rem; font-weight: 700; }
+        .stat-value { font-weight: 800; font-size: 0.9rem; color: var(--primary); }
 
-        .btn-listen { display: flex; align-items: center; justify-content: center; gap: 0.6rem; background: #fff; color: #000; padding: 1.1rem; border-radius: 18px; text-decoration: none; font-weight: 800; transition: all 0.2s; font-size: 1rem; flex: 1; }
-        .btn-listen:hover { background: var(--primary); transform: scale(1.02); }
-        .btn-playlist { background: rgba(255,255,255,0.05); color: var(--secondary); width: 48px; height: 48px; border-radius: 16px; display: flex; align-items: center; justify-content: center; transition: all 0.2s; border: 1px solid var(--border); font-size: 0.7rem; font-weight: 800; flex-shrink: 0; }
-        .btn-playlist:hover { background: var(--surface-hover); border-color: var(--primary); color: #fff; }
+        .card-actions { display: flex; gap: 0.5rem; margin-top: auto; }
+        .btn-listen { display: flex; align-items: center; justify-content: center; gap: 0.6rem; background: #fff; color: #000; padding: 0.9rem; border-radius: 14px; text-decoration: none; font-weight: 800; transition: all 0.2s; font-size: 0.9rem; flex: 1; }
+        .btn-listen:hover { background: var(--primary); }
+        .btn-playlist { background: rgba(255,255,255,0.05); color: var(--secondary); width: 42px; height: 42px; border-radius: 12px; display: flex; align-items: center; justify-content: center; transition: all 0.2s; border: 1px solid var(--border); font-size: 0.65rem; font-weight: 800; flex-shrink: 0; }
+        .btn-playlist:hover { background: rgba(255,255,255,0.1); border-color: var(--primary); color: #fff; }
 
         .pagination { display: flex; justify-content: center; gap: 0.5rem; margin-top: 4rem; }
-        .page-btn { background: var(--card); border: 1px solid var(--border); color: var(--secondary); padding: 0.8rem 1.2rem; border-radius: 12px; cursor: pointer; font-weight: 600; transition: all 0.2s; }
-        .page-btn:hover:not(:disabled) { border-color: var(--primary); color: #fff; }
+        .page-btn { background: var(--card); border: 1px solid var(--border); color: var(--secondary); padding: 0.75rem 1.25rem; border-radius: 12px; cursor: pointer; font-weight: 600; }
         .page-btn.active { background: var(--primary); color: #000; border-color: var(--primary); }
-        .page-btn:disabled { opacity: 0.2; cursor: not-allowed; }
 
-        .footer { margin-top: 5rem; text-align: center; color: var(--secondary); font-size: 0.9rem; border-top: 1px solid var(--border); padding-top: 2.5rem; }
+        .footer { margin-top: 5rem; text-align: center; color: var(--secondary); font-size: 0.85rem; padding: 2rem; }
         .footer a { color: #fff; text-decoration: none; font-weight: 700; }
-        .footer a:hover { color: var(--primary); }
 
-        .empty-state { grid-column: 1/-1; text-align: center; padding: 6rem 2rem; background: var(--card); border-radius: 32px; border: 2px dashed var(--border); color: var(--secondary); }
-
-        @media (max-width: 768px) {
-            .container { padding: 2rem 1.2rem; }
-            header { margin-bottom: 3.5rem; }
-            .logo { font-size: 2.5rem; }
-            .nav-links { gap: 1rem; flex-wrap: wrap; justify-content: center; }
-            .nav-links a { font-size: 0.9rem; padding: 0.5rem; }
-            .streams-grid { grid-template-columns: 1fr; gap: 1.5rem; }
-            .card { min-height: auto; padding: 1.5rem; border-radius: 24px; }
-            .stream-name { font-size: 1.4rem; padding-right: 3.5rem; margin-bottom: 1rem; }
-            .stats-grid { grid-template-columns: 1fr 1fr; gap: 0.8rem; }
-            .btn-listen { padding: 1rem; font-size: 0.9rem; }
-        }
-
-        @media (max-width: 480px) {
+        @media (max-width: 600px) {
+            .container { padding: 2rem 1rem; }
+            .logo { font-size: 2.25rem; }
+            .nav-links { gap: 1rem; }
+            .card { padding: 1.25rem; }
+            .stream-name { font-size: 1.25rem; }
             .stats-grid { grid-template-columns: 1fr; }
-            .stat-item { flex-direction: row; justify-content: space-between; align-items: center; padding: 0.7rem 1rem; }
+            .stat-item { flex-direction: row; justify-content: space-between; align-items: center; padding: 0.6rem 1rem; }
             .stat-label { margin-bottom: 0; }
-            .card-footer { flex-wrap: wrap; }
         }
     </style>
 </head>
@@ -112,7 +114,7 @@
         </div>
 
         <div id="pagination" class="pagination"></div>
-        <div class="footer">Powered by TinyICE - <a href="/admin">Admin Interface</a></div>
+        <div class="footer">Powered by TinyICE - <a href="/admin">Admin Dashboard</a></div>
     </div>
 
     <template id="card-template">
@@ -129,12 +131,12 @@
                 <div class="stat-item"><div class="stat-label">Genre</div><div class="stat-value val-genre"></div></div>
                 <div class="stat-item"><div class="stat-label">Uptime</div><div class="stat-value val-uptime"></div></div>
             </div>
-            <div style="display: flex; gap: 0.5rem; margin-top: auto;">
-                <a href="" class="btn-listen" style="flex: 1;">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> TUNE IN NOW
+            <div class="card-actions">
+                <a href="" class="btn-listen">
+                    <i data-lucide="play-circle"></i> TUNE IN
                 </a>
-                <a href="" class="btn-playlist playlist-link" title="Download M3U8 Playlist">M3U8</a>
-                <a href="" class="btn-playlist pls-link" title="Download PLS Playlist">PLS</a>
+                <a href="" class="btn-playlist playlist-link" title="M3U8">M3U8</a>
+                <a href="" class="btn-playlist pls-link" title="PLS">PLS</a>
             </div>
         </div>
     </template>
