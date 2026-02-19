@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Playing {{.Stream.Name}} - TinyIce</title>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        :root {
+            --bg: #05070a; --card: #11141d; --border: #1f222c;
+            --primary: #38bdf8; --secondary: #94a3b8;
+            --success: #10b981; --warning: #fbbf24;
+        }
+        body { font-family: 'Inter', system-ui, -apple-system, sans-serif; background: var(--bg); color: #fff; margin: 0; padding: 0; display: flex; align-items: center; justify-content: center; height: 100vh; overflow: hidden; }
+        
+        .player-container { width: 100%; max-width: 500px; padding: 2rem; text-align: center; }
+        
+        .artwork-container { 
+            width: 280px; height: 280px; margin: 0 auto 3rem; background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); 
+            border-radius: 40px; display: flex; align-items: center; justify-content: center; position: relative;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+            border: 1px solid var(--border);
+        }
+        .artwork-icon { color: var(--primary); width: 100px; height: 100px; opacity: 0.8; }
+        
+        .visualizer { position: absolute; bottom: -20px; left: 50%; transform: translateX(-50%); display: flex; gap: 4px; align-items: flex-end; height: 60px; pointer-events: none; }
+        .bar { width: 6px; background: var(--primary); border-radius: 10px; height: 10px; transition: height 0.1s ease; }
+
+        .info { margin-bottom: 3rem; }
+        .station-name { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 2px; color: var(--secondary); font-weight: 700; margin-bottom: 0.5rem; }
+        .song-title { font-size: 1.8rem; font-weight: 900; letter-spacing: -0.5px; color: #fff; margin-bottom: 0.5rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: 2.2rem; }
+        .genre-tag { display: inline-block; background: rgba(56, 189, 248, 0.1); color: var(--primary); padding: 0.3rem 0.8rem; border-radius: 100px; font-size: 0.7rem; font-weight: 800; border: 1px solid rgba(56, 189, 248, 0.2); }
+
+        .controls { display: flex; align-items: center; justify-content: center; gap: 2rem; }
+        .play-btn { width: 80px; height: 80px; border-radius: 50%; background: #fff; color: #000; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: 0 10px 30px rgba(255,255,255,0.1); }
+        .play-btn:hover { transform: scale(1.05); background: var(--primary); }
+        .play-btn i { width: 32px; height: 32px; }
+
+        .volume-container { margin-top: 3rem; display: flex; align-items: center; gap: 1rem; padding: 0 2rem; }
+        input[type=range] { flex: 1; accent-color: var(--primary); cursor: pointer; }
+
+        .back-btn { position: absolute; top: 2rem; left: 2rem; color: var(--secondary); text-decoration: none; display: flex; align-items: center; gap: 0.5rem; font-weight: 600; font-size: 0.9rem; transition: color 0.2s; }
+        .back-btn:hover { color: #fff; }
+
+        @keyframes dance {
+            0%, 100% { height: 10px; }
+            50% { height: 40px; }
+        }
+        .playing .bar { animation: dance 1s infinite alternate; }
+        .playing .bar:nth-child(2) { animation-delay: 0.1s; }
+        .playing .bar:nth-child(3) { animation-delay: 0.3s; }
+        .playing .bar:nth-child(4) { animation-delay: 0.2s; }
+        .playing .bar:nth-child(5) { animation-delay: 0.4s; }
+    </style>
+</head>
+<body>
+    <a href="/" class="back-btn"><i data-lucide="chevron-left"></i> Stations</a>
+
+    <div class="player-container">
+        <div class="artwork-container" id="artwork">
+            <i data-lucide="music" class="artwork-icon"></i>
+            <div class="visualizer">
+                <div class="bar"></div>
+                <div class="bar"></div>
+                <div class="bar"></div>
+                <div class="bar"></div>
+                <div class="bar"></div>
+            </div>
+        </div>
+
+        <div class="info">
+            <div class="station-name">{{.Stream.Name}}</div>
+            <div class="song-title" id="song-title">Connecting...</div>
+            <div class="genre-tag">{{.Stream.Genre}}</div>
+        </div>
+
+        <div class="controls">
+            <button class="play-btn" id="play-btn">
+                <i data-lucide="play" id="play-icon"></i>
+            </button>
+        </div>
+
+        <div class="volume-container">
+            <i data-lucide="volume-2" style="width: 18px; color: var(--secondary)"></i>
+            <input type="range" id="volume-slider" min="0" max="1" step="0.01" value="0.8">
+        </div>
+    </div>
+
+    <audio id="audio-player" src="{{.Stream.MountName}}" crossorigin="anonymous"></audio>
+
+    <script>
+        lucide.createIcons();
+        const audio = document.getElementById('audio-player');
+        const playBtn = document.getElementById('play-btn');
+        const playIcon = document.getElementById('play-icon');
+        const artwork = document.getElementById('artwork');
+        const volumeSlider = document.getElementById('volume-slider');
+        const songTitle = document.getElementById('song-title');
+        
+        let isPlaying = false;
+
+        playBtn.onclick = () => {
+            if (isPlaying) {
+                audio.pause();
+                artwork.classList.remove('playing');
+                playIcon.setAttribute('data-lucide', 'play');
+            } else {
+                // To prevent lag on live streams, we reload the source when clicking play
+                // This ensures we start with the "Instant Start" burst
+                const currentSrc = audio.src;
+                audio.src = '';
+                audio.src = currentSrc;
+                audio.play();
+                artwork.classList.add('playing');
+                playIcon.setAttribute('data-lucide', 'pause');
+            }
+            isPlaying = !isPlaying;
+            lucide.createIcons();
+        };
+
+        volumeSlider.oninput = (e) => {
+            audio.volume = e.target.value;
+        };
+
+        // Metadata updates via SSE
+        const es = new EventSource("/events");
+        const mount = "{{.Stream.MountName}}";
+        
+        es.onmessage = (e) => {
+            const streams = JSON.parse(e.data);
+            const stream = streams.find(s => s.mount === mount);
+            if (stream) {
+                songTitle.textContent = stream.song || 'Live Stream';
+                document.title = (stream.song ? stream.song + ' - ' : '') + 'TinyIce';
+            }
+        };
+
+        // Handle stream errors/disconnects
+        audio.onerror = () => {
+            if (isPlaying) {
+                console.log("Stream interrupted, attempting reconnect...");
+                setTimeout(() => {
+                    if (isPlaying) audio.play();
+                }, 2000);
+            }
+        };
+    </script>
+</body>
+</html>

@@ -138,7 +138,7 @@
                     clone.querySelector('.val-bitrate').textContent = s.bitrate + ' kbps';
                     clone.querySelector('.val-genre').textContent = s.genre || 'N/A';
                     clone.querySelector('.val-uptime').textContent = s.uptime;
-                    clone.querySelector('.btn-listen').setAttribute('href', s.mount);
+                    clone.querySelector('.btn-listen').setAttribute('href', '/player' + s.mount);
                     clone.querySelector('.playlist-link').setAttribute('href', s.mount + '.m3u8');
                     clone.querySelector('.pls-link').setAttribute('href', s.mount + '.pls');
                     container.appendChild(clone);

@@ -382,7 +382,7 @@
                         hEl.style.fontWeight = 'bold';
 
                         clone.querySelector('.row-uptime').textContent = s.uptime; 
-                        clone.querySelector('.row-link').setAttribute('href', s.mount);
+                        clone.querySelector('.row-link').setAttribute('href', '/player' + s.mount);
                         clone.querySelector('.row-kick-form input').value = s.mount; streamsBody.appendChild(clone);
                     });
                 }

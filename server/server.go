@@ -88,6 +88,7 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/admin/delete-relay", s.handleDeleteRelay)
 	mux.HandleFunc("/admin/history", s.handleHistory)
 	mux.HandleFunc("/admin/statistics", s.handleGetStats)
+	mux.HandleFunc("/player/", s.handlePlayer)
 	mux.HandleFunc("/", s.handleRoot)
 	mux.HandleFunc("/events", s.handlePublicEvents)
 	mux.HandleFunc("/status-json.xsl", s.handleLegacyStats)
@@ -1367,4 +1368,36 @@ func (s *Server) handleGetStats(w http.ResponseWriter, r *http.Request) {
 		"top_listeners_ua": topListenersUA,
 		"top_sources_ua":   topSourcesUA,
 	})
+}
+
+func (s *Server) handlePlayer(w http.ResponseWriter, r *http.Request) {
+	mount := strings.TrimPrefix(r.URL.Path, "/player")
+	if mount == "" || mount == "/" {
+		http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
+		return
+	}
+
+	stream, ok := s.Relay.GetStream(mount)
+	if !ok {
+		// Check for fallback as well to allow player to work during fallback
+		fallback, hasFallback := s.Config.FallbackMounts[mount]
+		if hasFallback {
+			stream, ok = s.Relay.GetStream(fallback)
+		}
+	}
+
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html")
+	data := map[string]interface{}{
+		"Stream": stream.Snapshot(),
+		"Config": s.Config,
+	}
+	if err := s.tmpl.ExecuteTemplate(w, "player.html", data); err != nil {
+		logrus.WithError(err).Error("Template error")
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+	}
 }
