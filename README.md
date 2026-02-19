@@ -44,6 +44,7 @@ Traditional streaming servers can be complex to configure and resource-heavy. Ti
 -   **Stream Relaying**: Act as an edge node by pulling streams from remote servers.
 -   **Outbound ICY Metadata**: Injects song titles directly into the audio stream, ensuring "Now Playing" info appears on all traditional radio players (VLC, Winamp, etc.).
 -   **Web-Based Audio Player**: Every station gets a dedicated, modern player page with real-time metadata and a reactive audio visualizer.
+-   **Embeddable Player**: Minimalist iframe-based player for easy integration into external websites.
 -   **Dual-Protocol Architecture**: Handles HTTPS for listeners while allowing legacy encoders to stream over plain HTTP.
 -   **Smart Fallback & Auto-Recovery**: Automatically switch listeners to a backup stream if the primary source drops, and seamlessly transition them back once the primary is restored.
 -   **Playback Tracking**: View the last 100 songs played per station in the admin dashboard.
@@ -181,6 +182,26 @@ By default, TinyIce will look for `tinyice.json` in the current directory and bi
 -   `-json-logs`: Enable structured JSON logging.
 -   `-daemon`: Run in the background.
 -   `-pid-file`: Path to write the process ID.
+
+## Embedding the Player
+
+You can easily embed any of your stations into your own website using an `<iframe>`. 
+
+### Standard Embed Code
+```html
+<iframe 
+    src="https://your-server.com/embed/live" 
+    width="100%" 
+    height="80" 
+    frameborder="0" 
+    scrolling="no">
+</iframe>
+```
+
+### Things to keep in mind:
+1.  **HTTPS**: If your website uses HTTPS, your TinyIce server **must** also use HTTPS, or the browser will block the player (Mixed Content error).
+2.  **Autoplay**: Modern browsers often prevent audio from playing automatically. The embed player requires a user to click the "Play" button to start the stream.
+3.  **Responsiveness**: The player is designed to be responsive and will adjust its layout to fit the width of its container.
 
 ## Common Use Cases
 
