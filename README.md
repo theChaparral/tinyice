@@ -190,7 +190,7 @@ You can easily embed any of your stations into your own website using an `<ifram
 ### Standard Embed Code
 ```html
 <iframe 
-    src="https://your-server.com/embed/live" 
+    src="https://your-server.com/embed/<stream_name>" 
     width="100%" 
     height="80" 
     frameborder="0" 
