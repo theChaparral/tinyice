@@ -44,7 +44,27 @@ func NewHistoryManager(path string) (*HistoryManager, error) {
 		return nil, err
 	}
 
+	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS listener_history (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		mount TEXT,
+		listeners INTEGER,
+		bytes_in INTEGER,
+		bytes_out INTEGER,
+		timestamp DATETIME
+	)`)
+	if err != nil {
+		return nil, err
+	}
+
 	return &HistoryManager{db: db}, nil
+}
+
+func (hm *HistoryManager) RecordStats(mount string, listeners int, bi, bo int64) {
+	_, err := hm.db.Exec("INSERT INTO listener_history (mount, listeners, bytes_in, bytes_out, timestamp) VALUES (?, ?, ?, ?, ?)",
+		mount, listeners, bi, bo, time.Now())
+	if err != nil {
+		logrus.WithError(err).Error("Failed to record historical stats")
+	}
 }
 
 func (hm *HistoryManager) RecordUA(ua, uaType string) {

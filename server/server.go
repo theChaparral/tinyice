@@ -167,6 +167,7 @@ func (s *Server) Start() error {
 	if s.Config.DirectoryListing {
 		go s.directoryReportingTask()
 	}
+	go s.statsRecordingTask()
 
 	for _, rc := range s.Config.Relays {
 		if rc.Enabled {
@@ -1249,6 +1250,20 @@ func (s *Server) directoryReportingTask() {
 			if st.Public {
 				s.reportToDirectory(st)
 			}
+		}
+	}
+}
+
+func (s *Server) statsRecordingTask() {
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+	for range ticker.C {
+		if s.Relay.History == nil {
+			continue
+		}
+		streams := s.Relay.Snapshot()
+		for _, st := range streams {
+			s.Relay.History.RecordStats(st.MountName, st.ListenersCount, st.BytesIn, st.BytesOut)
 		}
 	}
 }
