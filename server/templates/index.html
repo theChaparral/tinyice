@@ -71,6 +71,20 @@
         .footer a:hover { color: var(--primary); }
 
         .empty-state { grid-column: 1/-1; text-align: center; padding: 6rem 2rem; background: var(--card); border-radius: 24px; border: 2px dashed var(--border); color: var(--secondary); }
+
+        @media (max-width: 768px) {
+            .container { padding: 2rem 1rem; }
+            header { margin-bottom: 3rem; }
+            .logo { font-size: 2rem; }
+            .nav-links { gap: 1rem; flex-wrap: wrap; justify-content: center; }
+            .nav-links a { font-size: 0.85rem; }
+            .streams-grid { grid-template-columns: 1fr; gap: 1.5rem; }
+            .card { height: auto; padding: 1.5rem; border-radius: 20px; }
+            .stream-name { font-size: 1.2rem; }
+            .song-title { font-size: 0.85rem; }
+            .stats-grid { margin-bottom: 1.5rem; }
+            .btn-listen { padding: 0.8rem; font-size: 0.85rem; }
+        }
     </style>
 </head>
 <body>

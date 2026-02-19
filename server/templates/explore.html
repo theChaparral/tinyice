@@ -51,6 +51,20 @@
         .btn-view { font-size: 0.8rem; font-weight: 700; color: var(--primary); text-decoration: none; text-transform: uppercase; letter-spacing: 1px; }
 
         .empty-state { grid-column: 1/-1; text-align: center; padding: 6rem 2rem; background: var(--card); border-radius: 24px; border: 2px dashed var(--border); color: var(--secondary); }
+
+        @media (max-width: 768px) {
+            .container { padding: 2rem 1rem; }
+            header { margin-bottom: 2.5rem; }
+            h1 { font-size: 1.8rem; }
+            .nav-links { gap: 1rem; flex-wrap: wrap; justify-content: center; }
+            .nav-links a { font-size: 0.85rem; }
+            .explore-grid { grid-template-columns: 1fr; gap: 1.5rem; }
+            .compact-card { border-radius: 16px; }
+            .card-header { padding: 1rem; }
+            .card-title { font-size: 1rem; }
+            .card-footer { padding: 0.8rem 1rem; flex-direction: column; gap: 1rem; align-items: flex-start; }
+            .card-footer div { width: 100%; justify-content: space-between; }
+        }
     </style>
 </head>
 <body>
