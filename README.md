@@ -187,6 +187,9 @@ By default, TinyIce will look for `tinyice.json` in the current directory and bi
 -   `-host`: Network interface to bind to (default: "0.0.0.0").
 -   `-port`: Port for HTTP/Icecast (default: "8000").
 -   `-https-port`: Port for HTTPS (default: "443").
+-   `-use-https`: Enable HTTPS server.
+-   `-auto-https`: Enable automatic SSL via Let's Encrypt.
+-   `-domains`: Comma-separated list of domains for SSL (e.g. "radio.com,stream.com").
 -   `-config`: Path to the configuration file (default: "tinyice.json").
 -   `-log-file`: Path to a file for log output.
 -   `-auth-log-file`: Path to a separate file for authentication audit logs.

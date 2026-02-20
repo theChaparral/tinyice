@@ -24,6 +24,9 @@ var (
 	bindHost    = flag.String("host", "0.0.0.0", "Network interface to bind to")
 	bindPort    = flag.String("port", "", "Network port to bind to (overrides config)")
 	httpsPort   = flag.String("https-port", "", "Network port for HTTPS (overrides config)")
+	useHTTPS    = flag.Bool("use-https", false, "Enable HTTPS (overrides config)")
+	autoHTTPS   = flag.Bool("auto-https", false, "Enable Auto-HTTPS via ACME (overrides config)")
+	domains     = flag.String("domains", "", "Comma-separated list of domains for SSL (overrides config)")
 	logFile     = flag.String("log-file", "", "Path to log file (default is stdout)")
 	logLevel    = flag.String("log-level", "info", "Log level (debug, info, warn, error)")
 	jsonLogs    = flag.Bool("json-logs", false, "Enable JSON logging format")
@@ -120,6 +123,15 @@ func main() {
 	}
 	if *httpsPort != "" {
 		cfg.HTTPSPort = *httpsPort
+	}
+	if *useHTTPS {
+		cfg.UseHTTPS = true
+	}
+	if *autoHTTPS {
+		cfg.AutoHTTPS = true
+	}
+	if *domains != "" {
+		cfg.Domains = strings.Split(*domains, ",")
 	}
 
 	srv := server.NewServer(cfg, authLogger)
