@@ -323,16 +323,28 @@ func (s *Stream) Subscribe(id string, burstSize int) (int64, chan struct{}) {
 		start = 0
 	}
 
-	// For Ogg/Opus, align to the oldest known page boundary within the burst
+	// For Ogg/Opus, align to the oldest known page boundary within the valid buffer range
 	if strings.Contains(strings.ToLower(s.ContentType), "ogg") || strings.Contains(strings.ToLower(s.ContentType), "opus") {
+		validStart := s.Buffer.Head - s.Buffer.Size
+		if validStart < 0 { validStart = 0 }
+		
+		if start < validStart { start = validStart }
+
 		bestAlign := s.LastPageOffset
+		found := false
 		for _, po := range s.PageOffsets {
-			if po >= start && po < bestAlign {
+			// Find the smallest PO that is >= start AND is still valid
+			if po >= start && po >= validStart && po < bestAlign {
 				bestAlign = po
+				found = true
 			}
 		}
-		if bestAlign > 0 {
+		if found {
 			start = bestAlign
+		} else if bestAlign >= validStart {
+			start = bestAlign
+		} else {
+			start = s.Buffer.Head // Fallback to now if nothing valid found
 		}
 	}
 	
