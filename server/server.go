@@ -1997,7 +1997,7 @@ func (s *Server) handleToggleTranscoder(w http.ResponseWriter, r *http.Request) 
 			if tc.Enabled {
 				s.TranscoderM.StartTranscoder(tc)
 			} else {
-				s.TranscoderM.StopTranscoder(tc.Name)
+				s.TranscoderM.StopTranscoder(tc.OutputMount)
 			}
 			break
 		}
@@ -2016,11 +2016,12 @@ func (s *Server) handleDeleteTranscoder(w http.ResponseWriter, r *http.Request) 
 	for _, tc := range s.Config.Transcoders {
 		if tc.Name != name {
 			newTCs = append(newTCs, tc)
+		} else {
+			s.TranscoderM.StopTranscoder(tc.OutputMount)
 		}
 	}
 	s.Config.Transcoders = newTCs
 	s.Config.SaveConfig()
-	s.ReloadConfig(s.Config)
 	http.Redirect(w, r, "/admin#tab-transcoding", http.StatusSeeOther)
 }
 
@@ -2032,7 +2033,7 @@ func (s *Server) handleTranscoderStats(w http.ResponseWriter, r *http.Request) {
 
 	var stats []relay.TranscoderStats
 	for _, tc := range s.Config.Transcoders {
-		inst := s.TranscoderM.GetInstance(tc.Name)
+		inst := s.TranscoderM.GetInstance(tc.OutputMount)
 		uptime := "OFF"
 		var frames, bytes int64
 		active := false

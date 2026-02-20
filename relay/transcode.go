@@ -30,7 +30,7 @@ type TranscoderInstance struct {
 }
 
 type TranscoderManager struct {
-	instances map[string]*TranscoderInstance // key is Name
+	instances map[string]*TranscoderInstance // key is OutputMount
 	mu        sync.RWMutex
 	relay     *Relay
 }
@@ -46,7 +46,7 @@ func (tm *TranscoderManager) StartTranscoder(cfg *config.TranscoderConfig) {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
 
-	if inst, ok := tm.instances[cfg.Name]; ok {
+	if inst, ok := tm.instances[cfg.OutputMount]; ok {
 		inst.Stop()
 	}
 
@@ -57,17 +57,17 @@ func (tm *TranscoderManager) StartTranscoder(cfg *config.TranscoderConfig) {
 		active:    true,
 		StartTime: time.Now(),
 	}
-	tm.instances[cfg.Name] = inst
+	tm.instances[cfg.OutputMount] = inst
 
 	go tm.runTranscoder(ctx, inst)
 }
 
-func (tm *TranscoderManager) StopTranscoder(name string) {
+func (tm *TranscoderManager) StopTranscoder(outputMount string) {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
-	if inst, ok := tm.instances[name]; ok {
+	if inst, ok := tm.instances[outputMount]; ok {
 		inst.Stop()
-		delete(tm.instances, name)
+		delete(tm.instances, outputMount)
 	}
 }
 
@@ -299,10 +299,10 @@ func (w *streamWriter) Write(p []byte) (n int, err error) {
 	return len(p), nil
 }
 
-func (tm *TranscoderManager) GetInstance(name string) *TranscoderInstance {
+func (tm *TranscoderManager) GetInstance(outputMount string) *TranscoderInstance {
 	tm.mu.RLock()
 	defer tm.mu.RUnlock()
-	return tm.instances[name]
+	return tm.instances[outputMount]
 }
 
 type TranscoderStats struct {
