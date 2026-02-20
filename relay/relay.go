@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -82,9 +83,10 @@ func (cb *CircularBuffer) FindNextPageBoundary(start int64) int64 {
 		return cb.Head
 	}
 
+	const magic = "OggS"
 	for i := start; i < cb.Head-4; {
 		pos := i % cb.Size
-		n := int64(4096) // Search window
+		n := int64(32 * 1024) // Search window
 		if i+n > cb.Head {
 			n = cb.Head - i
 		}
@@ -92,16 +94,14 @@ func (cb *CircularBuffer) FindNextPageBoundary(start int64) int64 {
 			n = cb.Size - pos
 		}
 
-		// Look for OggS in this segment
-		data := cb.Data[pos : pos+n]
-		for j := 0; j <= len(data)-4; j++ {
-			if data[j] == 'O' && data[j+1] == 'g' && data[j+2] == 'g' && data[j+3] == 'S' {
-				return i + int64(j)
-			}
+		segment := cb.Data[pos : pos+n]
+		idx := bytes.Index(segment, []byte(magic))
+		if idx != -1 {
+			return i + int64(idx)
 		}
-		i += n - 3 // Overlap by 3 bytes to catch split magic
+		i += n - 3 // Overlap
 	}
-	return cb.Head // Return head if nothing found, to at least be current
+	return cb.Head
 }
 
 // Stream represents a single mount point (e.g., /stream)
@@ -121,10 +121,12 @@ type Stream struct {
 	BytesDropped int64 // Track total bytes dropped due to slow listeners
 	CurrentSong  string
 	Public       bool
-	Visible      bool
-	IsTranscoded bool // True if this stream is an output of a transcoder
-
-	LastDataReceived time.Time
+		Visible        bool
+		IsTranscoded   bool // True if this stream is an output of a transcoder
+		IsOggStream    bool // Pre-calculated for speed
+	
+		LastDataReceived time.Time
+	
 
 	OggHead         []byte // Store Ogg headers for Opus/Ogg streams
 	OggHeaderOffset int64  // Absolute buffer offset where headers end
@@ -149,7 +151,7 @@ type StreamReader struct {
 func (r *StreamReader) Read(p []byte) (int, error) {
 	for {
 		n, next, skipped := r.Stream.Buffer.ReadAt(r.Offset, p)
-		if skipped && (strings.Contains(strings.ToLower(r.Stream.ContentType), "ogg") || strings.Contains(strings.ToLower(r.Stream.ContentType), "opus")) {
+		if skipped && r.Stream.IsOggStream {
 			// If we were skipped forward because the buffer wrapped around, 
 			// we MUST re-align to the next Ogg page start.
 			r.Offset = r.Stream.Buffer.FindNextPageBoundary(next)
@@ -208,6 +210,7 @@ func (r *Relay) GetOrCreateStream(mount string) *Stream {
 		Genre:       "N/A",
 		Bitrate:     "N/A",
 		ContentType: "audio/mpeg",
+		IsOggStream: false,
 		Enabled:     true,
 		CurrentSong: "N/A",
 		PageOffsets: make([]int64, 128), // Track last 128 Ogg pages
@@ -291,8 +294,7 @@ func (s *Stream) Broadcast(data []byte, relay *Relay) {
 	atomic.AddInt64(&s.BytesIn, int64(len(data)))
 
 	// Track Ogg Page boundaries for alignment
-	isOgg := strings.Contains(strings.ToLower(s.ContentType), "ogg") || strings.Contains(strings.ToLower(s.ContentType), "opus")
-	if isOgg {
+	if s.IsOggStream {
 		for i := 0; i <= len(data)-4; i++ {
 			if data[i] == 'O' && data[i+1] == 'g' && data[i+2] == 'g' && data[i+3] == 'S' {
 				offset := s.Buffer.Head + int64(i)
@@ -336,7 +338,7 @@ func (s *Stream) Subscribe(id string, burstSize int) (int64, chan struct{}) {
 	}
 
 	// For Ogg/Opus, align to the oldest known page boundary within the valid buffer range
-	if strings.Contains(strings.ToLower(s.ContentType), "ogg") || strings.Contains(strings.ToLower(s.ContentType), "opus") {
+	if s.IsOggStream {
 		validStart := s.Buffer.Head - s.Buffer.Size
 		if validStart < 0 { validStart = 0 }
 		
@@ -405,6 +407,8 @@ func (s *Stream) UpdateMetadata(name, desc, genre, url, bitrate, contentType str
 	}
 	if contentType != "" {
 		s.ContentType = contentType
+		ct := strings.ToLower(contentType)
+		s.IsOggStream = strings.Contains(ct, "ogg") || strings.Contains(ct, "opus")
 	}
 	s.Public = public
 	s.Visible = visible

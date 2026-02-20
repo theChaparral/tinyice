@@ -16,6 +16,23 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+type SimplePacer struct {
+	startTime time.Time
+	sentMS    int64
+}
+
+func (p *SimplePacer) Pace(duration time.Duration) {
+	if p.startTime.IsZero() {
+		p.startTime = time.Now()
+	}
+	p.sentMS += duration.Milliseconds()
+	targetTime := p.startTime.Add(time.Duration(p.sentMS) * time.Millisecond)
+	wait := time.Until(targetTime)
+	if wait > 0 {
+		time.Sleep(wait)
+	}
+}
+
 type WebRTCManager struct {
 	api   *webrtc.API
 	relay *Relay
@@ -159,6 +176,7 @@ func (wm *WebRTCManager) streamToTrack(pc *webrtc.PeerConnection, track *webrtc.
 		return
 	}
 
+	pacer := &SimplePacer{}
 	logrus.Infof("WebRTC: Beginning packet transmission for %s", stream.MountName)
 	sentCount := 0
 	for {
@@ -170,6 +188,9 @@ func (wm *WebRTCManager) streamToTrack(pc *webrtc.PeerConnection, track *webrtc.
 			return
 		}
 
+		// WebRTC expects 48kHz Opus samples. 
+		// We use a fixed duration of 20ms per packet which is standard.
+		pacer.Pace(20 * time.Millisecond)
 		if err := track.WriteSample(media.Sample{
 			Data:     packet.Data,
 			Duration: 20 * time.Millisecond,
@@ -177,8 +198,8 @@ func (wm *WebRTCManager) streamToTrack(pc *webrtc.PeerConnection, track *webrtc.
 			return
 		}
 		sentCount++
-		if sentCount%100 == 0 {
-			logrus.Debugf("WebRTC: Sent 100 packets to %s", stream.MountName)
+		if sentCount%50 == 0 {
+			logrus.Debugf("WebRTC: Sent 50 packets to %s (approx 1s audio)", stream.MountName)
 		}
 	}
 }
