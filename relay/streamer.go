@@ -37,6 +37,7 @@ type Streamer struct {
 	Loop           bool
 	Shuffle        bool
 	InjectMetadata bool
+	MPDPassword    string
 
 	relay  *Relay
 	cancel context.CancelFunc
@@ -200,7 +201,7 @@ func (s *Streamer) RemoveFromPlaylist(idx int) {
 	}
 }
 
-func (sm *StreamerManager) StartStreamer(name, mount, musicDir string, loop bool, format string, bitrate int, injectMetadata bool, initialPlaylist []string, mpdEnabled bool, mpdPort string) (*Streamer, error) {
+func (sm *StreamerManager) StartStreamer(name, mount, musicDir string, loop bool, format string, bitrate int, injectMetadata bool, initialPlaylist []string, mpdEnabled bool, mpdPort, mpdPassword string) (*Streamer, error) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
@@ -219,12 +220,13 @@ func (sm *StreamerManager) StartStreamer(name, mount, musicDir string, loop bool
 		State:          StateStopped,
 		Loop:           loop,
 		InjectMetadata: injectMetadata,
+		MPDPassword:    mpdPassword,
 		relay:          sm.relay,
 		cancel:         cancel,
 	}
 
 	if mpdEnabled && mpdPort != "" {
-		s.MPDServer = NewMPDServer(mpdPort, s)
+		s.MPDServer = NewMPDServer(mpdPort, mpdPassword, s)
 		if err := s.MPDServer.Start(); err != nil {
 			logrus.WithError(err).Errorf("Failed to start MPD server for AutoDJ %s", name)
 		} else {

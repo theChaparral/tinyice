@@ -374,13 +374,16 @@
                                     <input type="checkbox" name="inject_metadata" id="adj-metadata" checked style="width: auto;">
                                     <label for="adj-metadata" style="margin-bottom: 0;">Inject Metadata (ICY)</label>
                                 </div>
-                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; align-items: center;">
+                                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; align-items: center;">
                                     <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0;">
                                         <input type="checkbox" name="mpd_enabled" id="adj-mpd" style="width: auto;">
                                         <label for="adj-mpd" style="margin-bottom: 0;">Expose MPD</label>
                                     </div>
                                     <div class="form-group" style="margin-bottom: 0;">
                                         <input type="text" name="mpd_port" placeholder="Port (e.g. 6600)" style="padding: 0.4rem;">
+                                    </div>
+                                    <div class="form-group" style="margin-bottom: 0;">
+                                        <input type="password" name="mpd_password" placeholder="Password (Optional)" style="padding: 0.4rem;">
                                     </div>
                                 </div>
                                 <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 1.5rem;">Create AutoDJ</button>
@@ -408,7 +411,7 @@
                                                                                                             Dir: <span style="font-family: monospace; font-size: 0.75rem;">{{.MusicDir}}</span>
                                                                                                         </div>                                                            </div>
                                                                                                 <div style="display: flex; gap: 0.5rem; align-items: center;">
-                                                                                                    <button type="button" class="btn btn-outline btn-sm" title="Edit AutoDJ" onclick='showEditAutoDJ({ "Name": "{{.Name}}", "Mount": "{{.OutputMount}}", "MusicDir": "{{.MusicDir}}", "Format": "{{.Format}}", "Bitrate": {{.Bitrate}}, "Loop": {{.Loop}}, "InjectMetadata": {{.InjectMetadata}}, "MPDEnabled": {{if .MPDServer}}true{{else}}false{{end}}, "MPDPort": "{{if .MPDServer}}{{.MPDServer.Port}}{{end}}" })'>
+                                                                                                    <button type="button" class="btn btn-outline btn-sm" title="Edit AutoDJ" onclick='showEditAutoDJ({ "Name": "{{.Name}}", "Mount": "{{.OutputMount}}", "MusicDir": "{{.MusicDir}}", "Format": "{{.Format}}", "Bitrate": {{.Bitrate}}, "Loop": {{.Loop}}, "InjectMetadata": {{.InjectMetadata}}, "MPDEnabled": {{if .MPDServer}}true{{else}}false{{end}}, "MPDPort": "{{if .MPDServer}}{{.MPDServer.Port}}{{end}}", "MPDPassword": "{{.MPDPassword}}" })'>
                                                                                                         <i data-lucide="edit-3" style="width: 14px; height: 14px;"></i>
                                                                                                     </button>
                                                                                                     <div class="btn-group" style="display: flex; background: rgba(0,0,0,0.2); border-radius: 8px; padding: 2px;">
@@ -621,13 +624,16 @@
                     <input type="checkbox" name="inject_metadata" id="edit-metadata" style="width: auto;">
                     <label for="edit-metadata" style="margin-bottom: 0;">Inject Metadata (ICY)</label>
                 </div>
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; align-items: center;">
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; align-items: center;">
                     <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0;">
                         <input type="checkbox" name="mpd_enabled" id="edit-mpd" style="width: auto;">
                         <label for="edit-mpd" style="margin-bottom: 0;">Expose MPD</label>
                     </div>
                     <div class="form-group" style="margin-bottom: 0;">
                         <input type="text" name="mpd_port" id="edit-mpd-port" placeholder="Port (e.g. 6600)" style="padding: 0.4rem;">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <input type="password" name="mpd_password" id="edit-mpd-password" placeholder="Password (Optional)" style="padding: 0.4rem;">
                     </div>
                 </div>
                 <div style="display: flex; gap: 1rem; margin-top: 2rem;">
@@ -698,6 +704,7 @@
             document.getElementById('edit-metadata').checked = data.InjectMetadata;
             document.getElementById('edit-mpd').checked = data.MPDEnabled;
             document.getElementById('edit-mpd-port').value = data.MPDPort;
+            document.getElementById('edit-mpd-password').value = data.MPDPassword || '';
             document.getElementById('edit-autodj-modal').style.display = 'block';
         }
 

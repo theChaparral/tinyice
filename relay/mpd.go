@@ -12,13 +12,15 @@ import (
 
 type MPDServer struct {
 	Port     string
+	Password string
 	streamer *Streamer
 	listener net.Listener
 }
 
-func NewMPDServer(port string, s *Streamer) *MPDServer {
+func NewMPDServer(port, password string, s *Streamer) *MPDServer {
 	return &MPDServer{
 		Port:     port,
+		Password: password,
 		streamer: s,
 	}
 }
@@ -59,57 +61,83 @@ func (m *MPDServer) handleConnection(conn net.Conn) {
 	writer := bufio.NewWriter(conn)
 	reader := bufio.NewReader(conn)
 
-		// Greeting
-		writer.WriteString("OK MPD 0.23.5\n")
-		writer.Flush()
-	
-		for {
-			line, err := reader.ReadString('\n')
-			if err != nil {
-				return
-			}
-					line = strings.TrimSpace(line)
-					if line == "" {
-						continue
-					}
-			
-					cmd := strings.Split(line, " ")[0]
-					// args := strings.TrimPrefix(line, cmd+" ")
-			
-					switch cmd {			case "status":
-				m.handleStatus(writer)
-			case "currentsong":
-				m.handleCurrentSong(writer)
-			case "play":
-				m.streamer.Play()
-				writer.WriteString("OK\n")
-			case "stop":
-				m.streamer.Stop()
-				writer.WriteString("OK\n")
-			case "ping":
-				writer.WriteString("OK\n")
-			case "close":
-				return
-			case "listall", "listallinfo":
-				m.handleListAll(writer)
-			case "listplaylists":
-				writer.WriteString("OK\n")
-			case "lsinfo":
-				m.handleListAll(writer)
-			case "outputs":
-				fmt.Fprintf(writer, "outputid: 0\noutputname: %s\noutputenabled: 1\n", m.streamer.OutputMount)
-				writer.WriteString("OK\n")
-			case "config":
-				writer.WriteString("OK\n")
-			case "stats":
-				fmt.Fprintf(writer, "uptime: 0\nplaytime: 0\nartists: 0\nalbums: 0\nsongs: %d\n", len(m.streamer.Playlist))
-				writer.WriteString("OK\n")
-			default:
-				logrus.Debugf("MPD: Unknown command: %s", cmd)
-				writer.WriteString("OK\n") // Be lenient for now
-			}
+	// Greeting
+	writer.WriteString("OK MPD 0.23.5\n")
+	writer.Flush()
+
+	authenticated := m.Password == ""
+
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			return
+		}
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		cmd := strings.Split(line, " ")[0]
+		args := strings.TrimPrefix(line, cmd+" ")
+
+		if !authenticated && cmd != "password" && cmd != "close" {
+			writer.WriteString("ACK [5@0] {} permission denied\n")
 			writer.Flush()
-		}}
+			continue
+		}
+
+		switch cmd {
+		case "password":
+			if args == m.Password {
+				authenticated = true
+				writer.WriteString("OK\n")
+			} else {
+				writer.WriteString("ACK [3@0] {password} incorrect password\n")
+			}
+		case "status":
+			m.handleStatus(writer)
+		case "currentsong":
+			m.handleCurrentSong(writer)
+		case "play":
+			m.streamer.Play()
+			writer.WriteString("OK\n")
+		case "stop":
+			m.streamer.Stop()
+			writer.WriteString("OK\n")
+		case "pause":
+			m.streamer.TogglePlay()
+			writer.WriteString("OK\n")
+		case "next":
+			m.streamer.Next()
+			writer.WriteString("OK\n")
+		case "previous":
+			// We don't have previous yet, but let's be polite
+			writer.WriteString("OK\n")
+		case "ping":
+			writer.WriteString("OK\n")
+		case "close":
+			return
+		case "listall", "listallinfo":
+			m.handleListAll(writer)
+		case "listplaylists":
+			writer.WriteString("OK\n")
+		case "lsinfo":
+			m.handleListAll(writer)
+		case "outputs":
+			fmt.Fprintf(writer, "outputid: 0\noutputname: %s\noutputenabled: 1\n", m.streamer.OutputMount)
+			writer.WriteString("OK\n")
+		case "config":
+			writer.WriteString("OK\n")
+		case "stats":
+			fmt.Fprintf(writer, "uptime: 0\nplaytime: 0\nartists: 0\nalbums: 0\nsongs: %d\n", len(m.streamer.Playlist))
+			writer.WriteString("OK\n")
+		default:
+			logrus.Debugf("MPD: Unknown command: %s", cmd)
+			writer.WriteString("OK\n") // Be lenient for now
+		}
+		writer.Flush()
+	}
+}
 
 func (m *MPDServer) handleStatus(w *bufio.Writer) {
 	state := "stop"

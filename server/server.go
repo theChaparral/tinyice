@@ -397,7 +397,7 @@ func (s *Server) Start() error {
 	// Start configured AutoDJs
 	for _, adj := range s.Config.AutoDJs {
 		if adj.Enabled {
-			streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, adj.Playlist, adj.MPDEnabled, adj.MPDPort)
+			streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, adj.Playlist, adj.MPDEnabled, adj.MPDPort, adj.MPDPassword)
 			if err != nil {
 				logrus.WithError(err).Errorf("Failed to start AutoDJ %s", adj.Name)
 			} else {
@@ -2166,6 +2166,7 @@ func (s *Server) handleAddAutoDJ(w http.ResponseWriter, r *http.Request) {
 	injectMetadata := r.FormValue("inject_metadata") == "on"
 	mpdEnabled := r.FormValue("mpd_enabled") == "on"
 	mpdPort := r.FormValue("mpd_port")
+	mpdPassword := r.FormValue("mpd_password")
 
 	if name == "" || mount == "" || musicDir == "" {
 		http.Error(w, "Name, mount, and music directory are required", http.StatusBadRequest)
@@ -2195,13 +2196,14 @@ func (s *Server) handleAddAutoDJ(w http.ResponseWriter, r *http.Request) {
 		InjectMetadata: injectMetadata,
 		MPDEnabled:     mpdEnabled,
 		MPDPort:        mpdPort,
+		MPDPassword:    mpdPassword,
 	}
 
 	s.Config.AutoDJs = append(s.Config.AutoDJs, adj)
 	s.Config.SaveConfig()
 
 	// Start it immediately
-	streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, nil, adj.MPDEnabled, adj.MPDPort)
+	streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, nil, adj.MPDEnabled, adj.MPDPort, adj.MPDPassword)
 	if err == nil {
 		if adj.InjectMetadata {
 			if st, ok := s.Relay.GetStream(adj.Mount); ok {
@@ -2264,7 +2266,7 @@ func (s *Server) handleToggleAutoDJ(w http.ResponseWriter, r *http.Request) {
 
 			if adj.Enabled {
 				if existing == nil {
-					streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, adj.Playlist, adj.MPDEnabled, adj.MPDPort)
+					streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, adj.Playlist, adj.MPDEnabled, adj.MPDPort, adj.MPDPassword)
 					if err == nil {
 						if adj.InjectMetadata {
 							if st, ok := s.Relay.GetStream(adj.Mount); ok {
@@ -2524,6 +2526,7 @@ func (s *Server) handleUpdateAutoDJ(w http.ResponseWriter, r *http.Request) {
 	injectMetadata := r.FormValue("inject_metadata") == "on"
 	mpdEnabled := r.FormValue("mpd_enabled") == "on"
 	mpdPort := r.FormValue("mpd_port")
+	mpdPassword := r.FormValue("mpd_password")
 
 	if name == "" || newMount == "" || musicDir == "" {
 		http.Error(w, "Name, mount, and music directory are required", http.StatusBadRequest)
@@ -2548,11 +2551,12 @@ func (s *Server) handleUpdateAutoDJ(w http.ResponseWriter, r *http.Request) {
 			adj.InjectMetadata = injectMetadata
 			adj.MPDEnabled = mpdEnabled
 			adj.MPDPort = mpdPort
+			adj.MPDPassword = mpdPassword
 
 			// Restart streamer
 			s.StreamerM.StopStreamer(oldMount)
 			if adj.Enabled {
-				streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, adj.Playlist, adj.MPDEnabled, adj.MPDPort)
+				streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, adj.Playlist, adj.MPDEnabled, adj.MPDPort, adj.MPDPassword)
 				if err == nil {
 					streamer.Play()
 				}
