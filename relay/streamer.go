@@ -29,14 +29,16 @@ type Streamer struct {
 	Playlist    []string
 	CurrentPos  int
 	State       StreamerState
-	
-	relay       *Relay
-	cancel      context.CancelFunc
-	mu          sync.RWMutex
+	Loop        bool
+
+	relay  *Relay
+	cancel context.CancelFunc
+	mu     sync.RWMutex
 
 	// Stats
-	BytesStreamed int64
-	CurrentFile   string
+	BytesStreamed   int64
+	CurrentFile     string
+	CurrentFileTime time.Time
 }
 
 type StreamerManager struct {
@@ -101,7 +103,7 @@ func (s *Streamer) ScanMusicDir() error {
 	return nil
 }
 
-func (sm *StreamerManager) StartStreamer(name, mount, musicDir string) (*Streamer, error) {
+func (sm *StreamerManager) StartStreamer(name, mount, musicDir string, loop bool) (*Streamer, error) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
@@ -115,6 +117,7 @@ func (sm *StreamerManager) StartStreamer(name, mount, musicDir string) (*Streame
 		OutputMount: mount,
 		MusicDir:    musicDir,
 		State:       StateStopped,
+		Loop:        loop,
 		relay:       sm.relay,
 		cancel:      cancel,
 	}
@@ -122,6 +125,16 @@ func (sm *StreamerManager) StartStreamer(name, mount, musicDir string) (*Streame
 
 	go sm.runStreamerLoop(ctx, s)
 	return s, nil
+}
+
+func (sm *StreamerManager) StopStreamer(mount string) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	if s, ok := sm.instances[mount]; ok {
+		s.Stop()
+		delete(sm.instances, mount)
+	}
 }
 
 func (sm *StreamerManager) GetStreamers() []*Streamer {
@@ -142,7 +155,7 @@ func (sm *StreamerManager) GetStreamer(mount string) *Streamer {
 
 func (sm *StreamerManager) runStreamerLoop(ctx context.Context, s *Streamer) {
 	logrus.Infof("Streamer %s starting for mount %s", s.Name, s.OutputMount)
-	
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -159,9 +172,15 @@ func (sm *StreamerManager) runStreamerLoop(ctx context.Context, s *Streamer) {
 				time.Sleep(1 * time.Second)
 				continue
 			}
-			
+
 			if s.CurrentPos >= len(s.Playlist) {
-				s.CurrentPos = 0
+				if s.Loop {
+					s.CurrentPos = 0
+				} else {
+					s.State = StateStopped
+					s.mu.RUnlock()
+					continue
+				}
 			}
 			filePath := s.Playlist[s.CurrentPos]
 			s.mu.RUnlock()
@@ -188,6 +207,7 @@ func (sm *StreamerManager) streamFile(ctx context.Context, s *Streamer, path str
 
 	s.mu.Lock()
 	s.CurrentFile = filepath.Base(path)
+	s.CurrentFileTime = time.Now()
 	s.mu.Unlock()
 
 	// Update stream metadata
@@ -198,7 +218,7 @@ func (sm *StreamerManager) streamFile(ctx context.Context, s *Streamer, path str
 	// For now, we only support MP3 files and we assume they are compatible
 	// with our output settings.
 	// TODO: Add proper decoding/encoding if formats mismatch.
-	
+
 	buf := make([]byte, 8192)
 	for {
 		select {
@@ -213,7 +233,7 @@ func (sm *StreamerManager) streamFile(ctx context.Context, s *Streamer, path str
 			if n > 0 {
 				output.Broadcast(buf[:n], sm.relay)
 				atomic.AddInt64(&s.BytesStreamed, int64(n))
-				
+
 				// Basic pacing for MP3 (very rough)
 				// We should ideally use a proper pacer or decode to PCM to pace.
 				// For now, let's just assume 128kbps for pacing estimation.

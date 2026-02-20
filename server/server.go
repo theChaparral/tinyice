@@ -263,6 +263,9 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/admin/delete-webhook", s.handleDeleteWebhook)
 	mux.HandleFunc("/admin/player/toggle", s.handlePlayerToggle)
 	mux.HandleFunc("/admin/player/scan", s.handlePlayerScan)
+	mux.HandleFunc("/admin/autodj/add", s.handleAddAutoDJ)
+	mux.HandleFunc("/admin/autodj/delete", s.handleDeleteAutoDJ)
+	mux.HandleFunc("/admin/autodj/toggle", s.handleToggleAutoDJ)
 	mux.HandleFunc("/admin/add-relay", s.handleAddRelay)
 	mux.HandleFunc("/admin/toggle-relay", s.handleToggleRelay)
 	mux.HandleFunc("/admin/restart-relay", s.handleRestartRelay)
@@ -383,9 +386,23 @@ func (s *Server) Start() error {
 		}
 	}
 
-	if s.Config.MusicDir != "" {
+	// Start configured AutoDJs
+	for _, adj := range s.Config.AutoDJs {
+		if adj.Enabled {
+			streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop)
+			if err != nil {
+				logrus.WithError(err).Errorf("Failed to start AutoDJ %s", adj.Name)
+			} else {
+				logrus.Infof("AutoDJ %s started on %s", adj.Name, adj.Mount)
+				streamer.ScanMusicDir() // Initial scan
+			}
+		}
+	}
+
+	// Legacy/Default AutoDJ (backward compatibility)
+	if s.Config.MusicDir != "" && s.StreamerM.GetStreamer("/autodj") == nil {
 		// Start a default streamer for /autodj
-		streamer, err := s.StreamerM.StartStreamer("AutoDJ", "/autodj", s.Config.MusicDir)
+		streamer, err := s.StreamerM.StartStreamer("AutoDJ", "/autodj", s.Config.MusicDir, true)
 		if err == nil {
 			if s.Config.MPDEnabled {
 				port := s.Config.MPDPort
@@ -399,6 +416,7 @@ func (s *Server) Start() error {
 					logrus.Infof("MPD Server listening on port %s", port)
 				}
 			}
+			streamer.ScanMusicDir()
 		} else {
 			logrus.WithError(err).Error("Failed to start default streamer")
 		}
@@ -2124,6 +2142,104 @@ func (s *Server) handlePlayerScan(w http.ResponseWriter, r *http.Request) {
 	if err := streamer.ScanMusicDir(); err != nil {
 		logrus.WithError(err).Error("Failed to scan music directory")
 	}
+
+	http.Redirect(w, r, "/admin#tab-streamer", http.StatusSeeOther)
+}
+
+func (s *Server) handleAddAutoDJ(w http.ResponseWriter, r *http.Request) {
+	if !s.isCSRFSafe(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	if _, ok := s.checkAuth(r); !ok {
+		return
+	}
+
+	name := r.FormValue("name")
+	mount := r.FormValue("mount")
+	musicDir := r.FormValue("music_dir")
+	loop := r.FormValue("loop") == "on"
+
+	if name == "" || mount == "" || musicDir == "" {
+		http.Error(w, "Name, mount, and music directory are required", http.StatusBadRequest)
+		return
+	}
+
+	if mount[0] != '/' {
+		mount = "/" + mount
+	}
+
+	adj := &config.AutoDJConfig{
+		Name:     name,
+		Mount:    mount,
+		MusicDir: musicDir,
+		Enabled:  true,
+		Loop:     loop,
+	}
+
+	s.Config.AutoDJs = append(s.Config.AutoDJs, adj)
+	s.Config.SaveConfig()
+
+	// Start it immediately
+	streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop)
+	if err == nil {
+		streamer.ScanMusicDir()
+		streamer.Play()
+	}
+
+	http.Redirect(w, r, "/admin#tab-streamer", http.StatusSeeOther)
+}
+
+func (s *Server) handleDeleteAutoDJ(w http.ResponseWriter, r *http.Request) {
+	if !s.isCSRFSafe(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	if _, ok := s.checkAuth(r); !ok {
+		return
+	}
+
+	mount := r.FormValue("mount")
+	newADJs := []*config.AutoDJConfig{}
+	for _, adj := range s.Config.AutoDJs {
+		if adj.Mount != mount {
+			newADJs = append(newADJs, adj)
+		} else {
+			s.StreamerM.StopStreamer(mount)
+		}
+	}
+	s.Config.AutoDJs = newADJs
+	s.Config.SaveConfig()
+
+	http.Redirect(w, r, "/admin#tab-streamer", http.StatusSeeOther)
+}
+
+func (s *Server) handleToggleAutoDJ(w http.ResponseWriter, r *http.Request) {
+	if !s.isCSRFSafe(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	if _, ok := s.checkAuth(r); !ok {
+		return
+	}
+
+	mount := r.FormValue("mount")
+	for _, adj := range s.Config.AutoDJs {
+		if adj.Mount == mount {
+			adj.Enabled = !adj.Enabled
+			if adj.Enabled {
+				streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop)
+				if err == nil {
+					streamer.ScanMusicDir()
+					streamer.Play()
+				}
+			} else {
+				s.StreamerM.StopStreamer(mount)
+			}
+			break
+		}
+	}
+	s.Config.SaveConfig()
 
 	http.Redirect(w, r, "/admin#tab-streamer", http.StatusSeeOther)
 }

@@ -46,6 +46,14 @@ type WebhookConfig struct {
 	Enabled bool     `json:"enabled"`
 }
 
+type AutoDJConfig struct {
+	Name     string `json:"name"`
+	Mount    string `json:"mount"`
+	MusicDir string `json:"music_dir"`
+	Enabled  bool   `json:"enabled"`
+	Loop     bool   `json:"loop"`
+}
+
 type Config struct {
 	BindHost              string            `json:"bind_host"`
 	Port                  string            `json:"port"`
@@ -91,9 +99,10 @@ type Config struct {
 	DirectoryServer  string `json:"directory_server"`
 
 	// Internal Streamer (AutoDJ)
-	MPDEnabled bool   `json:"mpd_enabled"`
-	MPDPort    string `json:"mpd_port"`
-	MusicDir   string `json:"music_dir"`
+	MPDEnabled bool            `json:"mpd_enabled"`
+	MPDPort    string          `json:"mpd_port"`
+	MusicDir   string          `json:"music_dir"`
+	AutoDJs    []*AutoDJConfig `json:"autodjs"`
 
 	// Multi-tenant
 	Users map[string]*User `json:"users"`
@@ -192,6 +201,9 @@ func (config *Config) initMapsAndArrays() {
 	}
 	if config.BannedIPs == nil {
 		config.BannedIPs = make([]string, 0)
+	}
+	if config.AutoDJs == nil {
+		config.AutoDJs = make([]*AutoDJConfig, 0)
 	}
 }
 
