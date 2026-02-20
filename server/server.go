@@ -846,14 +846,6 @@ func (s *Server) handleListener(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Accel-Buffering", "no")
 	}
 
-	// ICY Metadata negotiation
-	metaint := 0
-	if r.Header.Get("Icy-MetaData") == "1" {
-		metaint = 16000 // Standard interval
-		w.Header().Set("icy-metaint", "16000")
-		w.Header().Set("icy-name", s.Config.PageTitle)
-	}
-
 	flusher, _ := w.(http.Flusher)
 	id := r.RemoteAddr + "-" + fmt.Sprintf("%d", time.Now().UnixNano())
 	logrus.WithFields(logrus.Fields{"mount": mount, "ip": r.RemoteAddr, "ua": r.Header.Get("User-Agent")}).Info("Listener connected")
@@ -887,6 +879,16 @@ func (s *Server) handleListener(w http.ResponseWriter, r *http.Request) {
 			s.recordScanAttempt(host)
 			http.NotFound(w, r)
 			return
+		}
+
+		// ICY Metadata negotiation
+		metaint := 0
+		// Ogg/Opus handles its own metadata. Injecting ICY metadata into an Ogg 
+		// stream corrupts the framing and causes CRC errors.
+		if r.Header.Get("Icy-MetaData") == "1" && !stream.IsOgg() {
+			metaint = 16000 // Standard interval
+			w.Header().Set("icy-metaint", "16000")
+			w.Header().Set("icy-name", s.Config.PageTitle)
 		}
 
 		if s.Config.MaxListeners > 0 && stream.ListenersCount() >= s.Config.MaxListeners {

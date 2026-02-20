@@ -244,6 +244,12 @@ func (r *Relay) GetStream(mount string) (*Stream, bool) {
 	return s, ok
 }
 
+// IsOgg returns true if the stream is Ogg-based (Ogg/Vorbis, Ogg/Opus, etc)
+func (s *Stream) IsOgg() bool {
+	ct := strings.ToLower(s.ContentType)
+	return strings.Contains(ct, "ogg") || strings.Contains(ct, "opus")
+}
+
 // Close closes all listeners on the stream
 func (s *Stream) Close() {
 	s.mu.Lock()
