@@ -27,7 +27,16 @@ func (p *SimplePacer) Pace(duration time.Duration) {
 	}
 	p.sentMS += duration.Milliseconds()
 	targetTime := p.startTime.Add(time.Duration(p.sentMS) * time.Millisecond)
+	
 	wait := time.Until(targetTime)
+	
+	// Catch-up logic: If we are more than 500ms behind, reset the pacer baseline
+	if wait < -500*time.Millisecond {
+		p.startTime = time.Now()
+		p.sentMS = 0
+		return
+	}
+
 	if wait > 0 {
 		time.Sleep(wait)
 	}
@@ -179,6 +188,10 @@ func (wm *WebRTCManager) streamToTrack(pc *webrtc.PeerConnection, track *webrtc.
 	pacer := &SimplePacer{}
 	logrus.Infof("WebRTC: Beginning packet transmission for %s", stream.MountName)
 	sentCount := 0
+	
+	// Default Opus duration is 20ms. If we detect drift, the pacer will self-correct.
+	const defaultDuration = 20 * time.Millisecond
+
 	for {
 		packet, err := opusReader.ReadAudioPacket()
 		if err != nil {
@@ -189,17 +202,16 @@ func (wm *WebRTCManager) streamToTrack(pc *webrtc.PeerConnection, track *webrtc.
 		}
 
 		// WebRTC expects 48kHz Opus samples. 
-		// We use a fixed duration of 20ms per packet which is standard.
-		pacer.Pace(20 * time.Millisecond)
+		pacer.Pace(defaultDuration)
 		if err := track.WriteSample(media.Sample{
 			Data:     packet.Data,
-			Duration: 20 * time.Millisecond,
+			Duration: defaultDuration,
 		}); err != nil {
 			return
 		}
 		sentCount++
-		if sentCount%50 == 0 {
-			logrus.Debugf("WebRTC: Sent 50 packets to %s (approx 1s audio)", stream.MountName)
+		if sentCount%100 == 0 {
+			logrus.Debugf("WebRTC: Sent 100 packets to %s", stream.MountName)
 		}
 	}
 }
