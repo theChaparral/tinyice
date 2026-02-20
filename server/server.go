@@ -960,6 +960,11 @@ func (s *Server) serveStreamData(w http.ResponseWriter, r *http.Request, stream 
 				}
 
 				n, next, skipped := stream.Buffer.ReadAt(offset, buf[:readLimit])
+				if skipped && (strings.Contains(strings.ToLower(stream.ContentType), "ogg") || strings.Contains(strings.ToLower(stream.ContentType), "opus")) {
+					// Listener is too slow, re-align to next valid Ogg page start
+					offset = stream.Buffer.FindNextPageBoundary(next)
+					continue
+				}
 				if n == 0 {
 					break
 				}

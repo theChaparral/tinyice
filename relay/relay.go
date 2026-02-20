@@ -101,7 +101,7 @@ func (cb *CircularBuffer) FindNextPageBoundary(start int64) int64 {
 		}
 		i += n - 3 // Overlap by 3 bytes to catch split magic
 	}
-	return start
+	return cb.Head // Return head if nothing found, to at least be current
 }
 
 // Stream represents a single mount point (e.g., /stream)
@@ -148,7 +148,13 @@ type StreamReader struct {
 
 func (r *StreamReader) Read(p []byte) (int, error) {
 	for {
-		n, next, _ := r.Stream.Buffer.ReadAt(r.Offset, p)
+		n, next, skipped := r.Stream.Buffer.ReadAt(r.Offset, p)
+		if skipped && (strings.Contains(strings.ToLower(r.Stream.ContentType), "ogg") || strings.Contains(strings.ToLower(r.Stream.ContentType), "opus")) {
+			// If we were skipped forward because the buffer wrapped around, 
+			// we MUST re-align to the next Ogg page start.
+			r.Offset = r.Stream.Buffer.FindNextPageBoundary(next)
+			continue // Retry read at aligned offset
+		}
 		if n > 0 {
 			r.Offset = next
 			return n, nil
