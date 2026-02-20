@@ -104,12 +104,15 @@ func main() {
 	authLogger := initLogging()
 	handleDaemonMode()
 
-	if *pidFile != "" {
-		if err := os.WriteFile(*pidFile, []byte(fmt.Sprintf("%d", os.Getpid())), 0644); err != nil {
-			logrus.Errorf("Failed to write PID file: %v", err)
-		}
-		defer os.Remove(*pidFile)
+	actualPidFile := *pidFile
+	if actualPidFile == "" {
+		actualPidFile = "tinyice.pid"
 	}
+
+	if err := os.WriteFile(actualPidFile, []byte(fmt.Sprintf("%d", os.Getpid())), 0644); err != nil {
+		logrus.Errorf("Failed to write PID file: %v", err)
+	}
+	defer os.Remove(actualPidFile)
 
 	ensureConfigExists()
 
@@ -173,6 +176,27 @@ func handleCommands(cfg *config.Config) bool {
 
 	case "help":
 		printHelp()
+		return true
+
+	case "reload":
+		data, err := os.ReadFile("tinyice.pid")
+		if err != nil {
+			fmt.Println("Error: TinyIce does not appear to be running (could not read tinyice.pid)")
+			return true
+		}
+		var pid int
+		fmt.Sscanf(string(data), "%d", &pid)
+		process, err := os.FindProcess(pid)
+		if err != nil {
+			fmt.Printf("Error: Could not find process with PID %d\n", pid)
+			return true
+		}
+		err = process.Signal(syscall.SIGHUP)
+		if err != nil {
+			fmt.Printf("Error signaling process: %v\n", err)
+		} else {
+			fmt.Printf("Sent reload signal (SIGHUP) to process %d\n", pid)
+		}
 		return true
 
 	case "get":
@@ -302,6 +326,7 @@ func printHelp() {
 	fmt.Println("\nCommands:")
 	fmt.Println("  get <option>          Display the current value of a configuration option")
 	fmt.Println("  set <option> <value>  Update a configuration option and save to tinyice.json")
+	fmt.Println("  reload                Trigger a hot configuration reload of the running server")
 	fmt.Println("  dump-config           Display the full configuration with syntax highlighting")
 	fmt.Println("  help                  Display this help message")
 	fmt.Println("\nConfiguration Options (use with get/set):")
