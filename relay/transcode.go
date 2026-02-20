@@ -256,32 +256,41 @@ func (tm *TranscoderManager) encodeOpus(ctx context.Context, inst *TranscoderIns
 	opusPacket := make([]byte, 4000) // Max opus packet size
 
 	var granulePos uint64
+	var sentCount int64 = 0
 
+	logrus.Infof("Opus Transcoder %s: Entering main loop", inst.Config.Name)
 	for {
 		select {
 		case <-ctx.Done():
+			logrus.Infof("Opus Transcoder %s: Context cancelled", inst.Config.Name)
 			return
 		default:
-			_, err := io.ReadFull(decoder, pcmBuf)
-			if err != nil {
+			rn, rerr := io.ReadFull(decoder, pcmBuf)
+			if rerr != nil {
+				logrus.WithError(rerr).Warnf("Opus Transcoder %s: PCM read error", inst.Config.Name)
 				return
+			}
+
+			if sentCount == 0 {
+				logrus.Infof("Opus Transcoder %s: Successfully read first PCM frame (%d bytes)", inst.Config.Name, rn)
 			}
 
 			for i := 0; i < len(pcmSamples); i++ {
 				pcmSamples[i] = int16(pcmBuf[i*2]) | int16(pcmBuf[i*2+1])<<8
 			}
 
-			n, err := enc.Encode(pcmSamples, frameSize, opusPacket)
-			if err != nil {
-				logrus.WithError(err).Error("Opus encode error")
+			en, eerr := enc.Encode(pcmSamples, frameSize, opusPacket)
+			if eerr != nil {
+				logrus.WithError(eerr).Error("Opus encode error")
 				return
 			}
 
 			granulePos += uint64(frameSize)
-			if err := pw.WritePacket(opusPacket[:n], granulePos, false, false); err != nil {
+			if err := pw.WritePacket(opusPacket[:en], granulePos, false, false); err != nil {
 				return
 			}
 			
+			sentCount++
 			atomic.AddInt64(&inst.FramesProcessed, 1)
 		}
 	}
