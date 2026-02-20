@@ -372,73 +372,178 @@ func (s *Server) ReloadConfig(cfg *config.Config) {
 	}
 	logrus.Info("Configuration reloaded successfully")
 }
-
 func (s *Server) Start() error {
-	mux := s.setupRoutes()
-	addr := s.Config.BindHost + ":" + s.Config.Port
+    mux := s.setupRoutes()
 
-	// IPv6 handling: If the address contains a colon but doesn't start with '[', we assume it's an IPv6 address and wrap it in brackets.
-	if strings.Contains(addr, ":") && !strings.HasPrefix(addr, "[") {
-		addr = "[" + s.Config.BindHost + "]:" + s.Config.Port
-	}
+    if s.Config.DirectoryListing {
+        go s.directoryReportingTask()
+    }
+    go s.statsRecordingTask()
 
+    for _, rc := range s.Config.Relays {
+        if rc.Enabled {
+            s.RelayM.StartRelay(rc.URL, rc.Mount, rc.Password, rc.BurstSize, s.Config.VisibleMounts[rc.Mount])
+        }
+    }
+    for _, tc := range s.Config.Transcoders {
+        if tc.Enabled {
+            s.TranscoderM.StartTranscoder(tc)
+        }
+    }
+    for _, adj := range s.Config.AutoDJs {
+        if adj.Enabled {
+            streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, adj.Playlist, adj.MPDEnabled, adj.MPDPort, adj.MPDPassword)
+            if err != nil {
+                logrus.WithError(err).Errorf("Failed to start AutoDJ %s", adj.Name)
+            } else {
+                logrus.Infof("AutoDJ %s started on %s", adj.Name, adj.Mount)
+                if adj.InjectMetadata {
+                    if st, ok := s.Relay.GetStream(adj.Mount); ok {
+                        st.SetVisible(true)
+                    }
+                }
+                if len(adj.Playlist) == 0 {
+                    streamer.ScanMusicDir()
+                }
+            }
+        }
+    }
 
-	if s.Config.DirectoryListing {
-		go s.directoryReportingTask()
-	}
-	go s.statsRecordingTask()
+    port := s.Config.Port
 
-	for _, rc := range s.Config.Relays {
-		if rc.Enabled {
-			s.RelayM.StartRelay(rc.URL, rc.Mount, rc.Password, rc.BurstSize, s.Config.VisibleMounts[rc.Mount])
-		}
-	}
+    if s.Config.UseHTTPS {
+        // For HTTPS, build a dual-stack addr and let startHTTPS handle it
+        // (or replicate the dual-listener pattern there too)
+        addr := net.JoinHostPort(s.Config.BindHost, port)
+        return s.startHTTPS(mux, addr)
+    }
 
-	for _, tc := range s.Config.Transcoders {
-		if tc.Enabled {
-			s.TranscoderM.StartTranscoder(tc)
-		}
-	}
+    srv := &http.Server{
+        Handler:      mux,
+        ReadTimeout:  10 * time.Second,
+        WriteTimeout: 0,
+        IdleTimeout:  120 * time.Second,
+    }
+    s.httpServers = append(s.httpServers, srv)
 
-	// Start configured AutoDJs
-	for _, adj := range s.Config.AutoDJs {
-		if adj.Enabled {
-			streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, adj.Playlist, adj.MPDEnabled, adj.MPDPort, adj.MPDPassword)
-			if err != nil {
-				logrus.WithError(err).Errorf("Failed to start AutoDJ %s", adj.Name)
-			} else {
-				logrus.Infof("AutoDJ %s started on %s", adj.Name, adj.Mount)
-				if adj.InjectMetadata {
-					if st, ok := s.Relay.GetStream(adj.Mount); ok {
-						st.SetVisible(true)
-					}
-				}
-				if len(adj.Playlist) == 0 {
-					streamer.ScanMusicDir() // Initial scan
-				}
-			}
-		}
-	}
+    // Build listener(s)
+    listeners, err := s.buildListeners(port)
+    if err != nil {
+        return err
+    }
 
-	if !s.Config.UseHTTPS {
-		logrus.Infof("Starting TinyIce on %s (HTTP)", addr)
-		srv := &http.Server{
-			Addr:         addr,
-			Handler:      mux,
-			ReadTimeout:  10 * time.Second,
-			WriteTimeout: 0,
-			IdleTimeout:  120 * time.Second,
-		}
-		s.httpServers = append(s.httpServers, srv)
+    if len(listeners) == 1 {
+        logrus.Infof("Starting TinyIce on %s (HTTP)", listeners[0].Addr())
+        return srv.Serve(listeners[0])
+    }
 
-		ln, err := s.listenWithReuse("tcp", addr)
-		if err != nil {
-			return err
-		}
-		return srv.Serve(ln)
-	}
+    // Dual-stack: combine both listeners via a single channel-based listener
+    logrus.Infof("Starting TinyIce on [::]:%s and 0.0.0.0:%s (HTTP)", port, port)
+    combined := newMultiListener(listeners)
+    return srv.Serve(combined)
+}
 
-	return s.startHTTPS(mux, addr)
+// buildListeners returns one listener per usable network family for the given port.
+// If BindHost is empty or "0.0.0.0" → IPv4 only.
+// If BindHost is "::"                 → IPv6 only.
+// If BindHost is ""  (we treat as dual-stack wildcard) → try both.
+func (s *Server) buildListeners(port string) ([]net.Listener, error) {
+    host := s.Config.BindHost
+
+    // Explicit non-wildcard address: just one listener
+    if host != "" && host != "0.0.0.0" && host != "::" {
+        addr := net.JoinHostPort(host, port)
+        ln, err := s.listenWithReuse("tcp", addr)
+        if err != nil {
+            return nil, err
+        }
+        return []net.Listener{ln}, nil
+    }
+
+    // Wildcard: spawn both IPv4 and IPv6 listeners
+    addrs := []string{
+        net.JoinHostPort("0.0.0.0", port), // IPv4
+        net.JoinHostPort("::", port),       // IPv6
+    }
+
+    var listeners []net.Listener
+    for _, addr := range addrs {
+        ln, err := s.listenWithReuse("tcp", addr)
+        if err != nil {
+            // Non-fatal: the system may not have that stack available
+            logrus.Warnf("Could not listen on %s: %v (skipping)", addr, err)
+            continue
+        }
+        listeners = append(listeners, ln)
+    }
+
+    if len(listeners) == 0 {
+        return nil, fmt.Errorf("failed to bind on any address for port %s", port)
+    }
+    return listeners, nil
+}
+
+// multiListener fans in Accept() calls from multiple net.Listeners into one.
+type multiListener struct {
+    listeners []net.Listener
+    connCh    chan net.Conn
+    once      sync.Once
+    closeOnce sync.Once
+    done      chan struct{}
+}
+
+func newMultiListener(ls []net.Listener) *multiListener {
+    ml := &multiListener{
+        listeners: ls,
+        connCh:    make(chan net.Conn, 64),
+        done:      make(chan struct{}),
+    }
+    for _, l := range ls {
+        go ml.accept(l)
+    }
+    return ml
+}
+
+func (ml *multiListener) accept(l net.Listener) {
+    for {
+        conn, err := l.Accept()
+        if err != nil {
+            select {
+            case <-ml.done:
+                return // we were closed
+            default:
+                logrus.WithError(err).Warn("multiListener accept error")
+                return
+            }
+        }
+        ml.connCh <- conn
+    }
+}
+
+func (ml *multiListener) Accept() (net.Conn, error) {
+    select {
+    case conn := <-ml.connCh:
+        return conn, nil
+    case <-ml.done:
+        return nil, fmt.Errorf("listener closed")
+    }
+}
+
+func (ml *multiListener) Close() error {
+    ml.closeOnce.Do(func() {
+        close(ml.done)
+        for _, l := range ml.listeners {
+            l.Close()
+        }
+    })
+    return nil
+}
+
+func (ml *multiListener) Addr() net.Addr {
+    if len(ml.listeners) > 0 {
+        return ml.listeners[0].Addr()
+    }
+    return nil
 }
 
 func (s *Server) dynamicHostPolicy(ctx context.Context, host string) error {
