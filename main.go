@@ -167,7 +167,8 @@ func handleCommands(cfg *config.Config) bool {
 	switch cmd {
 	case "dump-config":
 		data, _ := json.MarshalIndent(cfg, "", "    ")
-		fmt.Println(string(data))
+		colorized := colorizeJSON(string(data))
+		fmt.Println(colorized)
 		return true
 
 	case "get":
@@ -248,6 +249,32 @@ func setField(cfg *config.Config, field, value string) bool {
 		return false
 	}
 	return true
+}
+
+func colorizeJSON(input string) string {
+	// Simple ANSI colorizer for JSON
+	// Colors: Keys (Cyan), Strings (Green), Numbers (Yellow), Booleans/Null (Magenta)
+	lines := strings.Split(input, "\n")
+	for i, line := range lines {
+		// Colorize Keys
+		if strings.Contains(line, "\":") {
+			parts := strings.SplitN(line, "\":", 2)
+			lines[i] = "\033[36m" + parts[0] + "\"\033[0m: " + colorValue(parts[1])
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func colorValue(val string) string {
+	val = strings.TrimSpace(val)
+	if strings.HasPrefix(val, "\"") {
+		return "\033[32m" + val + "\033[0m" // Green string
+	}
+	if val == "true" || val == "false" || val == "null" {
+		return "\033[35m" + val + "\033[0m" // Magenta bool/null
+	}
+	// Assume number
+	return "\033[33m" + val + "\033[0m" // Yellow number
 }
 
 func handleDaemonMode() {

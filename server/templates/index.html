@@ -7,73 +7,108 @@
     <script src="/assets/js/lucide.min.js"></script>
     <style>
         :root {
-            --bg: #05070a; --card: rgba(22, 27, 44, 0.6); --border: rgba(255, 255, 255, 0.08);
+            --bg: #05070a; --card: rgba(22, 27, 44, 0.5); --border: rgba(255, 255, 255, 0.08);
             --primary: #38bdf8; --secondary: #94a3b8;
         }
         body { 
             font-family: 'Inter', system-ui, -apple-system, sans-serif; 
             background-color: var(--bg); color: #fff; margin: 0; padding: 0; 
             line-height: 1.6; min-height: 100vh; display: flex; flex-direction: column;
-            background: radial-gradient(circle at top right, #1e293b, #05070a);
+            overflow-x: hidden;
         }
         
-        nav { 
-            display: flex; justify-content: space-between; align-items: center; padding: 1.25rem 10%; 
-            border-bottom: 1px solid var(--border); background: rgba(5,7,10,0.7); backdrop-filter: blur(12px);
-            position: sticky; top: 0; z-index: 100;
+        /* Animated Background */
+        .bg-glow {
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            background: radial-gradient(circle at 50% -20%, #1e293b, #05070a);
+            z-index: -1;
         }
-        .nav-logo { font-size: 1.5rem; font-weight: 900; letter-spacing: -0.05em; text-decoration: none; color: #fff; }
+        .blob {
+            position: fixed; width: 500px; height: 500px;
+            background: radial-gradient(circle, rgba(56, 189, 248, 0.15) 0%, transparent 70%);
+            border-radius: 50%; z-index: -1; filter: blur(80px);
+            animation: move 20s infinite alternate;
+        }
+        @keyframes move {
+            from { transform: translate(-10%, -10%) scale(1); }
+            to { transform: translate(20%, 20%) scale(1.2); }
+        }
+
+        nav { 
+            display: flex; justify-content: space-between; align-items: center; padding: 1.5rem 10%; 
+            background: rgba(5,7,10,0.6); backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 100;
+        }
+        .nav-logo { font-size: 1.5rem; font-weight: 950; letter-spacing: -0.06em; text-decoration: none; color: #fff; }
         .nav-links { display: flex; gap: 2.5rem; }
-        .nav-links a { color: var(--secondary); text-decoration: none; font-weight: 600; font-size: 0.9rem; transition: all 0.2s; letter-spacing: 0.01em; }
-        .nav-links a:hover { color: var(--primary); }
+        .nav-links a { color: var(--secondary); text-decoration: none; font-weight: 600; font-size: 0.9rem; transition: all 0.3s; letter-spacing: 0.02em; text-transform: uppercase; }
+        .nav-links a:hover { color: var(--primary); transform: translateY(-1px); }
+
+        .container { flex-grow: 1; display: flex; flex-direction: column; align-items: center; width: 100%; }
 
         .hero { 
-            padding: 8rem 10% 6rem; text-align: center; max-width: 900px; margin: 0 auto; flex-grow: 1;
+            padding: 10rem 1rem 6rem; text-align: center; max-width: 1000px;
         }
-        h1 { font-size: clamp(3rem, 8vw, 5rem); font-weight: 900; letter-spacing: -0.04em; line-height: 1; margin-bottom: 1.5rem; }
-        .hero-subtitle { font-size: 1.25rem; color: var(--secondary); max-width: 600px; margin: 0 auto 4rem; line-height: 1.5; opacity: 0.9; }
+        .hero h1 { font-size: clamp(3.5rem, 10vw, 6.5rem); font-weight: 950; letter-spacing: -0.05em; line-height: 0.9; margin-bottom: 2rem; }
+        .hero h1 span { color: var(--primary); }
+        .hero-subtitle { font-size: 1.25rem; color: var(--secondary); max-width: 650px; margin: 0 auto 4rem; line-height: 1.6; font-weight: 500; }
 
-        .landing-content { 
+        .landing-card { 
             text-align: left; background: var(--card); border: 1px solid var(--border); 
-            border-radius: 32px; padding: 3.5rem; margin-bottom: 5rem; font-size: 1.15rem;
-            color: #e2e8f0; line-height: 1.7; box-shadow: 0 30px 60px rgba(0,0,0,0.4);
-            backdrop-filter: blur(20px); letter-spacing: -0.01em;
+            border-radius: 40px; padding: 4rem; margin-bottom: 6rem; font-size: 1.2rem;
+            color: #e2e8f0; line-height: 1.8; box-shadow: 0 40px 100px rgba(0,0,0,0.5);
+            backdrop-filter: blur(30px); width: 90%; max-width: 850px;
+            position: relative; overflow: hidden;
         }
-        .landing-content h1, .landing-content h2, .landing-content h3 { color: #fff; margin-top: 0; letter-spacing: -0.02em; }
-        .landing-content h1 { font-size: 2.25rem; border-bottom: 1px solid var(--border); padding-bottom: 1rem; margin-bottom: 2rem; }
-        .landing-content ul { padding-left: 1.5rem; margin-bottom: 2rem; }
-        .landing-content li { margin-bottom: 0.75rem; }
-        .landing-content a { color: var(--primary); text-decoration: none; font-weight: 700; }
-        .landing-content a:hover { text-decoration: underline; }
+        .landing-card::before {
+            content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+        }
+
+        .landing-card h1, .landing-card h2, .landing-card h3 { color: #fff; margin-top: 0; letter-spacing: -0.03em; font-weight: 900; }
+        .landing-card h1 { font-size: 2.75rem; margin-bottom: 2.5rem; }
+        .landing-card ul { list-style: none; padding: 0; margin-bottom: 2.5rem; }
+        .landing-card li { margin-bottom: 1rem; padding-left: 1.5rem; position: relative; }
+        .landing-card li::before { content: '→'; position: absolute; left: 0; color: var(--primary); font-weight: 900; }
+        .landing-card a { color: var(--primary); text-decoration: none; font-weight: 800; border-bottom: 2px solid transparent; transition: all 0.2s; }
+        .landing-card a:hover { border-color: var(--primary); }
 
         .cta-btn { 
-            display: inline-flex; align-items: center; gap: 1rem; 
-            background: #fff; color: #000; padding: 1.25rem 3rem; 
-            border-radius: 20px; text-decoration: none; font-weight: 900; 
-            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); font-size: 1.1rem;
-            box-shadow: 0 10px 30px rgba(255,255,255,0.1);
+            display: inline-flex; align-items: center; gap: 1.25rem; 
+            background: #fff; color: #000; padding: 1.5rem 4rem; 
+            border-radius: 100px; text-decoration: none; font-weight: 900; 
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); font-size: 1.2rem;
+            box-shadow: 0 20px 40px rgba(255,255,255,0.1); text-transform: uppercase; letter-spacing: 0.05em;
         }
-        .cta-btn:hover { transform: scale(1.05) translateY(-3px); background: var(--primary); box-shadow: 0 20px 40px rgba(56, 189, 248, 0.3); }
+        .cta-btn:hover { transform: scale(1.05) translateY(-5px); background: var(--primary); box-shadow: 0 30px 60px rgba(56, 189, 248, 0.4); }
 
         .footer { 
-            padding: 4rem 10%; border-top: 1px solid var(--border); 
+            width: 100%; padding: 5rem 10%; border-top: 1px solid var(--border); 
             display: flex; justify-content: space-between; align-items: center;
-            color: var(--secondary); font-size: 0.9rem; background: rgba(0,0,0,0.2);
+            color: var(--secondary); font-size: 0.95rem; background: rgba(0,0,0,0.3);
+            box-sizing: border-box;
         }
+        .footer-links { display: flex; gap: 2rem; }
         .footer a { color: #fff; text-decoration: none; font-weight: 700; transition: color 0.2s; }
         .footer a:hover { color: var(--primary); }
 
         @media (max-width: 768px) {
-            h1 { font-size: 3.5rem; }
-            .hero { padding: 6rem 5% 4rem; }
-            .landing-content { padding: 2.5rem 1.5rem; border-radius: 24px; }
-            .footer { flex-direction: column; gap: 2rem; text-align: center; padding: 3rem 5%; }
             nav { padding: 1.25rem 5%; }
-            .nav-links { gap: 1.25rem; }
+            .nav-links { display: none; } /* Mobile menu simplified */
+            .hero { padding: 6rem 1.5rem 4rem; }
+            .hero h1 { font-size: 3.75rem; letter-spacing: -0.04em; }
+            .hero-subtitle { font-size: 1.1rem; margin-bottom: 3rem; }
+            .landing-card { padding: 2.5rem 1.5rem; border-radius: 30px; width: 95%; }
+            .landing-card h1 { font-size: 2rem; }
+            .cta-btn { width: 100%; justify-content: center; box-sizing: border-box; padding: 1.25rem 2rem; font-size: 1.1rem; }
+            .footer { flex-direction: column; gap: 2.5rem; text-align: center; padding: 4rem 1.5rem; }
         }
     </style>
 </head>
 <body>
+    <div class="bg-glow"></div>
+    <div class="blob"></div>
+    
     <nav>
         <a href="/" class="nav-logo">{{.Config.PageTitle}}</a>
         <div class="nav-links">
@@ -82,24 +117,26 @@
         </div>
     </nav>
 
-    <div class="hero">
-        <h1>{{.Config.PageTitle}}</h1>
-        <p class="hero-subtitle">{{.Config.PageSubtitle}}</p>
-        
-        <div class="landing-content">
-            {{.LandingContent}}
-        </div>
+    <div class="container">
+        <div class="hero">
+            <h1>{{.Config.PageTitle}}<span>.</span></h1>
+            <p class="hero-subtitle">{{.Config.PageSubtitle}}</p>
+            
+            <div class="landing-card">
+                {{.LandingContent}}
+            </div>
 
-        <a href="/explore" class="cta-btn">
-            EXPLORE STATIONS <i data-lucide="compass"></i>
-        </a>
+            <a href="/explore" class="cta-btn">
+                Tune In <i data-lucide="compass"></i>
+            </a>
+        </div>
     </div>
 
     <div class="footer">
-        <div>&copy; 2026 TinyICE &bull; High Performance Streaming</div>
-        <div>
-            <a href="/admin">Dashboard</a> &nbsp;&bull;&nbsp; 
-            <a href="https://github.com/DatanoiseTV/tinyice" target="_blank">GitHub</a>
+        <div>&copy; 2026 TinyICE &bull; <strong>High Performance Streaming</strong></div>
+        <div class="footer-links">
+            <a href="/admin">Admin Panel</a>
+            <a href="https://github.com/DatanoiseTV/tinyice" target="_blank">Source Code</a>
         </div>
     </div>
 
