@@ -129,6 +129,8 @@ type Stream struct {
 	OggHead         []byte // Store Ogg headers for Opus/Ogg streams
 	OggHeaderOffset int64  // Absolute buffer offset where headers end
 	LastPageOffset  int64  // Absolute offset of the last valid Ogg page start
+	PageOffsets     []int64 // Circular list of last ~100 page starts
+	PageIndex       int
 
 	Buffer    *CircularBuffer
 	listeners map[string]chan struct{} // Signal channel for new data
@@ -202,6 +204,7 @@ func (r *Relay) GetOrCreateStream(mount string) *Stream {
 		ContentType: "audio/mpeg",
 		Enabled:     true,
 		CurrentSong: "N/A",
+		PageOffsets: make([]int64, 128), // Track last 128 Ogg pages
 	}
 	r.Streams[mount] = s
 	return s
@@ -280,7 +283,10 @@ func (s *Stream) Broadcast(data []byte, relay *Relay) {
 	if isOgg {
 		for i := 0; i <= len(data)-4; i++ {
 			if data[i] == 'O' && data[i+1] == 'g' && data[i+2] == 'g' && data[i+3] == 'S' {
-				s.LastPageOffset = s.Buffer.Head + int64(i)
+				offset := s.Buffer.Head + int64(i)
+				s.LastPageOffset = offset
+				s.PageOffsets[s.PageIndex%len(s.PageOffsets)] = offset
+				s.PageIndex++
 			}
 		}
 	}
@@ -317,10 +323,16 @@ func (s *Stream) Subscribe(id string, burstSize int) (int64, chan struct{}) {
 		start = 0
 	}
 
-	// For Ogg/Opus, align to the last known page boundary if we are within the burst
+	// For Ogg/Opus, align to the oldest known page boundary within the burst
 	if strings.Contains(strings.ToLower(s.ContentType), "ogg") || strings.Contains(strings.ToLower(s.ContentType), "opus") {
-		if s.LastPageOffset > start {
-			start = s.LastPageOffset
+		bestAlign := s.LastPageOffset
+		for _, po := range s.PageOffsets {
+			if po >= start && po < bestAlign {
+				bestAlign = po
+			}
+		}
+		if bestAlign > 0 {
+			start = bestAlign
 		}
 	}
 	
