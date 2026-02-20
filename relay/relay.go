@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -69,6 +70,40 @@ func (cb *CircularBuffer) ReadAt(start int64, p []byte) (int, int64, bool) {
 	return actual, start + int64(actual), skipped
 }
 
+// FindNextPageBoundary searches for the next "OggS" magic in the buffer starting from 'start'
+func (cb *CircularBuffer) FindNextPageBoundary(start int64) int64 {
+	cb.mu.RLock()
+	defer cb.mu.RUnlock()
+
+	if start < cb.Head-cb.Size {
+		start = cb.Head - cb.Size
+	}
+	if start >= cb.Head-4 {
+		return cb.Head
+	}
+
+	for i := start; i < cb.Head-4; {
+		pos := i % cb.Size
+		n := int64(4096) // Search window
+		if i+n > cb.Head {
+			n = cb.Head - i
+		}
+		if pos+n > cb.Size {
+			n = cb.Size - pos
+		}
+
+		// Look for OggS in this segment
+		data := cb.Data[pos : pos+n]
+		for j := 0; j <= len(data)-4; j++ {
+			if data[j] == 'O' && data[j+1] == 'g' && data[j+2] == 'g' && data[j+3] == 'S' {
+				return i + int64(j)
+			}
+		}
+		i += n - 3 // Overlap by 3 bytes to catch split magic
+	}
+	return start
+}
+
 // Stream represents a single mount point (e.g., /stream)
 type Stream struct {
 	MountName    string
@@ -93,6 +128,7 @@ type Stream struct {
 
 	OggHead         []byte // Store Ogg headers for Opus/Ogg streams
 	OggHeaderOffset int64  // Absolute buffer offset where headers end
+	LastPageOffset  int64  // Absolute offset of the last valid Ogg page start
 
 	Buffer    *CircularBuffer
 	listeners map[string]chan struct{} // Signal channel for new data
@@ -239,6 +275,16 @@ func (s *Stream) Broadcast(data []byte, relay *Relay) {
 	atomic.AddInt64(&relay.BytesIn, int64(len(data)))
 	atomic.AddInt64(&s.BytesIn, int64(len(data)))
 
+	// Track Ogg Page boundaries for alignment
+	isOgg := strings.Contains(strings.ToLower(s.ContentType), "ogg") || strings.Contains(strings.ToLower(s.ContentType), "opus")
+	if isOgg {
+		for i := 0; i <= len(data)-4; i++ {
+			if data[i] == 'O' && data[i+1] == 'g' && data[i+2] == 'g' && data[i+3] == 'S' {
+				s.LastPageOffset = s.Buffer.Head + int64(i)
+			}
+		}
+	}
+
 	// 1. Write to shared buffer
 	s.Buffer.Write(data)
 
@@ -269,6 +315,13 @@ func (s *Stream) Subscribe(id string, burstSize int) (int64, chan struct{}) {
 	start := s.Buffer.Head - int64(burstSize)
 	if start < 0 {
 		start = 0
+	}
+
+	// For Ogg/Opus, align to the last known page boundary if we are within the burst
+	if strings.Contains(strings.ToLower(s.ContentType), "ogg") || strings.Contains(strings.ToLower(s.ContentType), "opus") {
+		if s.LastPageOffset > start {
+			start = s.LastPageOffset
+		}
 	}
 	
 	// Ensure we don't go back further than the buffer allows
