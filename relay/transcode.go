@@ -211,32 +211,33 @@ func (tm *TranscoderManager) encodeOpus(ctx context.Context, inst *TranscoderIns
 	// Ogg encapsulation
 	writer := &streamWriter{stream: output, relay: tm.relay, inst: inst}
 	serial := uint32(time.Now().UnixNano())
-	
-	// We need to capture the raw Ogg page bytes for the headers
-	var headerBuf bytes.Buffer
-	headerWriter := io.MultiWriter(writer, &headerBuf)
-	pw := ogg.NewPacketWriter(headerWriter, serial)
+	pw := ogg.NewPacketWriter(writer, serial)
 
-	// ID Header
+	// 1. Capture headers in a buffer using a temporary writer with SAME serial
+	var headerBuf bytes.Buffer
+	headerPW := ogg.NewPacketWriter(&headerBuf, serial)
+
 	head := ogg.OpusHead{
 		Version:         1,
 		Channels:        uint8(channels),
 		InputSampleRate: uint32(sampleRate),
 	}
 	headPacket, _ := ogg.BuildOpusHeadPacket(head)
-	pw.WritePacket(headPacket, 0, true, false)
+	headerPW.WritePacket(headPacket, 0, true, false)
 
-	// Tags Header
 	tags := ogg.OpusTags{Vendor: "tinyice-opus"}
 	tagsPacket, _ := ogg.BuildOpusTagsPacket(tags)
-	pw.WritePacket(tagsPacket, 0, false, false)
-	pw.Flush()
+	headerPW.WritePacket(tagsPacket, 0, false, false)
+	headerPW.Flush()
 
-	// Store the full Ogg pages (headers) for new listeners
+	// Store for mid-stream listeners
 	output.OggHead = headerBuf.Bytes()
 
-	// Re-create packet writer for audio data
-	pw = ogg.NewPacketWriter(writer, serial)
+	// 2. Now write the same packets to the ACTUAL stream using the main writer
+	// This ensures main writer 'seq' starts correctly at 0, 1...
+	pw.WritePacket(headPacket, 0, true, false)
+	pw.WritePacket(tagsPacket, 0, false, false)
+	pw.Flush()
 
 	pcmBuf := make([]byte, frameSize*channels*2)
 	pcmSamples := make([]int16, frameSize*channels)

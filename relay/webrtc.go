@@ -116,6 +116,7 @@ func (wm *WebRTCManager) streamToTrack(pc *webrtc.PeerConnection, track *webrtc.
 			if n == 0 {
 				continue
 			}
+			// Use a robust sliding window to find "OggS"
 			for i := 0; i <= n-4; i++ {
 				if syncBuf[i] == 'O' && syncBuf[i+1] == 'g' && syncBuf[i+2] == 'g' && syncBuf[i+3] == 'S' {
 					offset += int64(i)
@@ -124,7 +125,8 @@ func (wm *WebRTCManager) streamToTrack(pc *webrtc.PeerConnection, track *webrtc.
 				}
 			}
 			if !foundSync {
-				offset = next
+				// Keep the last 3 bytes in case "OggS" is split between reads
+				offset = next - 3 
 				searched += int64(n)
 			}
 		}
