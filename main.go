@@ -171,6 +171,10 @@ func handleCommands(cfg *config.Config) bool {
 		fmt.Println(colorized)
 		return true
 
+	case "help":
+		printHelp()
+		return true
+
 	case "get":
 		if len(args) < 2 {
 			fmt.Println("Usage: get <option>")
@@ -217,8 +221,28 @@ func getField(cfg *config.Config, field string) interface{} {
 		return cfg.PageSubtitle
 	case "acme_email":
 		return cfg.ACMEEmail
+	case "acme_directory_url":
+		return cfg.ACMEDirectoryURL
 	case "domains":
 		return cfg.Domains
+	case "location":
+		return cfg.Location
+	case "admin_email":
+		return cfg.AdminEmail
+	case "base_url":
+		return cfg.BaseURL
+	case "low_latency_mode":
+		return cfg.LowLatencyMode
+	case "max_listeners":
+		return cfg.MaxListeners
+	case "directory_listing":
+		return cfg.DirectoryListing
+	case "directory_server":
+		return cfg.DirectoryServer
+	case "cert_file":
+		return cfg.CertFile
+	case "key_file":
+		return cfg.KeyFile
 	}
 	return "unknown"
 }
@@ -243,12 +267,57 @@ func setField(cfg *config.Config, field, value string) bool {
 		cfg.PageSubtitle = value
 	case "acme_email":
 		cfg.ACMEEmail = value
+	case "acme_directory_url":
+		cfg.ACMEDirectoryURL = value
 	case "domains":
 		cfg.Domains = strings.Split(value, ",")
+	case "location":
+		cfg.Location = value
+	case "admin_email":
+		cfg.AdminEmail = value
+	case "base_url":
+		cfg.BaseURL = value
+	case "low_latency_mode":
+		cfg.LowLatencyMode = (value == "true")
+	case "max_listeners":
+		fmt.Sscanf(value, "%d", &cfg.MaxListeners)
+	case "directory_listing":
+		cfg.DirectoryListing = (value == "true")
+	case "directory_server":
+		cfg.DirectoryServer = value
+	case "cert_file":
+		cfg.CertFile = value
+	case "key_file":
+		cfg.KeyFile = value
 	default:
 		return false
 	}
 	return true
+}
+
+func printHelp() {
+	fmt.Println("\033[1mTinyIce CLI Help\033[0m")
+	fmt.Println("\nUsage:")
+	fmt.Println("  tinyice <command> [args]")
+	fmt.Println("\nCommands:")
+	fmt.Println("  get <option>          Display the current value of a configuration option")
+	fmt.Println("  set <option> <value>  Update a configuration option and save to tinyice.json")
+	fmt.Println("  dump-config           Display the full configuration with syntax highlighting")
+	fmt.Println("  help                  Display this help message")
+	fmt.Println("\nConfiguration Options (use with get/set):")
+	fmt.Println("  \033[36mBasic Settings:\033[0m")
+	fmt.Println("    bind_host, port, hostname, location, base_url, max_listeners")
+	fmt.Println("\n  \033[36mHTTPS & SSL:\033[0m")
+	fmt.Println("    use_https (bool), auto_https (bool), https_port, domains (comma-sep)")
+	fmt.Println("    acme_email, acme_directory_url, cert_file, key_file")
+	fmt.Println("\n  \033[36mUI Customization:\033[0m")
+	fmt.Println("    page_title, page_subtitle")
+	fmt.Println("\n  \033[36mAdvanced:\033[0m")
+	fmt.Println("    low_latency_mode (bool), directory_listing (bool), directory_server")
+	fmt.Println("\nExamples:")
+	fmt.Println("  ./tinyice set auto_https true")
+	fmt.Println("  ./tinyice set domains stream.example.com,radio.example.com")
+	fmt.Println("  ./tinyice get max_listeners")
 }
 
 func colorizeJSON(input string) string {
