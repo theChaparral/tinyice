@@ -2250,21 +2250,34 @@ func (s *Server) handleToggleAutoDJ(w http.ResponseWriter, r *http.Request) {
 
 	mount := r.FormValue("mount")
 	found := false
+	existing := s.StreamerM.GetStreamer(mount)
+
 	for _, adj := range s.Config.AutoDJs {
 		if adj.Mount == mount {
-			adj.Enabled = !adj.Enabled
+			// If it's enabled in config but not running, start it.
+			// Otherwise toggle it.
+			if adj.Enabled && existing == nil {
+				// Just start it
+			} else {
+				adj.Enabled = !adj.Enabled
+			}
+
 			if adj.Enabled {
-				streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, adj.Playlist, adj.MPDEnabled, adj.MPDPort)
-				if err == nil {
-					if adj.InjectMetadata {
-						if st, ok := s.Relay.GetStream(adj.Mount); ok {
-							st.SetVisible(true)
+				if existing == nil {
+					streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, adj.Playlist, adj.MPDEnabled, adj.MPDPort)
+					if err == nil {
+						if adj.InjectMetadata {
+							if st, ok := s.Relay.GetStream(adj.Mount); ok {
+								st.SetVisible(true)
+							}
 						}
+						if len(adj.Playlist) == 0 {
+							streamer.ScanMusicDir()
+						}
+						streamer.Play()
 					}
-					if len(adj.Playlist) == 0 {
-						streamer.ScanMusicDir()
-					}
-					streamer.Play()
+				} else {
+					existing.Play()
 				}
 			} else {
 				s.StreamerM.StopStreamer(mount)
@@ -2275,9 +2288,7 @@ func (s *Server) handleToggleAutoDJ(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !found {
-		// Might be a manual streamer
-		streamer := s.StreamerM.GetStreamer(mount)
-		if streamer != nil {
+		if existing != nil {
 			s.StreamerM.StopStreamer(mount)
 		}
 	}
