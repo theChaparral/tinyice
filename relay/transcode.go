@@ -108,35 +108,6 @@ func (tm *TranscoderManager) runTranscoder(ctx context.Context, inst *Transcoder
 	}
 }
 
-// streamReader wraps a signal-based stream subscription into an io.Reader
-type streamReader struct {
-	stream *Stream
-	offset int64
-	signal chan struct{}
-	ctx    context.Context
-	id     string
-}
-
-func (r *streamReader) Read(p []byte) (int, error) {
-	for {
-		n, next, _ := r.stream.Buffer.ReadAt(r.offset, p)
-		if n > 0 {
-			r.offset = next
-			return n, nil
-		}
-
-		select {
-		case <-r.ctx.Done():
-			return 0, io.EOF
-		case _, ok := <-r.signal:
-			if !ok {
-				return 0, io.EOF
-			}
-			// Data available, loop again
-		}
-	}
-}
-
 func (tm *TranscoderManager) performTranscode(ctx context.Context, inst *TranscoderInstance) {
 	input, ok := tm.relay.GetStream(inst.Config.InputMount)
 	if !ok {
@@ -148,12 +119,12 @@ func (tm *TranscoderManager) performTranscode(ctx context.Context, inst *Transco
 	offset, signal := input.Subscribe(id, 0) // No burst for transcoder
 	defer input.Unsubscribe(id)
 
-	reader := &streamReader{
-		stream: input,
-		offset: offset,
-		signal: signal,
-		ctx:    ctx,
-		id:     id,
+	reader := &StreamReader{
+		Stream: input,
+		Offset: offset,
+		Signal: signal,
+		Ctx:    ctx,
+		ID:     id,
 	}
 
 	// 2. Decode (assuming MP3 input for now as standard)

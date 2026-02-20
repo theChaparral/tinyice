@@ -1,7 +1,9 @@
 package relay
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -91,6 +93,34 @@ type Stream struct {
 	Buffer    *CircularBuffer
 	listeners map[string]chan struct{} // Signal channel for new data
 	mu        sync.RWMutex
+}
+
+// StreamReader wraps a signal-based stream subscription into an io.Reader
+type StreamReader struct {
+	Stream *Stream
+	Offset int64
+	Signal chan struct{}
+	Ctx    context.Context
+	ID     string
+}
+
+func (r *StreamReader) Read(p []byte) (int, error) {
+	for {
+		n, next, _ := r.Stream.Buffer.ReadAt(r.Offset, p)
+		if n > 0 {
+			r.Offset = next
+			return n, nil
+		}
+
+		select {
+		case <-r.Ctx.Done():
+			return 0, io.EOF
+		case _, ok := <-r.Signal:
+			if !ok {
+				return 0, io.EOF
+			}
+		}
+	}
 }
 
 // Relay manages all active streams

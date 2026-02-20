@@ -91,19 +91,41 @@ func (wm *WebRTCManager) streamToTrack(pc *webrtc.PeerConnection, track *webrtc.
 		}
 	})
 
-	logrus.Infof("WebRTC listener started for %s", stream.MountName)
-	defer logrus.Infof("WebRTC listener stopped for %s", stream.MountName)
-
 	id := fmt.Sprintf("webrtc-%d", time.Now().UnixNano())
 	offset, signal := stream.Subscribe(id, 64*1024)
 	defer stream.Unsubscribe(id)
 
-	reader := &streamReader{
-		stream: stream,
-		offset: offset,
-		signal: signal,
-		ctx:    ctx,
-		id:     id,
+	// Seek to next "OggS" magic
+	syncBuf := make([]byte, 16384)
+	foundSync := false
+	for !foundSync {
+		select {
+		case <-ctx.Done():
+			return
+		case <-signal:
+			n, next, _ := stream.Buffer.ReadAt(offset, syncBuf)
+			if n == 0 {
+				continue
+			}
+			for i := 0; i < n-4; i++ {
+				if syncBuf[i] == 'O' && syncBuf[i+1] == 'g' && syncBuf[i+2] == 'g' && syncBuf[i+3] == 'S' {
+					offset += int64(i)
+					foundSync = true
+					break
+				}
+			}
+			if !foundSync {
+				offset = next
+			}
+		}
+	}
+
+	reader := &StreamReader{
+		Stream: stream,
+		Offset: offset,
+		Signal: signal,
+		Ctx:    ctx,
+		ID:     id,
 	}
 
 	opusReader, err := ogg.NewOpusReader(reader)
@@ -121,8 +143,6 @@ func (wm *WebRTCManager) streamToTrack(pc *webrtc.PeerConnection, track *webrtc.
 			return
 		}
 
-		// WebRTC expects 48kHz Opus samples. 
-		// We use a fixed duration of 20ms per packet which is standard.
 		if err := track.WriteSample(media.Sample{
 			Data:     packet.Data,
 			Duration: 20 * time.Millisecond,
