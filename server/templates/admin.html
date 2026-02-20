@@ -73,6 +73,7 @@
                 {{if eq .User.Role "superadmin"}}
                 <button class="nav-link" onclick="showTab('tab-users')"><i data-lucide="users"></i> User Management</button>
                 <button class="nav-link" onclick="showTab('tab-relays')"><i data-lucide="refresh-ccw"></i> Edge Relays</button>
+                <button class="nav-link" onclick="showTab('tab-transcoding')"><i data-lucide="scissors"></i> Transcoding</button>
                 <button class="nav-link" onclick="showTab('tab-security')"><i data-lucide="shield-check"></i> Security & Bans</button>
                 {{end}}
                 <button class="nav-link" onclick="showTab('tab-insights')"><i data-lucide="trending-up"></i> Insights</button>
@@ -238,13 +239,66 @@
                     <section><h2>Active Edge Relays</h2><div class="card" style="padding: 0;"><table><thead><tr><th style="width:10%">Status</th><th style="width:25%">Target</th><th style="width:15%">Local Mount</th><th style="width:50%">Action</th></tr></thead><tbody id="relaysBody"></tbody></table></div></section>
                 </div>
             </div>
-            <div id="tab-security" class="tab-content"><div style="grid-template-columns: 1fr 1fr; display: grid; gap: 2rem;"><section><h2>Ban Address or Range</h2><div class="card"><form action="/admin/add-banned-ip" method="POST"><div class="form-group"><label>IP Address or CIDR Range</label><input type="text" name="ip" placeholder="e.g. 1.2.3.4 or 192.168.1.0/24" required></div><button type="submit" class="btn btn-danger">Ban Address</button></form></div></section><section><h2>Access Control List</h2><div class="card" style="padding: 0;"><table><thead><tr><th style="width:70%">Banned IP / Range</th><th style="width:30%">Action</th></tr></thead><tbody>{{range .Config.BannedIPs}}<tr><td>{{.}}</td><td><form action="/admin/remove-banned-ip" method="POST"><input type="hidden" name="ip" value="{{.}}"><button type="submit" class="btn btn-outline btn-sm">Unban</button></form></td></tr>{{else}}<tr><td colspan="2" style="text-align:center; padding:2rem">No active bans.</td></tr>{{end}}</tbody></table></div></section></div></div>
+                        <div id="tab-transcoding" class="tab-content">
+                            <div style="display: grid; grid-template-columns: 1fr 1.5fr; gap: 2rem;">
+                                <section>
+                                    <h2>New Transcoder</h2>
+                                    <div class="card">
+                                        <form action="/admin/add-transcoder" method="POST">
+                                            <div class="form-group"><label>Instance Name</label><input type="text" name="name" placeholder="MP3 to Opus" required></div>
+                                            <div class="form-group"><label>Input Mount</label><input type="text" name="input" placeholder="/live" required></div>
+                                            <div class="form-group"><label>Output Mount</label><input type="text" name="output" placeholder="/opus" required></div>
+                                            <div class="form-group">
+                                                <label>Format</label>
+                                                <select name="format">
+                                                    <option value="mp3">MP3</option>
+                                                    <option value="opus" disabled>Opus (Coming Soon)</option>
+                                                </select>
+                                            </div>
+                                            <div class="form-group"><label>Bitrate (kbps)</label><input type="number" name="bitrate" value="128" required></div>
+                                            <button type="submit" class="btn btn-primary" style="width: 100%;">Start Transcoder</button>
+                                        </form>
+                                    </div>
+                                </section>
+                                <section>
+                                    <h2>Active Transcoders</h2>
+                                    <div class="card" style="padding: 0; overflow: hidden;">
+                                        <table>
+                                            <thead>
+                                                <tr>
+                                                    <th>Name</th>
+                                                    <th>Flow</th>
+                                                    <th>Stats</th>
+                                                    <th>Action</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="transcodersBody"></tbody>
+                                        </table>
+                                    </div>
+                                </section>
+                            </div>
+                        </div>
+                        <div id="tab-security" class="tab-content">
+            <div style="grid-template-columns: 1fr 1fr; display: grid; gap: 2rem;"><section><h2>Ban Address or Range</h2><div class="card"><form action="/admin/add-banned-ip" method="POST"><div class="form-group"><label>IP Address or CIDR Range</label><input type="text" name="ip" placeholder="e.g. 1.2.3.4 or 192.168.1.0/24" required></div><button type="submit" class="btn btn-danger">Ban Address</button></form></div></section><section><h2>Access Control List</h2><div class="card" style="padding: 0;"><table><thead><tr><th style="width:70%">Banned IP / Range</th><th style="width:30%">Action</th></tr></thead><tbody>{{range .Config.BannedIPs}}<tr><td>{{.}}</td><td><form action="/admin/remove-banned-ip" method="POST"><input type="hidden" name="ip" value="{{.}}"><button type="submit" class="btn btn-outline btn-sm">Unban</button></form></td></tr>{{else}}<tr><td colspan="2" style="text-align:center; padding:2rem">No active bans.</td></tr>{{end}}</tbody></table></div></section></div></div>
             {{end}}
         </main>
     </div>
         <template id="stream-row-template"><tr><td><span class="mount-code row-mount"></span><br><span style="font-size:0.7rem;color:var(--text-dim)" class="row-ip"></span></td><td><span class="song-title row-song"></span></td><td style="font-weight:700;color:var(--primary);" class="row-listeners"></td><td><span style="color:var(--success)" class="row-in"></span> / <span style="color:var(--primary)" class="row-out"></span></td><td><span class="row-health"></span></td><td style="font-family:monospace;" class="row-uptime"></span></td><td style="width:20%">
     <div style="display:flex;gap:0.5rem;"><a href="" target="_blank" class="btn btn-outline btn-sm row-link">Listen</a><button type="button" class="btn btn-primary btn-sm row-share-btn">SHARE</button><form action="/admin/kick" method="POST" style="display:inline;" class="row-kick-form"><input type="hidden" name="mount" value=""><button type="submit" class="btn btn-danger btn-sm">KICK</button></form></div></td></tr></template>
     <template id="relay-row-template"><tr><td><div class="status-pill row-relay-status"><div class="dot"></div> <span class="row-relay-status-text"></span></div></td><td style="font-size:0.8rem;color:var(--text-dim)" class="row-relay-url"></td><td><span class="mount-code row-relay-mount"></span></td><td><div style="display:flex; gap:0.3rem"><button type="button" class="btn btn-outline btn-sm row-relay-edit-btn">EDIT</button><form action="/admin/toggle-visible" method="POST" class="row-relay-visible-form"><input type="hidden" name="mount" value=""><button type="submit" class="btn btn-sm row-relay-visible-btn"></button></form><form action="/admin/toggle-relay" method="POST" class="row-relay-toggle-form"><input type="hidden" name="mount" value=""><button type="submit" class="btn btn-sm row-relay-toggle-btn"></button></form><form action="/admin/delete-relay" method="POST" class="row-relay-delete-form"><input type="hidden" name="mount" value=""><button type="submit" class="btn btn-danger btn-sm">STOP</button></form></div></td></tr></template>
+    <template id="transcoder-row-template">
+        <tr>
+            <td><div class="status-pill row-tc-status"><div class="dot"></div> <span class="row-tc-name"></span></div></td>
+            <td style="font-size:0.75rem; color:var(--text-dim)"><span class="row-tc-input"></span> &rarr; <span class="row-tc-output"></span><br><strong class="row-tc-format"></strong></td>
+            <td style="font-size:0.75rem;"><span class="row-tc-uptime"></span><br><span class="row-tc-bytes"></span></td>
+            <td>
+                <div style="display:flex; gap:0.3rem">
+                    <form action="/admin/toggle-transcoder" method="POST"><input type="hidden" name="name" class="row-tc-hidden-name"><button type="submit" class="btn btn-sm row-tc-toggle-btn"></button></form>
+                    <form action="/admin/delete-transcoder" method="POST" onsubmit="return confirm('Delete?')"><input type="hidden" name="name" class="row-tc-hidden-name-del"><button type="submit" class="btn btn-danger btn-sm">DELETE</button></form>
+                </div>
+            </td>
+        </tr>
+    </template>
     <script>
         function showTab(id, updateHash) { 
             document.querySelectorAll('.tab-content').forEach(function(t) { t.classList.remove('active'); }); 
@@ -255,6 +309,36 @@
             if (updateHash !== false) window.location.hash = id; 
             if (id === 'tab-statistics') fetchStatistics();
             if (id === 'tab-insights') fetchInsights();
+            if (id === 'tab-transcoding') fetchTranscoderStats();
+        }
+
+        function fetchTranscoderStats() {
+            fetch('/admin/transcoder-stats').then(r => r.json()).then(data => {
+                const body = document.getElementById('transcodersBody');
+                if (!body) return;
+                const template = document.getElementById('transcoder-row-template');
+                body.innerHTML = '';
+                data.forEach(tc => {
+                    const clone = template.content.cloneNode(true);
+                    clone.querySelector('.row-tc-name').textContent = tc.name;
+                    clone.querySelector('.row-tc-input').textContent = tc.input;
+                    clone.querySelector('.row-tc-output').textContent = tc.output;
+                    clone.querySelector('.row-tc-format').textContent = `${tc.format.toUpperCase()} ${tc.bitrate}K`;
+                    clone.querySelector('.row-tc-uptime').textContent = tc.active ? `Up: ${tc.uptime}` : 'STOPPED';
+                    clone.querySelector('.row-tc-bytes').textContent = formatBytes(tc.bytes);
+                    
+                    if (!tc.active) clone.querySelector('.row-tc-status').classList.add('inactive');
+                    
+                    const toggleBtn = clone.querySelector('.row-tc-toggle-btn');
+                    toggleBtn.textContent = tc.active ? 'STOP' : 'START';
+                    toggleBtn.classList.add(tc.active ? 'btn-warning' : 'btn-primary');
+                    
+                    clone.querySelector('.row-tc-hidden-name').value = tc.name;
+                    clone.querySelector('.row-tc-hidden-name-del').value = tc.name;
+                    body.appendChild(clone);
+                });
+                setTimeout(fetchTranscoderStats, 1000);
+            });
         }
 
         function fetchStatistics() {

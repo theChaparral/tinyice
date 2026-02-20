@@ -9,9 +9,15 @@ require (
 )
 
 require (
+	github.com/braheezy/shine-mp3 v0.1.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
+	github.com/go-audio/audio v1.0.0 // indirect
+	github.com/go-audio/riff v1.0.0 // indirect
+	github.com/go-audio/wav v1.1.0 // indirect
 	github.com/gomarkdown/markdown v0.0.0-20260217112301-37c66b85d6ab // indirect
 	github.com/google/uuid v1.5.0 // indirect
+	github.com/hajimehoshi/go-mp3 v0.3.4 // indirect
+	github.com/kazzmir/opus-go v1.2.1 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	golang.org/x/net v0.49.0 // indirect

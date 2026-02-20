@@ -39,6 +39,7 @@ type Server struct {
 	Config      *config.Config
 	Relay       *relay.Relay
 	RelayM      *relay.RelayManager
+	TranscoderM *relay.TranscoderManager
 	tmpl        *template.Template
 	httpServers []*http.Server
 	startTime   time.Time
@@ -59,12 +60,13 @@ func NewServer(cfg *config.Config, authLog *logrus.Logger) *Server {
 
 	r := relay.NewRelay(cfg.LowLatencyMode, hm)
 	return &Server{
-		Config:    cfg,
-		Relay:     r,
-		RelayM:    relay.NewRelayManager(r),
-		tmpl:      tmpl,
-		startTime: time.Now(),
-		AuthLog:   authLog,
+		Config:      cfg,
+		Relay:       r,
+		RelayM:      relay.NewRelayManager(r),
+		TranscoderM: relay.NewTranscoderManager(r),
+		tmpl:        tmpl,
+		startTime:   time.Now(),
+		AuthLog:     authLog,
 	}
 }
 
@@ -90,6 +92,10 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/admin/toggle-relay", s.handleToggleRelay)
 	mux.HandleFunc("/admin/restart-relay", s.handleRestartRelay)
 	mux.HandleFunc("/admin/delete-relay", s.handleDeleteRelay)
+	mux.HandleFunc("/admin/add-transcoder", s.handleAddTranscoder)
+	mux.HandleFunc("/admin/toggle-transcoder", s.handleToggleTranscoder)
+	mux.HandleFunc("/admin/delete-transcoder", s.handleDeleteTranscoder)
+	mux.HandleFunc("/admin/transcoder-stats", s.handleTranscoderStats)
 	mux.HandleFunc("/admin/history", s.handleHistory)
 	mux.HandleFunc("/admin/statistics", s.handleGetStats)
 	mux.HandleFunc("/admin/insights", s.handleInsights)
@@ -124,10 +130,12 @@ func (s *Server) listenWithReuse(network, address string) (net.Listener, error) 
 func (s *Server) Shutdown(ctx context.Context) error {
 	logrus.Info("Server shutting down gracefully...")
 
-	// Stop relays immediately to prevent dual-pulling if a new instance starts
+	// Stop relays and transcoders immediately to prevent dual-pulling if a new instance starts
 	s.RelayM.StopAll()
-
+	s.TranscoderM.StopAll()
+	
 	// Force signal all listeners to stop reading
+
 	s.Relay.DisconnectAllListeners()
 
 	var wg sync.WaitGroup
@@ -164,6 +172,13 @@ func (s *Server) ReloadConfig(cfg *config.Config) {
 			s.RelayM.StartRelay(rc.URL, rc.Mount, rc.Password, rc.BurstSize, s.Config.VisibleMounts[rc.Mount])
 		}
 	}
+	// Re-sync transcoders
+	s.TranscoderM.StopAll()
+	for _, tc := range s.Config.Transcoders {
+		if tc.Enabled {
+			s.TranscoderM.StartTranscoder(tc)
+		}
+	}
 	logrus.Info("Configuration reloaded successfully")
 }
 
@@ -179,6 +194,12 @@ func (s *Server) Start() error {
 	for _, rc := range s.Config.Relays {
 		if rc.Enabled {
 			s.RelayM.StartRelay(rc.URL, rc.Mount, rc.Password, rc.BurstSize, s.Config.VisibleMounts[rc.Mount])
+		}
+	}
+
+	for _, tc := range s.Config.Transcoders {
+		if tc.Enabled {
+			s.TranscoderM.StartTranscoder(tc)
 		}
 	}
 
@@ -1577,6 +1598,113 @@ func (s *Server) handleExplore(w http.ResponseWriter, r *http.Request) {
 		logrus.WithError(err).Error("Template error")
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 	}
+}
+
+func (s *Server) handleAddTranscoder(w http.ResponseWriter, r *http.Request) {
+	if !s.isCSRFSafe(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	if _, ok := s.checkAuth(r); !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	name := r.FormValue("name")
+	input := r.FormValue("input")
+	output := r.FormValue("output")
+	format := r.FormValue("format")
+	var bitrate int
+	fmt.Sscanf(r.FormValue("bitrate"), "%d", &bitrate)
+
+	tc := &config.TranscoderConfig{
+		Name:        name,
+		InputMount:  input,
+		OutputMount: output,
+		Format:      format,
+		Bitrate:     bitrate,
+		Enabled:     true,
+	}
+
+	s.Config.Transcoders = append(s.Config.Transcoders, tc)
+	s.Config.SaveConfig()
+	s.TranscoderM.StartTranscoder(tc)
+
+	http.Redirect(w, r, "/admin#tab-transcoding", http.StatusSeeOther)
+}
+
+func (s *Server) handleToggleTranscoder(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.checkAuth(r); !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	name := r.FormValue("name")
+	for _, tc := range s.Config.Transcoders {
+		if tc.Name == name {
+			tc.Enabled = !tc.Enabled
+			if tc.Enabled {
+				s.TranscoderM.StartTranscoder(tc)
+			} else {
+				s.TranscoderM.StopTranscoder(tc.Name)
+			}
+			break
+		}
+	}
+	s.Config.SaveConfig()
+	http.Redirect(w, r, "/admin#tab-transcoding", http.StatusSeeOther)
+}
+
+func (s *Server) handleDeleteTranscoder(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.checkAuth(r); !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	name := r.FormValue("name")
+	newTCs := []*config.TranscoderConfig{}
+	for _, tc := range s.Config.Transcoders {
+		if tc.Name != name {
+			newTCs = append(newTCs, tc)
+		}
+	}
+	s.Config.Transcoders = newTCs
+	s.Config.SaveConfig()
+	s.ReloadConfig(s.Config)
+	http.Redirect(w, r, "/admin#tab-transcoding", http.StatusSeeOther)
+}
+
+func (s *Server) handleTranscoderStats(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.checkAuth(r); !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var stats []relay.TranscoderStats
+	for _, tc := range s.Config.Transcoders {
+		inst := s.TranscoderM.GetInstance(tc.Name)
+		uptime := "OFF"
+		var frames, bytes int64
+		active := false
+		if inst != nil {
+			active = true
+			uptime = time.Since(inst.StartTime).Round(time.Second).String()
+			frames = atomic.LoadInt64(&inst.FramesProcessed)
+			bytes = atomic.LoadInt64(&inst.BytesEncoded)
+		}
+		stats = append(stats, relay.TranscoderStats{
+			Name:            tc.Name,
+			Input:           tc.InputMount,
+			Output:          tc.OutputMount,
+			Format:          tc.Format,
+			Bitrate:         tc.Bitrate,
+			Active:          active,
+			FramesProcessed: frames,
+			BytesEncoded:    bytes,
+			Uptime:          uptime,
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(stats)
 }
 
 func (s *Server) handleInsights(w http.ResponseWriter, r *http.Request) {

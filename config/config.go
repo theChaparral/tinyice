@@ -31,6 +31,15 @@ type MountSettings struct {
 	BurstSize int    `json:"burst_size"`
 }
 
+type TranscoderConfig struct {
+	Name        string `json:"name"`
+	InputMount  string `json:"input_mount"`
+	OutputMount string `json:"output_mount"`
+	Format      string `json:"format"` // "mp3" or "opus"
+	Bitrate     int    `json:"bitrate"`
+	Enabled     bool   `json:"enabled"`
+}
+
 type Config struct {
 	BindHost              string            `json:"bind_host"`
 	Port                  string            `json:"port"`
@@ -40,6 +49,7 @@ type Config struct {
 	// New Advanced Settings
 	AdvancedMounts map[string]*MountSettings `json:"advanced_mounts"`
 	Relays         []*RelayConfig            `json:"relays"`
+	Transcoders    []*TranscoderConfig       `json:"transcoders"`
 	BannedIPs      []string                  `json:"banned_ips"`
 
 	AdminPassword  string            `json:"admin_password"`
@@ -161,6 +171,9 @@ func (config *Config) initMapsAndArrays() {
 	}
 	if config.Relays == nil {
 		config.Relays = make([]*RelayConfig, 0)
+	}
+	if config.Transcoders == nil {
+		config.Transcoders = make([]*TranscoderConfig, 0)
 	}
 	if config.BannedIPs == nil {
 		config.BannedIPs = make([]string, 0)
