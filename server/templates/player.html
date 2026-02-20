@@ -40,6 +40,9 @@
             overflow: hidden; text-overflow: ellipsis; min-height: 4.4rem; line-height: 1.2;
         }
         .genre-tag { display: inline-block; background: rgba(56, 189, 248, 0.1); color: var(--primary); padding: 0.3rem 0.8rem; border-radius: 100px; font-size: 0.7rem; font-weight: 800; border: 1px solid rgba(56, 189, 248, 0.2); }
+        .mode-pill { display: inline-flex; align-items: center; gap: 0.4rem; background: rgba(255,255,255,0.05); color: var(--secondary); padding: 0.3rem 0.8rem; border-radius: 100px; font-size: 0.65rem; font-weight: 800; border: 1px solid var(--border); margin-bottom: 1rem; text-transform: uppercase; }
+        .mode-pill.webrtc { background: rgba(16, 185, 129, 0.1); color: var(--success); border-color: rgba(16, 185, 129, 0.2); }
+        .latency-val { color: #fff; margin-left: 0.2rem; }
 
         .controls { display: flex; align-items: center; justify-content: center; gap: 2rem; }
         .play-btn { width: 80px; height: 80px; border-radius: 50%; background: #fff; color: #000; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: 0 10px 30px rgba(255,255,255,0.1); }
@@ -84,6 +87,9 @@
         </div>
 
         <div class="info">
+            <div id="player-mode" class="mode-pill">
+                <i data-lucide="zap" style="width:12px"></i> Standard Mode
+            </div>
             <div class="station-name">{{.Stream.Name}}</div>
             <div class="song-title" id="song-title">Connecting...</div>
             <div class="genre-tag">{{.Stream.Genre}}</div>
@@ -107,24 +113,41 @@
         lucide.createIcons();
         const audio = document.getElementById('audio-player');
         const playBtn = document.getElementById('play-btn');
-        const playIcon = document.getElementById('play-icon');
         const artwork = document.getElementById('artwork');
         const volumeSlider = document.getElementById('volume-slider');
         const songTitle = document.getElementById('song-title');
         const canvas = document.getElementById('visualizer');
         const bgGlow = document.getElementById('bg-glow');
         const ctx = canvas.getContext('2d');
+        const modePill = document.getElementById('player-mode');
+        
+        const mount = "{{.Stream.MountName}}";
+        const useWebRTC = new URLSearchParams(window.location.search).has('webrtc');
         
         let isPlaying = false;
-        let audioCtx, analyser, source, animationId;
+        let audioCtx, analyser, source, animationId, pc;
         let smoothedAvg = 0;
         let reconnectAttempts = 0;
 
-        function initVisualizer() {
-            if (audioCtx) return;
-            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (useWebRTC) {
+            modePill.classList.add('webrtc');
+            modePill.innerHTML = '<i data-lucide="waves" style="width:12px"></i> WebRTC <span class="latency-val" id="latency">0ms</span>';
+            lucide.createIcons();
+        }
+
+        function initVisualizer(mediaSource) {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (source) source.disconnect();
+            
             analyser = audioCtx.createAnalyser();
-            source = audioCtx.createMediaElementSource(audio);
+            if (mediaSource instanceof MediaStream) {
+                source = audioCtx.createMediaStreamSource(mediaSource);
+            } else {
+                source = audioCtx.createMediaElementSource(mediaSource);
+            }
+            
             source.connect(analyser);
             analyser.connect(audioCtx.destination);
             analyser.fftSize = 64;
@@ -135,59 +158,81 @@
             function draw() {
                 animationId = requestAnimationFrame(draw);
                 analyser.getByteFrequencyData(dataArray);
-
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
-                
                 const barWidth = (canvas.width / bufferLength) * 2.5;
-                let x = 0;
-                let total = 0;
+                let x = 0, total = 0;
 
                 for (let i = 0; i < bufferLength; i++) {
                     const barHeight = (dataArray[i] / 255) * canvas.height;
                     total += dataArray[i];
-                    
                     const gradient = ctx.createLinearGradient(0, canvas.height, 0, 0);
-                    gradient.addColorStop(0, '#38bdf840');
-                    gradient.addColorStop(1, '#38bdf8');
-                    
+                    gradient.addColorStop(0, '#38bdf840'); gradient.addColorStop(1, '#38bdf8');
                     ctx.fillStyle = gradient;
                     ctx.fillRect(x, canvas.height - barHeight, barWidth - 2, barHeight);
                     x += barWidth;
                 }
-
-                // Smooth the average volume for background glow
                 const currentAvg = total / bufferLength;
                 smoothedAvg = smoothedAvg * 0.9 + currentAvg * 0.1;
-
                 const glowScale = 0.02 + (smoothedAvg / 255) * 0.1;
                 const glowSize = 60 + (smoothedAvg / 255) * 40;
                 bgGlow.style.background = `radial-gradient(circle at center, rgba(56, 189, 248, ${glowScale}) 0%, rgba(5, 7, 10, 0) ${glowSize}%)`;
             }
-            
-            // Adjust canvas size for resolution
-            canvas.width = canvas.offsetWidth;
-            canvas.height = canvas.offsetHeight;
-            
+            canvas.width = canvas.offsetWidth; canvas.height = canvas.offsetHeight;
             draw();
+        }
+
+        async function startWebRTC() {
+            if (pc) pc.close();
+            pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+            
+            pc.ontrack = (event) => {
+                const stream = event.streams[0];
+                audio.srcObject = stream;
+                audio.play();
+                initVisualizer(stream);
+            };
+
+            const latencyEl = document.getElementById('latency');
+            setInterval(async () => {
+                if (pc && pc.connectionState === 'connected') {
+                    const stats = await pc.getStats();
+                    stats.forEach(report => {
+                        if (report.type === 'remote-inbound-rtp' && report.roundTripTime) {
+                            latencyEl.textContent = Math.round(report.roundTripTime * 1000) + 'ms';
+                        }
+                    });
+                }
+            }, 2000);
+
+            pc.addTransceiver('audio', { direction: 'recvonly' });
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+
+            const response = await fetch(`/webrtc/offer?mount=${encodeURIComponent(mount)}`, {
+                method: 'POST', body: JSON.stringify(pc.localDescription),
+                headers: { 'Content-Type': 'application/json' }
+            });
+            if (!response.ok) return;
+            const answer = await response.json();
+            await pc.setRemoteDescription(answer);
         }
 
         playBtn.onclick = () => {
             if (isPlaying) {
                 audio.pause();
+                if (pc) pc.close();
                 artwork.classList.remove('playing');
                 updatePlayIcon('play');
             } else {
-                if (audioCtx && audioCtx.state === 'suspended') {
-                    audioCtx.resume();
+                if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+                if (useWebRTC) {
+                    startWebRTC();
+                } else {
+                    initVisualizer(audio);
+                    const currentSrc = audio.src;
+                    audio.src = ''; audio.src = currentSrc;
+                    audio.play();
                 }
-                initVisualizer();
-                
-                // Reload source to ensure instant playback and no lag
-                const currentSrc = audio.src;
-                audio.src = '';
-                audio.src = currentSrc;
-                
-                audio.play();
                 artwork.classList.add('playing');
                 updatePlayIcon('pause');
             }
@@ -199,45 +244,29 @@
             lucide.createIcons();
         }
 
-        volumeSlider.oninput = (e) => {
-            audio.volume = e.target.value;
-        };
+        volumeSlider.oninput = (e) => { audio.volume = e.target.value; };
 
-        // Metadata updates via SSE
         const es = new EventSource("/events");
-        const mount = "{{.Stream.MountName}}";
-        
         es.onmessage = (e) => {
             const streams = JSON.parse(e.data);
-            const stream = streams.find(s => s.mount === mount);
-            if (stream) {
-                songTitle.textContent = stream.song || 'Live Stream';
-                document.title = (stream.song ? stream.song + ' - ' : '') + 'TinyIce';
+            const s = streams.find(s => s.mount === mount);
+            if (s) {
+                songTitle.textContent = s.song || 'Live Stream';
+                document.title = (s.song ? s.song + ' - ' : '') + 'TinyIce';
             }
         };
 
-        // Handle stream errors/disconnects
         function reconnect() {
-            if (isPlaying) {
+            if (isPlaying && !useWebRTC) {
                 reconnectAttempts++;
                 const delay = Math.min(1000 * Math.pow(1.5, reconnectAttempts), 10000);
-                songTitle.textContent = `Reconnecting in ${(delay/1000).toFixed(1)}s...`;
-                console.log(`Stream interrupted, retrying in ${delay}ms (attempt ${reconnectAttempts})`);
-                
                 setTimeout(() => {
                     if (!isPlaying) return;
-                    songTitle.textContent = "Connecting...";
-                    const url = new URL(audio.src, window.location.origin);
-                    audio.src = url.pathname + '?t=' + new Date().getTime();
-                    audio.play().then(() => {
-                        reconnectAttempts = 0;
-                    }).catch(e => {
-                        reconnect();
-                    });
+                    audio.src = mount + '?t=' + new Date().getTime();
+                    audio.play().then(() => reconnectAttempts = 0).catch(reconnect);
                 }, delay);
             }
         }
-
         audio.onerror = reconnect;
         audio.onended = reconnect;
     </script>
