@@ -2,7 +2,9 @@ package server
 
 import (
 	"context"
+	"crypto/rand"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -44,6 +46,14 @@ type Server struct {
 	httpServers []*http.Server
 	startTime   time.Time
 	AuthLog     *logrus.Logger
+
+	sessions   map[string]*session
+	sessionsMu sync.RWMutex
+}
+
+type session struct {
+	User      *config.User
+	CSRFToken string
 }
 
 func NewServer(cfg *config.Config, authLog *logrus.Logger) *Server {
@@ -67,6 +77,7 @@ func NewServer(cfg *config.Config, authLog *logrus.Logger) *Server {
 		tmpl:        tmpl,
 		startTime:   time.Now(),
 		AuthLog:     authLog,
+		sessions:    make(map[string]*session),
 	}
 }
 
@@ -99,6 +110,8 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/admin/history", s.handleHistory)
 	mux.HandleFunc("/admin/statistics", s.handleGetStats)
 	mux.HandleFunc("/admin/insights", s.handleInsights)
+	mux.HandleFunc("/login", s.handleLogin)
+	mux.HandleFunc("/logout", s.handleLogout)
 	mux.HandleFunc("/explore", s.handleExplore)
 	mux.HandleFunc("/player/", s.handlePlayer)
 	mux.HandleFunc("/embed/", s.handleEmbed)
@@ -326,6 +339,17 @@ func (s *Server) logAuthFailed(user, ip, reason string) {
 }
 
 func (s *Server) checkAuth(r *http.Request) (*config.User, bool) {
+	// 1. Check Session Cookie first (Web UI)
+	if cookie, err := r.Cookie("sid"); err == nil {
+		s.sessionsMu.RLock()
+		sess, ok := s.sessions[cookie.Value]
+		s.sessionsMu.RUnlock()
+		if ok {
+			return sess.User, true
+		}
+	}
+
+	// 2. Fallback to Basic Auth (API/Clients)
 	u, p, ok := r.BasicAuth()
 	if !ok {
 		return nil, false
@@ -339,9 +363,9 @@ func (s *Server) checkAuth(r *http.Request) (*config.User, bool) {
 		s.logAuthFailed(u, r.RemoteAddr, "invalid password")
 		return nil, false
 	}
-	
+
 	host, _, _ := net.SplitHostPort(r.RemoteAddr)
-	s.logAuth().WithFields(logrus.Fields{"user": u, "ip": host}).Info("Admin auth successful")
+	s.logAuth().WithFields(logrus.Fields{"user": u, "ip": host}).Info("Admin auth successful (Basic)")
 	return user, true
 }
 
@@ -357,6 +381,8 @@ func (s *Server) isCSRFSafe(r *http.Request) bool {
 	if r.Method != http.MethodPost {
 		return true
 	}
+
+	// 1. Basic Origin/Referer check
 	origin := r.Header.Get("Origin")
 	if origin == "" {
 		origin = r.Header.Get("Referer")
@@ -364,7 +390,22 @@ func (s *Server) isCSRFSafe(r *http.Request) bool {
 	if origin == "" {
 		return false
 	}
-	return true
+
+	// 2. Session-based Token Check
+	cookie, err := r.Cookie("sid")
+	if err != nil {
+		return false
+	}
+
+	s.sessionsMu.RLock()
+	sess, ok := s.sessions[cookie.Value]
+	s.sessionsMu.RUnlock()
+
+	if !ok {
+		return false
+	}
+
+	return r.FormValue("csrf") == sess.CSRFToken
 }
 
 func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
@@ -767,11 +808,72 @@ Explore our high-performance live streaming network. Discover new music, live sh
 	}
 }
 
+func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	if cookie, err := r.Cookie("sid"); err == nil {
+		s.sessionsMu.Lock()
+		delete(s.sessions, cookie.Value)
+		s.sessionsMu.Unlock()
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     "sid",
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
+	http.Redirect(w, r, "/login", http.StatusSeeOther)
+}
+
+func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		u := r.FormValue("username")
+		p := r.FormValue("password")
+
+		user, exists := s.Config.Users[u]
+		if !exists || !config.CheckPasswordHash(p, user.Password) {
+			s.logAuthFailed(u, r.RemoteAddr, "invalid credentials")
+			data := map[string]interface{}{"Error": "Invalid username or password", "Config": s.Config}
+			s.tmpl.ExecuteTemplate(w, "login.html", data)
+			return
+		}
+
+		// Generate Session ID
+		b := make([]byte, 32)
+		rand.Read(b)
+		sid := hex.EncodeToString(b)
+
+		// Generate CSRF Token
+		cb := make([]byte, 32)
+		rand.Read(cb)
+		csrf := hex.EncodeToString(cb)
+
+		s.sessionsMu.Lock()
+		s.sessions[sid] = &session{User: user, CSRFToken: csrf}
+		s.sessionsMu.Unlock()
+
+		http.SetCookie(w, &http.Cookie{
+			Name:     "sid",
+			Value:    sid,
+			Path:     "/",
+			HttpOnly: true,
+			Secure:   r.TLS != nil,
+			SameSite: http.SameSiteLaxMode,
+			MaxAge:   86400 * 7, // 7 days
+		})
+
+		http.Redirect(w, r, "/admin", http.StatusSeeOther)
+		return
+	}
+
+	data := map[string]interface{}{"Config": s.Config}
+	s.tmpl.ExecuteTemplate(w, "login.html", data)
+}
+
 func (s *Server) handleAdmin(w http.ResponseWriter, r *http.Request) {
 	user, ok := s.checkAuth(r)
 	if !ok {
-		w.Header().Set("WWW-Authenticate", `Basic realm="TinyIce Admin"`)
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
 	}
 	allStreams := s.Relay.Snapshot()
@@ -802,6 +904,15 @@ func (s *Server) handleAdmin(w http.ResponseWriter, r *http.Request) {
 	}
 	sort.Strings(allMounts)
 
+	csrf := ""
+	if cookie, err := r.Cookie("sid"); err == nil {
+		s.sessionsMu.RLock()
+		if sess, ok := s.sessions[cookie.Value]; ok {
+			csrf = sess.CSRFToken
+		}
+		s.sessionsMu.RUnlock()
+	}
+
 	w.Header().Set("Content-Type", "text/html")
 	data := map[string]interface{}{
 		"Streams":        streams,
@@ -809,6 +920,7 @@ func (s *Server) handleAdmin(w http.ResponseWriter, r *http.Request) {
 		"User":           user,
 		"Mounts":         allMounts,
 		"FallbackMounts": s.Config.FallbackMounts,
+		"CSRFToken":      csrf,
 	}
 	if err := s.tmpl.ExecuteTemplate(w, "admin.html", data); err != nil {
 		if !strings.Contains(err.Error(), "broken pipe") {

@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - {{.Config.PageTitle}}</title>
+    <script src="/assets/js/lucide.min.js"></script>
+    <style>
+        :root {
+            --bg: #05070a; --card: rgba(22, 27, 44, 0.6); --border: rgba(255, 255, 255, 0.08);
+            --primary: #38bdf8; --secondary: #94a3b8;
+        }
+        body { 
+            font-family: 'Inter', system-ui, -apple-system, sans-serif; 
+            background-color: var(--bg); color: #fff; margin: 0; padding: 0; 
+            line-height: 1.6; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+            background: radial-gradient(circle at top right, #1e293b, #05070a);
+        }
+        
+        .login-card { 
+            background: var(--card); border: 1px solid var(--border); 
+            border-radius: 32px; padding: 3.5rem; width: 100%; max-width: 450px;
+            box-shadow: 0 40px 100px rgba(0,0,0,0.5);
+            backdrop-filter: blur(20px); text-align: center;
+        }
+
+        .logo { font-size: 2.5rem; font-weight: 950; letter-spacing: -0.06em; margin-bottom: 0.5rem; }
+        .logo span { color: var(--primary); }
+        .subtitle { color: var(--secondary); font-size: 0.95rem; margin-bottom: 2.5rem; font-weight: 500; }
+
+        .form-group { text-align: left; margin-bottom: 1.5rem; }
+        .form-group label { display: block; font-size: 0.75rem; font-weight: 800; text-transform: uppercase; color: var(--secondary); margin-bottom: 0.5rem; letter-spacing: 0.05em; }
+        .form-group input { 
+            width: 100%; background: rgba(255,255,255,0.03); border: 1px solid var(--border); 
+            padding: 1rem 1.25rem; border-radius: 16px; color: #fff; font-size: 1rem;
+            transition: all 0.2s; box-sizing: border-box;
+        }
+        .form-group input:focus { outline: none; border-color: var(--primary); background: rgba(255,255,255,0.05); }
+
+        .btn-login { 
+            width: 100%; background: #fff; color: #000; border: none; padding: 1.25rem; 
+            border-radius: 16px; font-weight: 900; font-size: 1rem; cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); margin-top: 1rem;
+            text-transform: uppercase; letter-spacing: 0.05em;
+        }
+        .btn-login:hover { transform: scale(1.02); background: var(--primary); box-shadow: 0 10px 30px rgba(56, 189, 248, 0.3); }
+
+        .error-msg { 
+            background: rgba(239, 68, 68, 0.1); color: #f87171; padding: 1rem; 
+            border-radius: 12px; font-size: 0.9rem; margin-bottom: 2rem; font-weight: 600;
+            border: 1px solid rgba(239, 68, 68, 0.2);
+        }
+
+        .footer { margin-top: 2rem; color: var(--secondary); font-size: 0.85rem; }
+        .footer a { color: var(--primary); text-decoration: none; font-weight: 700; }
+    </style>
+</head>
+<body>
+    <div class="login-card">
+        <div class="logo">{{.Config.PageTitle}}<span>.</span></div>
+        <div class="subtitle">Admin Dashboard Access</div>
+
+        {{if .Error}}
+        <div class="error-msg">{{.Error}}</div>
+        {{end}}
+
+        <form action="/login" method="POST">
+            <div class="form-group">
+                <label>Username</label>
+                <input type="text" name="username" required autofocus>
+            </div>
+            <div class="form-group">
+                <label>Password</label>
+                <input type="password" name="password" required>
+            </div>
+            <button type="submit" class="btn-login">Sign In</button>
+        </form>
+
+        <div class="footer">
+            Powered by <a href="https://github.com/DatanoiseTV/tinyice">TinyIce</a>
+        </div>
+    </div>
+
+    <script>
+        lucide.createIcons();
+    </script>
+</body>
+</html>
