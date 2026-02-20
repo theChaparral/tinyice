@@ -387,31 +387,45 @@ func (s *Stream) Unsubscribe(id string) {
 }
 
 // UpdateMetadata updates stream info
-func (s *Stream) UpdateMetadata(name, desc, genre, url, bitrate, contentType string, public, visible bool) {
+func (s *Stream) UpdateMetadata(name, desc, genre, url, bitrate, contentType string, public, visible bool) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if name != "" {
+	changed := false
+	if name != "" && s.Name != name {
 		s.Name = name
+		changed = true
 	}
-	if desc != "" {
+	if desc != "" && s.Description != desc {
 		s.Description = desc
+		changed = true
 	}
-	if genre != "" {
+	if genre != "" && s.Genre != genre {
 		s.Genre = genre
+		changed = true
 	}
-	if url != "" {
+	if url != "" && s.URL != url {
 		s.URL = url
+		changed = true
 	}
-	if bitrate != "" {
+	if bitrate != "" && s.Bitrate != bitrate {
 		s.Bitrate = bitrate
+		changed = true
 	}
-	if contentType != "" {
+	if contentType != "" && s.ContentType != contentType {
 		s.ContentType = contentType
 		ct := strings.ToLower(contentType)
 		s.IsOggStream = strings.Contains(ct, "ogg") || strings.Contains(ct, "opus")
+		changed = true
 	}
-	s.Public = public
-	s.Visible = visible
+	if s.Public != public {
+		s.Public = public
+		changed = true
+	}
+	if s.Visible != visible {
+		s.Visible = visible
+		changed = true
+	}
+	return changed
 }
 
 // SetCurrentSong updates the current song info thread-safely

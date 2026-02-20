@@ -40,6 +40,12 @@ type TranscoderConfig struct {
 	Enabled     bool   `json:"enabled"`
 }
 
+type WebhookConfig struct {
+	URL     string   `json:"url"`
+	Events  []string `json:"events"` // "source_connect", "source_disconnect", "metadata_update", "security_lockout"
+	Enabled bool     `json:"enabled"`
+}
+
 type Config struct {
 	BindHost              string            `json:"bind_host"`
 	Port                  string            `json:"port"`
@@ -50,6 +56,7 @@ type Config struct {
 	AdvancedMounts map[string]*MountSettings `json:"advanced_mounts"`
 	Relays         []*RelayConfig            `json:"relays"`
 	Transcoders    []*TranscoderConfig       `json:"transcoders"`
+	Webhooks       []*WebhookConfig          `json:"webhooks"`
 	BannedIPs      []string                  `json:"banned_ips"`
 
 	AdminPassword  string            `json:"admin_password"`
@@ -174,6 +181,9 @@ func (config *Config) initMapsAndArrays() {
 	}
 	if config.Transcoders == nil {
 		config.Transcoders = make([]*TranscoderConfig, 0)
+	}
+	if config.Webhooks == nil {
+		config.Webhooks = make([]*WebhookConfig, 0)
 	}
 	if config.BannedIPs == nil {
 		config.BannedIPs = make([]string, 0)

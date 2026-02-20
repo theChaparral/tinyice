@@ -75,6 +75,7 @@
                 <button class="nav-link" onclick="showTab('tab-users')"><i data-lucide="users"></i> User Management</button>
                 <button class="nav-link" onclick="showTab('tab-relays')"><i data-lucide="refresh-ccw"></i> Edge Relays</button>
                 <button class="nav-link" onclick="showTab('tab-transcoding')"><i data-lucide="scissors"></i> Transcoding</button>
+                <button class="nav-link" onclick="showTab('tab-webhooks')"><i data-lucide="webhook"></i> Webhooks</button>
                 <button class="nav-link" onclick="showTab('tab-security')"><i data-lucide="shield-check"></i> Security & Bans</button>
                 {{end}}
                 <button class="nav-link" onclick="showTab('tab-insights')"><i data-lucide="trending-up"></i> Insights</button>
@@ -275,6 +276,64 @@
                                                 </tr>
                                             </thead>
                                             <tbody id="transcodersBody"></tbody>
+                                        </table>
+                                    </div>
+                                </section>
+                            </div>
+                        </div>
+                        <div id="tab-webhooks" class="tab-content">
+                            <div style="display: grid; grid-template-columns: 1fr 1.5fr; gap: 2rem;">
+                                <section>
+                                    <h2>Configure Webhook</h2>
+                                    <div class="card">
+                                        <form action="/admin/add-webhook" method="POST">
+                                            <input type="hidden" name="csrf" value="{{$.CSRFToken}}">
+                                            <div class="form-group"><label>Target URL</label><input type="text" name="url" placeholder="https://discord.com/api/webhooks/..." required></div>
+                                            <div class="form-group">
+                                                <label>Event Triggers</label>
+                                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; text-align: left; font-size: 0.8rem;">
+                                                    <label style="text-transform: none; display: flex; align-items: center; gap: 0.5rem;"><input type="checkbox" name="events" value="source_connect" checked> Source Connect</label>
+                                                    <label style="text-transform: none; display: flex; align-items: center; gap: 0.5rem;"><input type="checkbox" name="events" value="source_disconnect" checked> Source Disconnect</label>
+                                                    <label style="text-transform: none; display: flex; align-items: center; gap: 0.5rem;"><input type="checkbox" name="events" value="metadata_update" checked> Song Changes</label>
+                                                    <label style="text-transform: none; display: flex; align-items: center; gap: 0.5rem;"><input type="checkbox" name="events" value="security_lockout" checked> Security Alerts</label>
+                                                </div>
+                                            </div>
+                                            <button type="submit" class="btn btn-primary" style="width: 100%;">Save Webhook</button>
+                                        </form>
+                                    </div>
+                                </section>
+                                <section>
+                                    <h2>Active Webhooks</h2>
+                                    <div class="card" style="padding: 0; overflow: hidden;">
+                                        <table>
+                                            <thead>
+                                                <tr>
+                                                    <th>Target URL</th>
+                                                    <th>Events</th>
+                                                    <th>Action</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {{range .Config.Webhooks}}
+                                                <tr>
+                                                    <td style="font-size: 0.75rem; color: var(--text-dim); max-width: 200px; overflow: hidden; text-overflow: ellipsis;">{{.URL}}</td>
+                                                    <td style="font-size: 0.7rem;">
+                                                        {{range .Events}}
+                                                        <span class="genre-tag" style="margin-right: 2px; margin-bottom: 2px; font-size: 0.6rem;">{{.}}</span>
+                                                        {{end}}
+                                                    </td>
+                                                    <td>
+                                                        <form action="/admin/delete-webhook" method="POST" onsubmit="return confirm('Delete?')">
+                                                            <input type="hidden" name="csrf" value="{{$.CSRFToken}}">
+                                                            <input type="hidden" name="url" value="{{.URL}}">
+                                                            <button type="submit" class="btn btn-danger btn-sm">DELETE</button>
+                                                        </form>
+                                                    </td>
+                                                </tr>
+                                                {{else}}
+                                                <tr><td colspan="3" style="text-align: center; padding: 2rem;">No webhooks configured.</td></tr>
+                                                {{end}}
+                                            </tbody>
                                         </table>
                                     </div>
                                 </section>

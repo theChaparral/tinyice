@@ -174,6 +174,68 @@ func NewServer(cfg *config.Config, authLog *logrus.Logger) *Server {
 	}
 }
 
+func (s *Server) dispatchWebhook(event string, data map[string]interface{}) {
+	if len(s.Config.Webhooks) == 0 {
+		return
+	}
+
+	payload := map[string]interface{}{
+		"event":     event,
+		"timestamp": time.Now().Format(time.RFC3339),
+		"hostname":  s.Config.HostName,
+		"data":      data,
+	}
+
+	jsonPayload, err := json.Marshal(payload)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to marshal webhook payload")
+		return
+	}
+
+	for _, wh := range s.Config.Webhooks {
+		if !wh.Enabled {
+			continue
+		}
+
+		// Check if this webhook is interested in this event
+		interested := false
+		for _, e := range wh.Events {
+			if e == event {
+				interested = true
+				break
+			}
+		}
+
+		if !interested {
+			continue
+		}
+
+		// Dispatch asynchronously
+		go func(url string, body []byte) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(body))
+			if err != nil {
+				return
+			}
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("User-Agent", "TinyIce-Webhook/1.0")
+
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				logrus.Warnf("Webhook delivery failed to %s: %v", url, err)
+				return
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+				logrus.Warnf("Webhook returned non-2xx status from %s: %d", url, resp.StatusCode)
+			}
+		}(wh.URL, jsonPayload)
+	}
+}
+
 func (s *Server) setupRoutes() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/admin", s.handleAdmin)
@@ -194,6 +256,8 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/admin/remove-banned-ip", s.handleRemoveBannedIP)
 	mux.HandleFunc("/admin/clear-auth-lockout", s.handleClearAuthLockout)
 	mux.HandleFunc("/admin/clear-scan-lockout", s.handleClearScanLockout)
+	mux.HandleFunc("/admin/add-webhook", s.handleAddWebhook)
+	mux.HandleFunc("/admin/delete-webhook", s.handleDeleteWebhook)
 	mux.HandleFunc("/admin/add-relay", s.handleAddRelay)
 	mux.HandleFunc("/admin/toggle-relay", s.handleToggleRelay)
 	mux.HandleFunc("/admin/restart-relay", s.handleRestartRelay)
@@ -496,6 +560,12 @@ func (s *Server) recordAuthFailure(ip string) {
 	if attempt.Count >= 5 {
 		attempt.LockoutBy = time.Now().Add(15 * time.Minute)
 		logrus.Warnf("IP %s locked out for 15 minutes due to 5 failed auth attempts", ip)
+		s.dispatchWebhook("security_lockout", map[string]interface{}{
+			"ip":      ip,
+			"reason":  "brute_force_auth",
+			"until":   attempt.LockoutBy.Format(time.RFC3339),
+			"details": "5 failed authentication attempts",
+		})
 	}
 }
 
@@ -519,6 +589,12 @@ func (s *Server) recordScanAttempt(ip string) {
 	if attempt.Count >= 10 {
 		attempt.LockoutBy = time.Now().Add(15 * time.Minute)
 		logrus.Warnf("IP %s locked out for 15 minutes due to 10 scanning attempts (404s)", ip)
+		s.dispatchWebhook("security_lockout", map[string]interface{}{
+			"ip":      ip,
+			"reason":  "connection_scanning",
+			"until":   attempt.LockoutBy.Format(time.RFC3339),
+			"details": "10 connection scanning attempts (404s)",
+		})
 	}
 }
 
@@ -787,7 +863,14 @@ func (s *Server) handleSource(w http.ResponseWriter, r *http.Request) {
 	bufrw.WriteString("HTTP/1.0 200 OK\r\nServer: Icecast 2.4.4\r\nConnection: Keep-Alive\r\n\r\n")
 	bufrw.Flush()
 
-	logrus.WithField("mount", mount).Info("Source connected")
+	logrus.WithFields(logrus.Fields{"mount": mount, "ip": r.RemoteAddr, "ua": r.Header.Get("User-Agent")}).Info("Source connected")
+	s.dispatchWebhook("source_connect", map[string]interface{}{
+		"mount": mount,
+		"ip":    r.RemoteAddr,
+		"ua":    r.Header.Get("User-Agent"),
+		"name":  r.Header.Get("Ice-Name"),
+	})
+
 	stream := s.Relay.GetOrCreateStream(mount)
 	stream.SourceIP = r.RemoteAddr
 
@@ -804,6 +887,9 @@ func (s *Server) handleSource(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	logrus.WithField("mount", mount).Info("Source disconnected")
+	s.dispatchWebhook("source_disconnect", map[string]interface{}{
+		"mount": mount,
+	})
 	s.Relay.RemoveStream(mount)
 }
 
@@ -823,7 +909,15 @@ func (s *Server) updateSourceMetadata(stream *relay.Stream, mount string, r *htt
 	}
 	isPublic := r.Header.Get("Ice-Public") == "1"
 	isVisible := s.Config.VisibleMounts[mount]
-	stream.UpdateMetadata(r.Header.Get("Ice-Name"), r.Header.Get("Ice-Description"), r.Header.Get("Ice-Genre"), r.Header.Get("Ice-Url"), bitrate, r.Header.Get("Content-Type"), isPublic, isVisible)
+	if stream.UpdateMetadata(r.Header.Get("Ice-Name"), r.Header.Get("Ice-Description"), r.Header.Get("Ice-Genre"), r.Header.Get("Ice-Url"), bitrate, r.Header.Get("Content-Type"), isPublic, isVisible) {
+		s.dispatchWebhook("metadata_update", map[string]interface{}{
+			"mount":        mount,
+			"name":         stream.Name,
+			"description":  stream.Description,
+			"genre":        stream.Genre,
+			"current_song": stream.CurrentSong,
+		})
+	}
 }
 
 func (s *Server) handleListener(w http.ResponseWriter, r *http.Request) {
@@ -1912,6 +2006,55 @@ func (s *Server) handleClearScanLockout(w http.ResponseWriter, r *http.Request) 
 	delete(s.scanAttempts, ip)
 	s.scanAttemptsMu.Unlock()
 	http.Redirect(w, r, "/admin#tab-security", http.StatusSeeOther)
+}
+
+func (s *Server) handleAddWebhook(w http.ResponseWriter, r *http.Request) {
+	if !s.isCSRFSafe(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	if _, ok := s.checkAuth(r); !ok {
+		return
+	}
+
+	url := r.FormValue("url")
+	events := r.Form["events"]
+
+	if url == "" || len(events) == 0 {
+		http.Error(w, "URL and at least one event required", http.StatusBadRequest)
+		return
+	}
+
+	s.Config.Webhooks = append(s.Config.Webhooks, &config.WebhookConfig{
+		URL:     url,
+		Events:  events,
+		Enabled: true,
+	})
+	s.Config.SaveConfig()
+
+	http.Redirect(w, r, "/admin#tab-webhooks", http.StatusSeeOther)
+}
+
+func (s *Server) handleDeleteWebhook(w http.ResponseWriter, r *http.Request) {
+	if !s.isCSRFSafe(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	if _, ok := s.checkAuth(r); !ok {
+		return
+	}
+
+	url := r.FormValue("url")
+	newWHs := []*config.WebhookConfig{}
+	for _, wh := range s.Config.Webhooks {
+		if wh.URL != url {
+			newWHs = append(newWHs, wh)
+		}
+	}
+	s.Config.Webhooks = newWHs
+	s.Config.SaveConfig()
+
+	http.Redirect(w, r, "/admin#tab-webhooks", http.StatusSeeOther)
 }
 
 func (s *Server) handleGetStats(w http.ResponseWriter, r *http.Request) {
