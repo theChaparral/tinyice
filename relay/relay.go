@@ -87,6 +87,7 @@ type Stream struct {
 	CurrentSong  string
 	Public       bool
 	Visible      bool
+	IsTranscoded bool // True if this stream is an output of a transcoder
 
 	LastDataReceived time.Time
 
@@ -178,6 +179,15 @@ func (r *Relay) RemoveStream(mount string) {
 		s.Close()
 		delete(r.Streams, mount)
 	}
+}
+
+func (r *Relay) GetStreamVisibility(mount string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if s, ok := r.Streams[mount]; ok {
+		return s.Visible
+	}
+	return false
 }
 
 // GetStream safely retrieves a stream
@@ -355,6 +365,7 @@ type StreamStats struct {
 	CurrentSong    string
 	Public         bool
 	Visible        bool
+	IsTranscoded   bool
 	ListenersCount int
 	Uptime         string
 	Health         float64
@@ -410,6 +421,7 @@ func (s *Stream) Snapshot() StreamStats {
 		CurrentSong:    s.CurrentSong,
 		Public:         s.Public,
 		Visible:        s.Visible,
+		IsTranscoded:   s.IsTranscoded,
 		ListenersCount: len(s.listeners),
 		Uptime:         s.uptimeLocked(),
 		Health:         health,

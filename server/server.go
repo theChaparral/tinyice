@@ -1660,6 +1660,7 @@ type streamEventInfo struct {
 	BytesDropped int64   `json:"bytes_dropped"`
 	CurrentSong  string  `json:"song"`
 	Health       float64 `json:"health"`
+	IsTranscoded bool    `json:"is_transcoded"`
 }
 
 type relayEventInfo struct {
@@ -1683,7 +1684,7 @@ func (s *Server) collectStatsPayload(user *config.User) ([]byte, error) {
 				Mount: st.MountName, Name: st.Name, Listeners: lc, Bitrate: st.Bitrate,
 				Uptime: st.Uptime, ContentType: st.ContentType, SourceIP: st.SourceIP,
 				BytesIn: st.BytesIn, BytesOut: st.BytesOut, BytesDropped: st.BytesDropped,
-				CurrentSong: st.CurrentSong, Health: st.Health,
+				CurrentSong: st.CurrentSong, Health: st.Health, IsTranscoded: st.IsTranscoded,
 			})
 			if st.SourceIP == "relay-pull" {
 				tr++

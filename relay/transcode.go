@@ -110,14 +110,29 @@ func (tm *TranscoderManager) runTranscoder(ctx context.Context, inst *Transcoder
 }
 
 func (tm *TranscoderManager) performTranscode(ctx context.Context, inst *TranscoderInstance) {
-	input, ok := tm.relay.GetStream(inst.Config.InputMount)
-	if !ok {
-		return
+	var input *Stream
+	var ok bool
+
+	// 1. Wait for input stream to become available
+	for {
+		input, ok = tm.relay.GetStream(inst.Config.InputMount)
+		if ok {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(1 * time.Second):
+			// Keep waiting
+		}
 	}
 
-	// 1. Subscribe to input
+	logrus.Infof("Transcoder %s: Input stream %s found, initializing...", inst.Config.Name, inst.Config.InputMount)
+
+	// 2. Subscribe to input
 	id := fmt.Sprintf("transcoder-%s", inst.Config.Name)
-	offset, signal := input.Subscribe(id, 0) // No burst for transcoder
+	// We use a small burst to ensure the decoder gets enough data to start
+	offset, signal := input.Subscribe(id, 32*1024) 
 	defer input.Unsubscribe(id)
 
 	reader := &StreamReader{
@@ -128,29 +143,26 @@ func (tm *TranscoderManager) performTranscode(ctx context.Context, inst *Transco
 		ID:     id,
 	}
 
-	// 2. Decode (assuming MP3 input for now as standard)
+	// 3. Decode
 	decoder, err := mp3.NewDecoder(reader)
 	if err != nil {
 		logrus.WithError(err).Errorf("Transcoder %s: Failed to initialize decoder for input %s", inst.Config.Name, inst.Config.InputMount)
 		return
 	}
 
-	// 3. Create Output Stream
+	// 4. Create Output Stream
 	output := tm.relay.GetOrCreateStream(inst.Config.OutputMount)
 	output.Name = fmt.Sprintf("%s (%s %dK)", input.Name, inst.Config.Format, inst.Config.Bitrate)
 	output.Bitrate = fmt.Sprintf("%d", inst.Config.Bitrate)
-	output.ContentType = "audio/mpeg"
-	if inst.Config.Format == "opus" {
-		output.ContentType = "audio/ogg"
-	}
-
-	// 4. Encode & Broadcast
+	output.IsTranscoded = true
+	output.Visible = tm.relay.GetStreamVisibility(inst.Config.InputMount) // Follow input visibility
+	
 	if inst.Config.Format == "mp3" {
+		output.ContentType = "audio/mpeg"
 		tm.encodeMP3(ctx, inst, decoder, output)
 	} else if inst.Config.Format == "opus" {
+		output.ContentType = "audio/ogg"
 		tm.encodeOpus(ctx, inst, decoder, output)
-	} else {
-		logrus.Warnf("Transcoding format %s not yet implemented", inst.Config.Format)
 	}
 }
 

@@ -50,6 +50,7 @@
         .role-badge { font-size: 0.7rem; padding: 0.1rem 0.4rem; border-radius: 4px; font-weight: 800; text-transform: uppercase; margin-left: 0.5rem; }
         .role-super { background: var(--primary); color: var(--bg); }
         .role-admin { background: var(--border); color: var(--text); }
+        .badge-transcoded { background: rgba(168, 85, 247, 0.1); color: #a855f7; font-size: 0.6rem; padding: 0.1rem 0.4rem; border-radius: 4px; font-weight: 800; border: 1px solid rgba(168, 85, 247, 0.2); margin-left: 0.5rem; text-transform: uppercase; }
         .status-pill { display: inline-flex; align-items: center; gap: 0.4rem; background: rgba(16, 185, 129, 0.1); color: var(--success); padding: 0.2rem 0.6rem; border-radius: 100px; font-size: 0.75rem; font-weight: 700; }
         .status-pill.inactive { color: var(--text-dim); background: rgba(255,255,255,0.05); }
         .dot { width: 6px; height: 6px; background: currentColor; border-radius: 50%; }
@@ -564,7 +565,26 @@
                 
                     data.streams.forEach(function(s) {
                         var prev = streamHistory[s.mount] || { in: s.bytes_in, out: s.bytes_out }; var curIn = (s.bytes_in - prev.in) / 1024, curOut = (s.bytes_out - prev.out) / 1024; streamHistory[s.mount] = { in: s.bytes_in, out: s.bytes_out };
-                        var clone = rowTemplate.content.cloneNode(true); clone.querySelector('.row-mount').textContent = s.mount; clone.querySelector('.row-ip').textContent = s.ip; clone.querySelector('.row-song').textContent = s.song;
+                        var clone = rowTemplate.content.cloneNode(true);
+                        
+                        var mountCell = clone.querySelector('.row-mount');
+                        mountCell.textContent = s.mount;
+                        if (s.ip === 'relay-pull') {
+                            var badge = document.createElement('span');
+                            badge.className = 'badge-transcoded';
+                            badge.style.background = 'rgba(56, 189, 248, 0.1)';
+                            badge.style.color = '#38bdf8';
+                            badge.style.borderColor = 'rgba(56, 189, 248, 0.2)';
+                            badge.textContent = 'RELAY';
+                            mountCell.parentElement.appendChild(badge);
+                        } else if (s.is_transcoded) {
+                            var badge = document.createElement('span');
+                            badge.className = 'badge-transcoded';
+                            badge.textContent = 'TRANSCODED';
+                            mountCell.parentElement.appendChild(badge);
+                        }
+
+                        clone.querySelector('.row-ip').textContent = s.ip; clone.querySelector('.row-song').textContent = s.song;
                         clone.querySelector('.row-listeners').textContent = s.listeners; clone.querySelector('.row-in').textContent = curIn.toFixed(1); clone.querySelector('.row-out').textContent = curOut.toFixed(1);
                         
                         var health = s.health;
