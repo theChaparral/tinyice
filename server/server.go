@@ -910,8 +910,8 @@ func (s *Server) handleListener(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) serveStreamData(w http.ResponseWriter, r *http.Request, stream *relay.Stream, id, originalMount, currentMount string, recoveryTicker *time.Ticker, metaint int) bool {
-	// Subscribe with 64KB burst (approx 4s @ 128kbps) for instant start
-	offset, signal := stream.Subscribe(id, 65536)
+	// Subscribe with 256KB burst (approx 32s @ 64kbps Opus) for robust instant start
+	offset, signal := stream.Subscribe(id, 256*1024)
 	defer stream.Unsubscribe(id)
 
 	if stream.OggHead != nil {

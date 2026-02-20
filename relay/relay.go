@@ -201,7 +201,7 @@ func (r *Relay) GetOrCreateStream(mount string) *Stream {
 	s := &Stream{
 		MountName:   mount,
 		listeners:   make(map[string]chan struct{}),
-		Buffer:      NewCircularBuffer(512 * 1024), // 512KB shared buffer per stream
+		Buffer:      NewCircularBuffer(2 * 1024 * 1024), // 2MB shared buffer per stream
 		Started:     time.Now(),
 		Name:        "Unnamed Stream",
 		Description: "No description",
