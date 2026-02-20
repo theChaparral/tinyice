@@ -541,27 +541,31 @@ func (s *Server) isCSRFSafe(r *http.Request) bool {
 		return true
 	}
 
-	// 1. Basic Origin/Referer check
+	// If no session cookie, we assume it's a Basic Auth / API request.
+	// checkAuth will handle the actual credential verification.
+	cookie, err := r.Cookie("sid")
+	if err != nil {
+		return true
+	}
+
+	// 1. Basic Origin/Referer check for session-based requests
 	origin := r.Header.Get("Origin")
 	if origin == "" {
 		origin = r.Header.Get("Referer")
 	}
-	if origin == "" {
-		return false
-	}
+	// We allow missing origin/referer for now to be less restrictive, 
+	// but we MUST have a valid CSRF token if we have a session.
 
 	// 2. Session-based Token Check
-	cookie, err := r.Cookie("sid")
-	if err != nil {
-		return false
-	}
-
 	s.sessionsMu.RLock()
 	sess, ok := s.sessions[cookie.Value]
 	s.sessionsMu.RUnlock()
 
 	if !ok {
-		return false
+		// Session cookie exists but session not found in memory (expired/restarted).
+		// We return true here to avoid "Forbidden" and let checkAuth handle the 
+		// "Unauthorized" redirect/error which is much cleaner.
+		return true
 	}
 
 	return r.FormValue("csrf") == sess.CSRFToken
