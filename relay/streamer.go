@@ -37,6 +37,7 @@ type Streamer struct {
 	Loop           bool
 	Shuffle        bool
 	InjectMetadata bool
+	Visible        bool
 	MPDPassword    string
 
 	relay  *Relay
@@ -44,6 +45,7 @@ type Streamer struct {
 	mu     sync.RWMutex
 
 	fileCancel context.CancelFunc
+	titleCache map[string]string
 
 	// Stats
 	BytesStreamed       int64
@@ -122,6 +124,67 @@ func (s *Streamer) RemoveFromQueue(index int) {
 	s.Queue = append(s.Queue[:index], s.Queue[index+1:]...)
 }
 
+type PlaylistItem struct {
+	Title string
+	Path  string
+}
+
+func (s *Streamer) GetPlaylistInfo() []PlaylistItem {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	res := make([]PlaylistItem, len(s.Playlist))
+	for i, p := range s.Playlist {
+		res[i] = PlaylistItem{
+			Title: s.GetSongTitle(p),
+			Path:  p,
+		}
+	}
+	return res
+}
+
+func (s *Streamer) GetSongTitle(path string) string {
+	s.mu.RLock()
+	if title, ok := s.titleCache[path]; ok {
+		s.mu.RUnlock()
+		return title
+	}
+	s.mu.RUnlock()
+
+	f, err := os.Open(path)
+	if err != nil {
+		return filepath.Base(path)
+	}
+	defer f.Close()
+
+	title := filepath.Base(path)
+	if m, err := tag.ReadFrom(f); err == nil {
+		if m.Artist() != "" && m.Title() != "" {
+			title = fmt.Sprintf("%s - %s", m.Artist(), m.Title())
+		} else if m.Title() != "" {
+			title = m.Title()
+		}
+	}
+
+	s.mu.Lock()
+	s.titleCache[path] = title
+	s.mu.Unlock()
+
+	return title
+}
+
+func (s *Streamer) GetQueueInfo() []PlaylistItem {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	res := make([]PlaylistItem, len(s.Queue))
+	for i, p := range s.Queue {
+		res[i] = PlaylistItem{
+			Title: s.GetSongTitle(p),
+			Path:  p,
+		}
+	}
+	return res
+}
+
 func (s *Streamer) GetPlaylistNames() []string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -150,6 +213,7 @@ func (s *Streamer) ScanMusicDir() error {
 		return fmt.Errorf("music directory not configured")
 	}
 
+	s.titleCache = make(map[string]string)
 	s.Playlist = []string{}
 	err := filepath.Walk(s.MusicDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -202,26 +266,27 @@ func (s *Streamer) RemoveFromPlaylist(idx int) {
 }
 
 type StreamerStats struct {
-	Name         string
-	Mount        string
-	State        StreamerState
-	CurrentSong  string
-	StartTime    time.Time
-	Duration     time.Duration
-	PlaylistPos  int
-	PlaylistLen  int
-	Shuffle      bool
-	MPDPort      string
-	MPDPassword  string
-	MusicDir     string
-	Loop         bool
+	Name           string
+	Mount          string
+	State          StreamerState
+	CurrentSong    string
+	StartTime      time.Time
+	Duration       time.Duration
+	PlaylistPos    int
+	PlaylistLen    int
+	Shuffle        bool
+	MPDPort        string
+	MPDPassword    string
+	MusicDir       string
+	Loop           bool
 	InjectMetadata bool
+	Visible        bool
 }
 
 func (s *Streamer) GetStats() StreamerStats {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	
+
 	mpdPort := ""
 	mpdPassword := ""
 	if s.MPDServer != nil {
@@ -244,10 +309,11 @@ func (s *Streamer) GetStats() StreamerStats {
 		MusicDir:       s.MusicDir,
 		Loop:           s.Loop,
 		InjectMetadata: s.InjectMetadata,
+		Visible:        s.Visible,
 	}
 }
 
-func (sm *StreamerManager) StartStreamer(name, mount, musicDir string, loop bool, format string, bitrate int, injectMetadata bool, initialPlaylist []string, mpdEnabled bool, mpdPort, mpdPassword string) (*Streamer, error) {
+func (sm *StreamerManager) StartStreamer(name, mount, musicDir string, loop bool, format string, bitrate int, injectMetadata bool, initialPlaylist []string, mpdEnabled bool, mpdPort, mpdPassword string, visible bool) (*Streamer, error) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
@@ -266,9 +332,11 @@ func (sm *StreamerManager) StartStreamer(name, mount, musicDir string, loop bool
 		State:          StateStopped,
 		Loop:           loop,
 		InjectMetadata: injectMetadata,
+		Visible:        visible,
 		MPDPassword:    mpdPassword,
 		relay:          sm.relay,
 		cancel:         cancel,
+		titleCache:     make(map[string]string),
 	}
 
 	if mpdEnabled && mpdPort != "" {
@@ -353,7 +421,7 @@ func (sm *StreamerManager) runStreamerLoop(ctx context.Context, s *Streamer) {
 
 			s.mu.Lock()
 			var filePath string
-			
+
 			// 1. Check Queue first
 			if len(s.Queue) > 0 {
 				filePath = s.Queue[0]
@@ -380,30 +448,30 @@ func (sm *StreamerManager) runStreamerLoop(ctx context.Context, s *Streamer) {
 			}
 			s.mu.Unlock()
 
-			                        if filePath == "" {
-			                                time.Sleep(1 * time.Second)
-			                                continue
-			                        }
-			
-			                        // Create a per-file context for skipping
-			                        fileCtx, fileCancel := context.WithCancel(ctx)
-			                        s.mu.Lock()
-			                        s.fileCancel = fileCancel
-			                        s.mu.Unlock()
-			
-			                        err := sm.streamFile(fileCtx, s, filePath)
-			                        if err != nil && fileCtx.Err() == nil {
-			                                logrus.WithError(err).Errorf("Streamer %s: Failed to stream %s", s.Name, filePath)
-			                                time.Sleep(1 * time.Second)
-			                        }
-			
-			                        s.mu.Lock()
-			                        s.fileCancel = nil
-			                        fileCancel()
-			                        s.mu.Unlock()
-			                }
-			        }
+			if filePath == "" {
+				time.Sleep(1 * time.Second)
+				continue
 			}
+
+			// Create a per-file context for skipping
+			fileCtx, fileCancel := context.WithCancel(ctx)
+			s.mu.Lock()
+			s.fileCancel = fileCancel
+			s.mu.Unlock()
+
+			err := sm.streamFile(fileCtx, s, filePath)
+			if err != nil && fileCtx.Err() == nil {
+				logrus.WithError(err).Errorf("Streamer %s: Failed to stream %s", s.Name, filePath)
+				time.Sleep(1 * time.Second)
+			}
+
+			s.mu.Lock()
+			s.fileCancel = nil
+			fileCancel()
+			s.mu.Unlock()
+		}
+	}
+}
 func (sm *StreamerManager) streamFile(ctx context.Context, s *Streamer, path string) error {
 	f, err := os.Open(path)
 	if err != nil {
@@ -431,7 +499,7 @@ func (sm *StreamerManager) streamFile(ctx context.Context, s *Streamer, path str
 	s.mu.Lock()
 	s.CurrentFile = songTitle
 	s.CurrentFileTime = time.Now()
-	s.CurrentFileDuration = time.Duration(decoder.Length()) * time.Second / (44100 * 2 * 2) // Rough estimate for 44.1kHz 16bit stereo
+	s.CurrentFileDuration = time.Duration(decoder.Length()) * time.Second / time.Duration(decoder.SampleRate()*4)
 	s.mu.Unlock()
 
 	// Update stream metadata
@@ -446,10 +514,10 @@ func (sm *StreamerManager) streamFile(ctx context.Context, s *Streamer, path str
 
 	if s.Format == "opus" {
 		output.ContentType = "audio/ogg"
-		EncodeOpus(ctx, sm.relay, output, decoder, s.Bitrate, &s.BytesStreamed)
+		EncodeOpus(ctx, sm.relay, output, decoder, s.Bitrate, &s.BytesStreamed, true)
 	} else {
 		output.ContentType = "audio/mpeg"
-		EncodeMP3(ctx, sm.relay, output, decoder, s.Bitrate, &s.BytesStreamed)
+		EncodeMP3(ctx, sm.relay, output, decoder, s.Bitrate, &s.BytesStreamed, true, decoder.SampleRate())
 	}
 
 	return nil

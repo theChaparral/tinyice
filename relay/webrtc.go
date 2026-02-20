@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kazzmir/opus-go/ogg"
 	"github.com/pion/webrtc/v4"
 	"github.com/pion/webrtc/v4/pkg/media"
-	"github.com/kazzmir/opus-go/ogg"
 	"github.com/sirupsen/logrus"
 )
 
@@ -27,9 +27,9 @@ func (p *SimplePacer) Pace(duration time.Duration) {
 	}
 	p.sentMS += duration.Milliseconds()
 	targetTime := p.startTime.Add(time.Duration(p.sentMS) * time.Millisecond)
-	
+
 	wait := time.Until(targetTime)
-	
+
 	// Catch-up logic: If we are more than 500ms behind, reset the pacer baseline
 	if wait < -500*time.Millisecond {
 		p.startTime = time.Now()
@@ -52,7 +52,7 @@ func NewWebRTCManager(r *Relay) *WebRTCManager {
 	s := webrtc.SettingEngine{}
 	// Optimize for many listeners
 	s.SetICETimeouts(10*time.Second, 20*time.Second, 2*time.Second)
-	
+
 	api := webrtc.NewAPI(webrtc.WithSettingEngine(s))
 	return &WebRTCManager{
 		api:   api,
@@ -153,7 +153,7 @@ func (wm *WebRTCManager) streamToTrack(pc *webrtc.PeerConnection, track *webrtc.
 			}
 			if !foundSync {
 				// Keep the last 3 bytes in case "OggS" is split between reads
-				offset = next - 3 
+				offset = next - 3
 				searched += int64(n)
 			}
 		}
@@ -188,7 +188,7 @@ func (wm *WebRTCManager) streamToTrack(pc *webrtc.PeerConnection, track *webrtc.
 	pacer := &SimplePacer{}
 	logrus.Infof("WebRTC: Beginning packet transmission for %s", stream.MountName)
 	sentCount := 0
-	
+
 	// Default Opus duration is 20ms. If we detect drift, the pacer will self-correct.
 	const defaultDuration = 20 * time.Millisecond
 
@@ -201,7 +201,7 @@ func (wm *WebRTCManager) streamToTrack(pc *webrtc.PeerConnection, track *webrtc.
 			return
 		}
 
-		// WebRTC expects 48kHz Opus samples. 
+		// WebRTC expects 48kHz Opus samples.
 		pacer.Pace(defaultDuration)
 		if err := track.WriteSample(media.Sample{
 			Data:     packet.Data,

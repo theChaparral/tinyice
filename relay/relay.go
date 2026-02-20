@@ -121,16 +121,15 @@ type Stream struct {
 	BytesDropped int64 // Track total bytes dropped due to slow listeners
 	CurrentSong  string
 	Public       bool
-		Visible        bool
-		IsTranscoded   bool // True if this stream is an output of a transcoder
-		IsOggStream    bool // Pre-calculated for speed
-	
-		LastDataReceived time.Time
-	
+	Visible      bool
+	IsTranscoded bool // True if this stream is an output of a transcoder
+	IsOggStream  bool // Pre-calculated for speed
 
-	OggHead         []byte // Store Ogg headers for Opus/Ogg streams
-	OggHeaderOffset int64  // Absolute buffer offset where headers end
-	LastPageOffset  int64  // Absolute offset of the last valid Ogg page start
+	LastDataReceived time.Time
+
+	OggHead         []byte  // Store Ogg headers for Opus/Ogg streams
+	OggHeaderOffset int64   // Absolute buffer offset where headers end
+	LastPageOffset  int64   // Absolute offset of the last valid Ogg page start
 	PageOffsets     []int64 // Circular list of last ~100 page starts
 	PageIndex       int
 
@@ -152,7 +151,7 @@ func (r *StreamReader) Read(p []byte) (int, error) {
 	for {
 		n, next, skipped := r.Stream.Buffer.ReadAt(r.Offset, p)
 		if skipped && r.Stream.IsOggStream {
-			// If we were skipped forward because the buffer wrapped around, 
+			// If we were skipped forward because the buffer wrapped around,
 			// we MUST re-align to the next Ogg page start.
 			r.Offset = r.Stream.Buffer.FindNextPageBoundary(next)
 			continue // Retry read at aligned offset
@@ -248,9 +247,8 @@ func (r *Relay) GetStream(mount string) (*Stream, bool) {
 }
 
 func (r *Relay) UpdateMetadata(mount, song string) {
-	if st, ok := r.GetStream(mount); ok {
-		st.SetCurrentSong(song, r)
-	}
+	st := r.GetOrCreateStream(mount)
+	st.SetCurrentSong(song, r)
 }
 
 // IsOgg returns true if the stream is Ogg-based (Ogg/Vorbis, Ogg/Opus, etc)
@@ -346,15 +344,19 @@ func (s *Stream) Subscribe(id string, burstSize int) (int64, chan struct{}) {
 	// For Ogg/Opus, align to the oldest known page boundary within the valid buffer range
 	if s.IsOggStream {
 		validStart := s.Buffer.Head - s.Buffer.Size
-		if validStart < 0 { validStart = 0 }
-		
-		// If we have an OggHead persistent storage, we want to start reading 
+		if validStart < 0 {
+			validStart = 0
+		}
+
+		// If we have an OggHead persistent storage, we want to start reading
 		// from the Buffer AFTER the initial headers to avoid duplicates.
 		if s.OggHeaderOffset > start {
 			start = s.OggHeaderOffset
 		}
 
-		if start < validStart { start = validStart }
+		if start < validStart {
+			start = validStart
+		}
 
 		bestAlign := s.LastPageOffset
 		found := false
@@ -373,7 +375,7 @@ func (s *Stream) Subscribe(id string, burstSize int) (int64, chan struct{}) {
 			start = s.Buffer.Head // Fallback to now if nothing valid found
 		}
 	}
-	
+
 	// Ensure we don't go back further than the buffer allows
 	if s.Buffer.Head-start > s.Buffer.Size {
 		start = s.Buffer.Head - s.Buffer.Size
@@ -498,7 +500,7 @@ func (s *Stream) Snapshot() StreamStats {
 
 	bi := atomic.LoadInt64(&s.BytesIn)
 	bd := atomic.LoadInt64(&s.BytesDropped)
-	
+
 	// Health calculation
 	// 1. Loss-based health
 	health := 100.0
@@ -547,7 +549,6 @@ func (s *Stream) Snapshot() StreamStats {
 		Health:         health,
 	}
 }
-
 
 // uptimeLocked returns the formatted uptime string assuming the lock is already held
 func (s *Stream) uptimeLocked() string {

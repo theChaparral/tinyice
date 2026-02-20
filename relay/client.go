@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -184,7 +185,7 @@ func (rm *RelayManager) performPull(ctx context.Context, inst *RelayInstance) {
 }
 
 func (rm *RelayManager) pullSimple(ctx context.Context, body io.Reader, stream *Stream) {
-	buf := make([]byte, 8192)
+	buf := make([]byte, 16384)
 	for {
 		select {
 		case <-ctx.Done():
@@ -192,7 +193,38 @@ func (rm *RelayManager) pullSimple(ctx context.Context, body io.Reader, stream *
 		default:
 			n, err := body.Read(buf)
 			if n > 0 {
-				stream.Broadcast(buf[:n], rm.relay)
+				data := buf[:n]
+				stream.Broadcast(data, rm.relay)
+
+				// Sniff for Opus metadata (Vorbis comments) in Ogg pages
+				// Look for "OpusTags" magic
+				if idx := bytes.Index(data, []byte("OpusTags")); idx != -1 {
+					// Found tags! Extract title if possible
+					// Skip "OpusTags" (8 bytes)
+					tagsData := data[idx+8:]
+					if len(tagsData) > 8 {
+						// Simple sniffer for "TITLE="
+						tagsStr := string(tagsData)
+						if strings.Contains(tagsStr, "TITLE=") {
+							title := strings.Split(tagsStr, "TITLE=")[1]
+							// Titles in Ogg are often null-terminated or limited by length
+							// For simplicity, we just take a reasonable chunk and trim
+							if len(title) > 100 {
+								title = title[:100]
+							}
+							// Clean up
+							title = strings.Map(func(r rune) rune {
+								if r < 32 || r > 126 {
+									return -1
+								}
+								return r
+							}, title)
+							if title != "" {
+								stream.SetCurrentSong(title, rm.relay)
+							}
+						}
+					}
+				}
 			}
 			if err != nil {
 				return

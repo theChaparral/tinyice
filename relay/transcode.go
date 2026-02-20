@@ -90,7 +90,7 @@ func (inst *TranscoderInstance) Stop() {
 }
 
 func (tm *TranscoderManager) runTranscoder(ctx context.Context, inst *TranscoderInstance) {
-	logrus.Infof("Starting transcoder %s: %s -> %s (%s %dkbps)", 
+	logrus.Infof("Starting transcoder %s: %s -> %s (%s %dkbps)",
 		inst.Config.Name, inst.Config.InputMount, inst.Config.OutputMount, inst.Config.Format, inst.Config.Bitrate)
 
 	for {
@@ -132,7 +132,7 @@ func (tm *TranscoderManager) performTranscode(ctx context.Context, inst *Transco
 	// 2. Subscribe to input
 	id := fmt.Sprintf("transcoder-%s", inst.Config.Name)
 	// We use a small burst to ensure the decoder gets enough data to start
-	offset, signal := input.Subscribe(id, 32*1024) 
+	offset, signal := input.Subscribe(id, 32*1024)
 	defer input.Unsubscribe(id)
 
 	reader := &StreamReader{
@@ -156,23 +156,29 @@ func (tm *TranscoderManager) performTranscode(ctx context.Context, inst *Transco
 	output.Bitrate = fmt.Sprintf("%d", inst.Config.Bitrate)
 	output.IsTranscoded = true
 	output.Visible = tm.relay.GetStreamVisibility(inst.Config.InputMount) // Follow input visibility
-	
+
 	if inst.Config.Format == "mp3" {
 		output.ContentType = "audio/mpeg"
-		EncodeMP3(ctx, tm.relay, output, decoder, inst.Config.Bitrate, &inst.BytesEncoded)
+		EncodeMP3(ctx, tm.relay, output, decoder, inst.Config.Bitrate, &inst.BytesEncoded, false, 44100)
 	} else if inst.Config.Format == "opus" {
 		output.ContentType = "audio/ogg"
-		EncodeOpus(ctx, tm.relay, output, decoder, inst.Config.Bitrate, &inst.BytesEncoded)
+		EncodeOpus(ctx, tm.relay, output, decoder, inst.Config.Bitrate, &inst.BytesEncoded, false)
 	}
 }
 
-func EncodeMP3(ctx context.Context, relay *Relay, output *Stream, decoder io.Reader, bitrate int, stats *int64) {
+func EncodeMP3(ctx context.Context, relay *Relay, output *Stream, decoder io.Reader, bitrate int, stats *int64, pace bool, sampleRate int) {
+	if sampleRate <= 0 {
+		sampleRate = 44100 // Fallback
+	}
 	// Shine MP3 initialization
-	encoder := shine.NewEncoder(44100, 2)
+	encoder := shine.NewEncoder(sampleRate, 2)
 
 	// Output buffer - shine Write uses int16 samples
 	pcmBuf := make([]byte, 4608) // 1152 samples * 2 bytes * 2 channels
 	samples := make([]int16, 2304)
+
+	startTime := time.Now()
+	totalSamples := int64(0)
 
 	for {
 		select {
@@ -197,11 +203,20 @@ func EncodeMP3(ctx context.Context, relay *Relay, output *Stream, decoder io.Rea
 			if err != nil {
 				return
 			}
+
+			if pace {
+				totalSamples += int64(n / 4) // 2 channels, 2 bytes per sample
+				elapsed := time.Since(startTime)
+				expected := time.Duration(totalSamples) * time.Second / time.Duration(sampleRate)
+				if expected > elapsed {
+					time.Sleep(expected - elapsed)
+				}
+			}
 		}
 	}
 }
 
-func EncodeOpus(ctx context.Context, relay *Relay, output *Stream, decoder io.Reader, bitrate int, stats *int64) {
+func EncodeOpus(ctx context.Context, relay *Relay, output *Stream, decoder io.Reader, bitrate int, stats *int64, pace bool) {
 	// 48kHz is standard for Opus
 	const sampleRate = 48000
 	const channels = 2
@@ -251,6 +266,7 @@ func EncodeOpus(ctx context.Context, relay *Relay, output *Stream, decoder io.Re
 
 	var granulePos uint64
 	var sentCount int64 = 0
+	startTime := time.Now()
 
 	for {
 		select {
@@ -282,7 +298,14 @@ func EncodeOpus(ctx context.Context, relay *Relay, output *Stream, decoder io.Re
 			}
 			pw.Flush()
 
-			sentCount++
+			if pace {
+				sentCount++
+				elapsed := time.Since(startTime)
+				expected := time.Duration(sentCount*frameMS) * time.Millisecond
+				if expected > elapsed {
+					time.Sleep(expected - elapsed)
+				}
+			}
 		}
 	}
 }

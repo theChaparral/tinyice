@@ -41,6 +41,27 @@ var templateFS embed.FS
 //go:embed all:assets
 var assetFS embed.FS
 
+type BannedListener struct {
+	net.Listener
+	s *Server
+}
+
+func (l *BannedListener) Accept() (net.Conn, error) {
+	for {
+		conn, err := l.Listener.Accept()
+		if err != nil {
+			return nil, err
+		}
+		remoteAddr := conn.RemoteAddr().String()
+		if l.s.isBanned(remoteAddr) {
+			logrus.WithField("ip", remoteAddr).Warn("Dropping connection from banned IP at TCP level")
+			conn.Close()
+			continue
+		}
+		return conn, nil
+	}
+}
+
 type Server struct {
 	Config      *config.Config
 	Relay       *relay.Relay
@@ -68,6 +89,7 @@ type Server struct {
 
 type scanAttempt struct {
 	Count     int
+	Paths     map[string]bool
 	LockoutBy time.Time
 }
 
@@ -163,16 +185,16 @@ func NewServer(cfg *config.Config, authLog *logrus.Logger) *Server {
 
 	r := relay.NewRelay(cfg.LowLatencyMode, hm)
 	return &Server{
-		Config:      cfg,
-		Relay:       r,
-		RelayM:      relay.NewRelayManager(r),
-		TranscoderM: relay.NewTranscoderManager(r),
-		WebRTCM:     relay.NewWebRTCManager(r),
-		StreamerM:   relay.NewStreamerManager(r, cfg),
-		tmpl:        tmpl,
-		startTime:   time.Now(),
-		AuthLog:     authLog,
-		sessions:    make(map[string]*session),
+		Config:       cfg,
+		Relay:        r,
+		RelayM:       relay.NewRelayManager(r),
+		TranscoderM:  relay.NewTranscoderManager(r),
+		WebRTCM:      relay.NewWebRTCManager(r),
+		StreamerM:    relay.NewStreamerManager(r, cfg),
+		tmpl:         tmpl,
+		startTime:    time.Now(),
+		AuthLog:      authLog,
+		sessions:     make(map[string]*session),
 		authAttempts: make(map[string]*authAttempt),
 		scanAttempts: make(map[string]*scanAttempt),
 	}
@@ -315,7 +337,11 @@ func (s *Server) listenWithReuse(network, address string) (net.Listener, error) 
 			return err
 		},
 	}
-	return lc.Listen(context.Background(), network, address)
+	ln, err := lc.Listen(context.Background(), network, address)
+	if err != nil {
+		return nil, err
+	}
+	return &BannedListener{ln, s}, nil
 }
 
 func (s *Server) Shutdown(ctx context.Context) error {
@@ -324,7 +350,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	// Stop relays and transcoders immediately to prevent dual-pulling if a new instance starts
 	s.RelayM.StopAll()
 	s.TranscoderM.StopAll()
-	
+
 	// Force signal all listeners to stop reading
 
 	s.Relay.DisconnectAllListeners()
@@ -373,74 +399,74 @@ func (s *Server) ReloadConfig(cfg *config.Config) {
 	logrus.Info("Configuration reloaded successfully")
 }
 func (s *Server) Start() error {
-    mux := s.setupRoutes()
+	mux := s.setupRoutes()
 
-    if s.Config.DirectoryListing {
-        go s.directoryReportingTask()
-    }
-    go s.statsRecordingTask()
+	if s.Config.DirectoryListing {
+		go s.directoryReportingTask()
+	}
+	go s.statsRecordingTask()
 
-    for _, rc := range s.Config.Relays {
-        if rc.Enabled {
-            s.RelayM.StartRelay(rc.URL, rc.Mount, rc.Password, rc.BurstSize, s.Config.VisibleMounts[rc.Mount])
-        }
-    }
-    for _, tc := range s.Config.Transcoders {
-        if tc.Enabled {
-            s.TranscoderM.StartTranscoder(tc)
-        }
-    }
-    for _, adj := range s.Config.AutoDJs {
-        if adj.Enabled {
-            streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, adj.Playlist, adj.MPDEnabled, adj.MPDPort, adj.MPDPassword)
-            if err != nil {
-                logrus.WithError(err).Errorf("Failed to start AutoDJ %s", adj.Name)
-            } else {
-                logrus.Infof("AutoDJ %s started on %s", adj.Name, adj.Mount)
-                if adj.InjectMetadata {
-                    if st, ok := s.Relay.GetStream(adj.Mount); ok {
-                        st.SetVisible(true)
-                    }
-                }
-                if len(adj.Playlist) == 0 {
-                    streamer.ScanMusicDir()
-                }
-            }
-        }
-    }
+	for _, rc := range s.Config.Relays {
+		if rc.Enabled {
+			s.RelayM.StartRelay(rc.URL, rc.Mount, rc.Password, rc.BurstSize, s.Config.VisibleMounts[rc.Mount])
+		}
+	}
+	for _, tc := range s.Config.Transcoders {
+		if tc.Enabled {
+			s.TranscoderM.StartTranscoder(tc)
+		}
+	}
+	for _, adj := range s.Config.AutoDJs {
+		if adj.Enabled {
+			streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, adj.Playlist, adj.MPDEnabled, adj.MPDPort, adj.MPDPassword, adj.Visible)
+			if err != nil {
+				logrus.WithError(err).Errorf("Failed to start AutoDJ %s", adj.Name)
+			} else {
+				logrus.Infof("AutoDJ %s started on %s", adj.Name, adj.Mount)
+				if adj.InjectMetadata {
+					if st, ok := s.Relay.GetStream(adj.Mount); ok {
+						st.SetVisible(adj.Visible)
+					}
+				}
+				if len(adj.Playlist) == 0 {
+					streamer.ScanMusicDir()
+				}
+			}
+		}
+	}
 
-    port := s.Config.Port
+	port := s.Config.Port
 
-    if s.Config.UseHTTPS {
-        // For HTTPS, build a dual-stack addr and let startHTTPS handle it
-        // (or replicate the dual-listener pattern there too)
-        addr := net.JoinHostPort(s.Config.BindHost, port)
-        return s.startHTTPS(mux, addr)
-    }
+	if s.Config.UseHTTPS {
+		// For HTTPS, build a dual-stack addr and let startHTTPS handle it
+		// (or replicate the dual-listener pattern there too)
+		addr := net.JoinHostPort(s.Config.BindHost, port)
+		return s.startHTTPS(mux, addr)
+	}
 
-    srv := &http.Server{
-        Handler:      mux,
-        ReadTimeout:  10 * time.Second,
-        WriteTimeout: 0,
-        IdleTimeout:  120 * time.Second,
-    }
-    s.httpServers = append(s.httpServers, srv)
+	srv := &http.Server{
+		Handler:      mux,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 0,
+		IdleTimeout:  120 * time.Second,
+	}
+	s.httpServers = append(s.httpServers, srv)
 
-    // Build listener(s)
-    listeners, err := s.buildListeners(port)
-    if err != nil {
-        return err
-    }
+	// Build listener(s)
+	listeners, err := s.buildListeners(port)
+	if err != nil {
+		return err
+	}
 
-    if len(listeners) == 1 {
-        logrus.Infof("Starting TinyIce on %s (HTTP)", listeners[0].Addr())
-        return srv.Serve(listeners[0])
-    }
+	if len(listeners) == 1 {
+		logrus.Infof("Starting TinyIce on %s (HTTP)", listeners[0].Addr())
+		return srv.Serve(listeners[0])
+	}
 
-    // Dual-stack: combine both listeners via a single channel-based listener
-    logrus.Infof("Starting TinyIce on [::]:%s and 0.0.0.0:%s (HTTP)", port, port)
-    combined := newMultiListener(listeners)
-    return srv.Serve(combined)
+	// Dual-stack: combine both listeners via a single channel-based listener
+	logrus.Infof("Starting TinyIce on [::]:%s and 0.0.0.0:%s (HTTP)", port, port)
+	combined := newMultiListener(listeners)
+	return srv.Serve(combined)
 }
 
 // buildListeners returns one listener per usable network family for the given port.
@@ -448,102 +474,102 @@ func (s *Server) Start() error {
 // If BindHost is "::"                 → IPv6 only.
 // If BindHost is ""  (we treat as dual-stack wildcard) → try both.
 func (s *Server) buildListeners(port string) ([]net.Listener, error) {
-    host := s.Config.BindHost
+	host := s.Config.BindHost
 
-    // Explicit non-wildcard address: just one listener
-    if host != "" && host != "0.0.0.0" && host != "::" {
-        addr := net.JoinHostPort(host, port)
-        ln, err := s.listenWithReuse("tcp", addr)
-        if err != nil {
-            return nil, err
-        }
-        return []net.Listener{ln}, nil
-    }
+	// Explicit non-wildcard address: just one listener
+	if host != "" && host != "0.0.0.0" && host != "::" {
+		addr := net.JoinHostPort(host, port)
+		ln, err := s.listenWithReuse("tcp", addr)
+		if err != nil {
+			return nil, err
+		}
+		return []net.Listener{ln}, nil
+	}
 
-    // Wildcard: spawn both IPv4 and IPv6 listeners
-    addrs := []string{
-        net.JoinHostPort("0.0.0.0", port), // IPv4
-        net.JoinHostPort("::", port),       // IPv6
-    }
+	// Wildcard: spawn both IPv4 and IPv6 listeners
+	addrs := []string{
+		net.JoinHostPort("0.0.0.0", port), // IPv4
+		net.JoinHostPort("::", port),      // IPv6
+	}
 
-    var listeners []net.Listener
-    for _, addr := range addrs {
-        ln, err := s.listenWithReuse("tcp", addr)
-        if err != nil {
-            // Non-fatal: the system may not have that stack available
-            logrus.Warnf("Could not listen on %s: %v (skipping)", addr, err)
-            continue
-        }
-        listeners = append(listeners, ln)
-    }
+	var listeners []net.Listener
+	for _, addr := range addrs {
+		ln, err := s.listenWithReuse("tcp", addr)
+		if err != nil {
+			// Non-fatal: the system may not have that stack available
+			logrus.Warnf("Could not listen on %s: %v (skipping)", addr, err)
+			continue
+		}
+		listeners = append(listeners, ln)
+	}
 
-    if len(listeners) == 0 {
-        return nil, fmt.Errorf("failed to bind on any address for port %s", port)
-    }
-    return listeners, nil
+	if len(listeners) == 0 {
+		return nil, fmt.Errorf("failed to bind on any address for port %s", port)
+	}
+	return listeners, nil
 }
 
 // multiListener fans in Accept() calls from multiple net.Listeners into one.
 type multiListener struct {
-    listeners []net.Listener
-    connCh    chan net.Conn
-    once      sync.Once
-    closeOnce sync.Once
-    done      chan struct{}
+	listeners []net.Listener
+	connCh    chan net.Conn
+	once      sync.Once
+	closeOnce sync.Once
+	done      chan struct{}
 }
 
 func newMultiListener(ls []net.Listener) *multiListener {
-    ml := &multiListener{
-        listeners: ls,
-        connCh:    make(chan net.Conn, 64),
-        done:      make(chan struct{}),
-    }
-    for _, l := range ls {
-        go ml.accept(l)
-    }
-    return ml
+	ml := &multiListener{
+		listeners: ls,
+		connCh:    make(chan net.Conn, 64),
+		done:      make(chan struct{}),
+	}
+	for _, l := range ls {
+		go ml.accept(l)
+	}
+	return ml
 }
 
 func (ml *multiListener) accept(l net.Listener) {
-    for {
-        conn, err := l.Accept()
-        if err != nil {
-            select {
-            case <-ml.done:
-                return // we were closed
-            default:
-                logrus.WithError(err).Warn("multiListener accept error")
-                return
-            }
-        }
-        ml.connCh <- conn
-    }
+	for {
+		conn, err := l.Accept()
+		if err != nil {
+			select {
+			case <-ml.done:
+				return // we were closed
+			default:
+				logrus.WithError(err).Warn("multiListener accept error")
+				return
+			}
+		}
+		ml.connCh <- conn
+	}
 }
 
 func (ml *multiListener) Accept() (net.Conn, error) {
-    select {
-    case conn := <-ml.connCh:
-        return conn, nil
-    case <-ml.done:
-        return nil, fmt.Errorf("listener closed")
-    }
+	select {
+	case conn := <-ml.connCh:
+		return conn, nil
+	case <-ml.done:
+		return nil, fmt.Errorf("listener closed")
+	}
 }
 
 func (ml *multiListener) Close() error {
-    ml.closeOnce.Do(func() {
-        close(ml.done)
-        for _, l := range ml.listeners {
-            l.Close()
-        }
-    })
-    return nil
+	ml.closeOnce.Do(func() {
+		close(ml.done)
+		for _, l := range ml.listeners {
+			l.Close()
+		}
+	})
+	return nil
 }
 
 func (ml *multiListener) Addr() net.Addr {
-    if len(ml.listeners) > 0 {
-        return ml.listeners[0].Addr()
-    }
-    return nil
+	if len(ml.listeners) > 0 {
+		return ml.listeners[0].Addr()
+	}
+	return nil
 }
 
 func (s *Server) dynamicHostPolicy(ctx context.Context, host string) error {
@@ -556,8 +582,7 @@ func (s *Server) dynamicHostPolicy(ctx context.Context, host string) error {
 }
 
 func (s *Server) startHTTPS(mux *http.ServeMux, addr string) error {
-	httpsAddr := s.Config.BindHost + ":" + s.Config.HTTPSPort
-
+	httpsAddr := net.JoinHostPort(s.Config.BindHost, s.Config.HTTPSPort)
 	if s.Config.AutoHTTPS {
 		if len(s.Config.Domains) == 0 {
 			logrus.Warn("Auto-HTTPS is enabled but no domains are configured in 'domains'. Certificates will not be issued.")
@@ -722,17 +747,21 @@ func (s *Server) recordAuthSuccess(ip string) {
 	delete(s.authAttempts, ip)
 }
 
-func (s *Server) recordScanAttempt(ip string) {
+func (s *Server) recordScanAttempt(ip, path string) {
 	s.scanAttemptsMu.Lock()
 	defer s.scanAttemptsMu.Unlock()
 
 	attempt, exists := s.scanAttempts[ip]
 	if !exists {
-		attempt = &scanAttempt{}
+		attempt = &scanAttempt{Paths: make(map[string]bool)}
 		s.scanAttempts[ip] = attempt
 	}
 
-	attempt.Count++
+	if !attempt.Paths[path] {
+		attempt.Paths[path] = true
+		attempt.Count++
+	}
+
 	if attempt.Count >= 10 {
 		attempt.LockoutBy = time.Now().Add(15 * time.Minute)
 		logrus.Warnf("IP %s locked out for 15 minutes due to 10 scanning attempts (404s)", ip)
@@ -812,7 +841,7 @@ func (s *Server) isCSRFSafe(r *http.Request) bool {
 	if origin == "" {
 		origin = r.Header.Get("Referer")
 	}
-	// We allow missing origin/referer for now to be less restrictive, 
+	// We allow missing origin/referer for now to be less restrictive,
 	// but we MUST have a valid CSRF token if we have a session.
 
 	// 2. Session-based Token Check
@@ -822,7 +851,7 @@ func (s *Server) isCSRFSafe(r *http.Request) bool {
 
 	if !ok {
 		// Session cookie exists but session not found in memory (expired/restarted).
-		// We return true here to avoid "Forbidden" and let checkAuth handle the 
+		// We return true here to avoid "Forbidden" and let checkAuth handle the
 		// "Unauthorized" redirect/error which is much cleaner.
 		return true
 	}
@@ -1117,14 +1146,14 @@ func (s *Server) handleListener(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			host, _, _ := net.SplitHostPort(r.RemoteAddr)
-			s.recordScanAttempt(host)
+			s.recordScanAttempt(host, mount)
 			http.NotFound(w, r)
 			return
 		}
 
 		// ICY Metadata negotiation
 		metaint := 0
-		// Ogg/Opus handles its own metadata. Injecting ICY metadata into an Ogg 
+		// Ogg/Opus handles its own metadata. Injecting ICY metadata into an Ogg
 		// stream corrupts the framing and causes CRC errors.
 		if r.Header.Get("Icy-MetaData") == "1" && !stream.IsOgg() {
 			metaint = 16000 // Standard interval
@@ -1160,7 +1189,7 @@ func (s *Server) serveStreamData(w http.ResponseWriter, r *http.Request, stream 
 		if _, err := w.Write(stream.OggHead); err != nil {
 			return false
 		}
-		// The 'offset' returned by Subscribe is already intelligently aligned 
+		// The 'offset' returned by Subscribe is already intelligently aligned
 		// AFTER the headers in the buffer if OggHeaderOffset was set.
 		logrus.Debugf("Ogg Listener %s: Sending stored headers (%d bytes), then starting burst at %d", id, len(stream.OggHead), offset)
 	}
@@ -1408,7 +1437,7 @@ func (s *Server) handleAdmin(w http.ResponseWriter, r *http.Request) {
 		"Mounts":         allMounts,
 		"FallbackMounts": s.Config.FallbackMounts,
 		"CSRFToken":      csrf,
-		"Streamers":     s.StreamerM.GetStreamers(),
+		"Streamers":      s.StreamerM.GetStreamers(),
 	}
 	if err := s.tmpl.ExecuteTemplate(w, "admin.html", data); err != nil {
 		if !strings.Contains(err.Error(), "broken pipe") {
@@ -1799,7 +1828,7 @@ func (s *Server) handleLegacyStats(w http.ResponseWriter, r *http.Request) {
 	sources := make([]IcecastSource, len(streams))
 	host := s.Config.HostName
 	if !strings.Contains(host, ":") {
-		host = host + ":" + s.Config.Port
+		host = net.JoinHostPort(host, s.Config.Port)
 	}
 	proto := "http://"
 	if s.Config.UseHTTPS {
@@ -1921,9 +1950,9 @@ func (s *Server) reportToDirectory(st relay.StreamStats) {
 	if s.Config.UseHTTPS {
 		proto = "https://"
 	}
-	listenURL := proto + s.Config.HostName + ":" + s.Config.Port + st.MountName
+	listenURL := proto + net.JoinHostPort(s.Config.HostName, s.Config.Port) + st.MountName
 	if s.Config.UseHTTPS {
-		listenURL = proto + s.Config.HostName + ":" + s.Config.HTTPSPort + st.MountName
+		listenURL = proto + net.JoinHostPort(s.Config.HostName, s.Config.HTTPSPort) + st.MountName
 	}
 	data := url.Values{}
 	data.Set("action", "add")
@@ -1972,15 +2001,15 @@ type relayEventInfo struct {
 }
 
 type streamerEventInfo struct {
-	Name         string   `json:"name"`
-	Mount        string   `json:"mount"`
-	State        int      `json:"state"`
-	CurrentSong  string   `json:"song"`
-	StartTime    int64    `json:"start_time"`
-	Duration     float64  `json:"duration"`
-	PlaylistPos  int      `json:"playlist_pos"`
-	PlaylistLen  int      `json:"playlist_len"`
-	Shuffle      bool     `json:"shuffle"`
+	Name        string  `json:"name"`
+	Mount       string  `json:"mount"`
+	State       int     `json:"state"`
+	CurrentSong string  `json:"song"`
+	StartTime   int64   `json:"start_time"`
+	Duration    float64 `json:"duration"`
+	PlaylistPos int     `json:"playlist_pos"`
+	PlaylistLen int     `json:"playlist_len"`
+	Shuffle     bool    `json:"shuffle"`
 }
 
 func (s *Server) collectStatsPayload(user *config.User) ([]byte, error) {
@@ -2310,6 +2339,7 @@ func (s *Server) handleAddAutoDJ(w http.ResponseWriter, r *http.Request) {
 	mpdEnabled := r.FormValue("mpd_enabled") == "on"
 	mpdPort := r.FormValue("mpd_port")
 	mpdPassword := r.FormValue("mpd_password")
+	visible := r.FormValue("visible") == "on"
 
 	if name == "" || mount == "" || musicDir == "" {
 		http.Error(w, "Name, mount, and music directory are required", http.StatusBadRequest)
@@ -2340,17 +2370,18 @@ func (s *Server) handleAddAutoDJ(w http.ResponseWriter, r *http.Request) {
 		MPDEnabled:     mpdEnabled,
 		MPDPort:        mpdPort,
 		MPDPassword:    mpdPassword,
+		Visible:        visible,
 	}
 
 	s.Config.AutoDJs = append(s.Config.AutoDJs, adj)
 	s.Config.SaveConfig()
 
 	// Start it immediately
-	streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, nil, adj.MPDEnabled, adj.MPDPort, adj.MPDPassword)
+	streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, nil, adj.MPDEnabled, adj.MPDPort, adj.MPDPassword, adj.Visible)
 	if err == nil {
 		if adj.InjectMetadata {
 			if st, ok := s.Relay.GetStream(adj.Mount); ok {
-				st.SetVisible(true)
+				st.SetVisible(adj.Visible)
 			}
 		}
 		streamer.ScanMusicDir()
@@ -2409,11 +2440,11 @@ func (s *Server) handleToggleAutoDJ(w http.ResponseWriter, r *http.Request) {
 
 			if adj.Enabled {
 				if existing == nil {
-					streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, adj.Playlist, adj.MPDEnabled, adj.MPDPort, adj.MPDPassword)
+					streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, adj.Playlist, adj.MPDEnabled, adj.MPDPort, adj.MPDPassword, adj.Visible)
 					if err == nil {
 						if adj.InjectMetadata {
 							if st, ok := s.Relay.GetStream(adj.Mount); ok {
-								st.SetVisible(true)
+								st.SetVisible(adj.Visible)
 							}
 						}
 						if len(adj.Playlist) == 0 {
@@ -2575,6 +2606,7 @@ func (s *Server) handlePlayerFiles(w http.ResponseWriter, r *http.Request) {
 
 	type fileEntry struct {
 		Name  string `json:"name"`
+		Title string `json:"title"`
 		IsDir bool   `json:"is_dir"`
 		Path  string `json:"path"`
 	}
@@ -2582,8 +2614,13 @@ func (s *Server) handlePlayerFiles(w http.ResponseWriter, r *http.Request) {
 	for _, f := range entries {
 		ext := strings.ToLower(filepath.Ext(f.Name()))
 		if f.IsDir() || ext == ".mp3" {
+			title := f.Name()
+			if !f.IsDir() {
+				title = streamer.GetSongTitle(filepath.Join(fullPath, f.Name()))
+			}
 			res = append(res, fileEntry{
 				Name:  f.Name(),
+				Title: title,
 				IsDir: f.IsDir(),
 				Path:  filepath.Join(subDir, f.Name()),
 			})
@@ -2670,6 +2707,7 @@ func (s *Server) handleUpdateAutoDJ(w http.ResponseWriter, r *http.Request) {
 	mpdEnabled := r.FormValue("mpd_enabled") == "on"
 	mpdPort := r.FormValue("mpd_port")
 	mpdPassword := r.FormValue("mpd_password")
+	visible := r.FormValue("visible") == "on"
 
 	if name == "" || newMount == "" || musicDir == "" {
 		http.Error(w, "Name, mount, and music directory are required", http.StatusBadRequest)
@@ -2695,12 +2733,18 @@ func (s *Server) handleUpdateAutoDJ(w http.ResponseWriter, r *http.Request) {
 			adj.MPDEnabled = mpdEnabled
 			adj.MPDPort = mpdPort
 			adj.MPDPassword = mpdPassword
+			adj.Visible = visible
 
 			// Restart streamer
 			s.StreamerM.StopStreamer(oldMount)
 			if adj.Enabled {
-				streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, adj.Playlist, adj.MPDEnabled, adj.MPDPort, adj.MPDPassword)
+				streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, adj.Playlist, adj.MPDEnabled, adj.MPDPort, adj.MPDPassword, adj.Visible)
 				if err == nil {
+					if adj.InjectMetadata {
+						if st, ok := s.Relay.GetStream(adj.Mount); ok {
+							st.SetVisible(adj.Visible)
+						}
+					}
 					streamer.Play()
 				}
 			}

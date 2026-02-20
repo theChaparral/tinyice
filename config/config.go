@@ -59,6 +59,7 @@ type AutoDJConfig struct {
 	MPDEnabled     bool     `json:"mpd_enabled"`
 	MPDPort        string   `json:"mpd_port"`
 	MPDPassword    string   `json:"mpd_password"`
+	Visible        bool     `json:"visible"`
 }
 
 type Config struct {
