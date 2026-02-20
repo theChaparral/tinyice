@@ -263,6 +263,9 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/admin/delete-webhook", s.handleDeleteWebhook)
 	mux.HandleFunc("/admin/player/toggle", s.handlePlayerToggle)
 	mux.HandleFunc("/admin/player/scan", s.handlePlayerScan)
+	mux.HandleFunc("/admin/player/reorder", s.handlePlayerReorder)
+	mux.HandleFunc("/admin/player/queue", s.handlePlayerQueue)
+	mux.HandleFunc("/admin/player/shuffle", s.handlePlayerShuffle)
 	mux.HandleFunc("/admin/autodj/add", s.handleAddAutoDJ)
 	mux.HandleFunc("/admin/autodj/delete", s.handleDeleteAutoDJ)
 	mux.HandleFunc("/admin/autodj/toggle", s.handleToggleAutoDJ)
@@ -2253,6 +2256,83 @@ func (s *Server) handleToggleAutoDJ(w http.ResponseWriter, r *http.Request) {
 	}
 	s.Config.SaveConfig()
 
+	http.Redirect(w, r, "/admin#tab-streamer", http.StatusSeeOther)
+}
+
+func (s *Server) handlePlayerReorder(w http.ResponseWriter, r *http.Request) {
+	if !s.isCSRFSafe(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	if _, ok := s.checkAuth(r); !ok {
+		return
+	}
+
+	mount := r.FormValue("mount")
+	fromStr := r.FormValue("from")
+	toStr := r.FormValue("to")
+
+	streamer := s.StreamerM.GetStreamer(mount)
+	if streamer == nil {
+		http.Error(w, "Streamer not found", http.StatusNotFound)
+		return
+	}
+
+	var from, to int
+	fmt.Sscanf(fromStr, "%d", &from)
+	fmt.Sscanf(toStr, "%d", &to)
+
+	streamer.MovePlaylistItem(from, to)
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) handlePlayerQueue(w http.ResponseWriter, r *http.Request) {
+	if !s.isCSRFSafe(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	if _, ok := s.checkAuth(r); !ok {
+		return
+	}
+
+	mount := r.FormValue("mount")
+	path := r.FormValue("path")
+	action := r.FormValue("action") // "add" or "remove"
+
+	streamer := s.StreamerM.GetStreamer(mount)
+	if streamer == nil {
+		http.Error(w, "Streamer not found", http.StatusNotFound)
+		return
+	}
+
+	if action == "add" {
+		streamer.PushToQueue(path)
+	} else if action == "remove" {
+		var index int
+		fmt.Sscanf(r.FormValue("index"), "%d", &index)
+		streamer.RemoveFromQueue(index)
+	}
+
+	http.Redirect(w, r, "/admin#tab-streamer", http.StatusSeeOther)
+}
+
+func (s *Server) handlePlayerShuffle(w http.ResponseWriter, r *http.Request) {
+	if !s.isCSRFSafe(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	if _, ok := s.checkAuth(r); !ok {
+		return
+	}
+
+	mount := r.FormValue("mount")
+	streamer := s.StreamerM.GetStreamer(mount)
+	if streamer == nil {
+		http.Error(w, "Streamer not found", http.StatusNotFound)
+		return
+	}
+
+	streamer.ToggleShuffle()
 	http.Redirect(w, r, "/admin#tab-streamer", http.StatusSeeOther)
 }
 

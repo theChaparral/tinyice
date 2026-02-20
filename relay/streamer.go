@@ -3,6 +3,7 @@ package relay
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"sync"
@@ -28,9 +29,11 @@ type Streamer struct {
 	Format      string
 	Bitrate     int
 	Playlist    []string
+	Queue       []string
 	CurrentPos  int
 	State       StreamerState
 	Loop        bool
+	Shuffle     bool
 
 	relay  *Relay
 	cancel context.CancelFunc
@@ -73,6 +76,12 @@ func (s *Streamer) TogglePlay() {
 	}
 }
 
+func (s *Streamer) ToggleShuffle() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Shuffle = !s.Shuffle
+}
+
 func (s *Streamer) Stop() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -80,6 +89,21 @@ func (s *Streamer) Stop() {
 	if s.cancel != nil {
 		s.cancel()
 	}
+}
+
+func (s *Streamer) PushToQueue(path string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Queue = append(s.Queue, path)
+}
+
+func (s *Streamer) RemoveFromQueue(index int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if index < 0 || index >= len(s.Queue) {
+		return
+	}
+	s.Queue = append(s.Queue[:index], s.Queue[index+1:]...)
 }
 
 func (s *Streamer) ScanMusicDir() error {
@@ -156,6 +180,23 @@ func (sm *StreamerManager) GetStreamer(mount string) *Streamer {
 	return sm.instances[mount]
 }
 
+func (s *Streamer) MovePlaylistItem(from, to int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if from < 0 || from >= len(s.Playlist) || to < 0 || to >= len(s.Playlist) {
+		return
+	}
+	item := s.Playlist[from]
+	s.Playlist = append(s.Playlist[:from], s.Playlist[from+1:]...)
+	
+	// Adjust 'to' if it was after 'from'
+	newPlaylist := make([]string, 0, len(s.Playlist)+1)
+	newPlaylist = append(newPlaylist, s.Playlist[:to]...)
+	newPlaylist = append(newPlaylist, item)
+	newPlaylist = append(newPlaylist, s.Playlist[to:]...)
+	s.Playlist = newPlaylist
+}
+
 func (sm *StreamerManager) runStreamerLoop(ctx context.Context, s *Streamer) {
 	logrus.Infof("Streamer %s starting for mount %s", s.Name, s.OutputMount)
 
@@ -169,34 +210,45 @@ func (sm *StreamerManager) runStreamerLoop(ctx context.Context, s *Streamer) {
 				continue
 			}
 
-			s.mu.RLock()
-			if len(s.Playlist) == 0 {
-				s.mu.RUnlock()
+			s.mu.Lock()
+			var filePath string
+			
+			// 1. Check Queue first
+			if len(s.Queue) > 0 {
+				filePath = s.Queue[0]
+				s.Queue = s.Queue[1:]
+			} else if len(s.Playlist) > 0 {
+				// 2. Handle Shuffle or Sequential Playlist
+				if s.Shuffle {
+					s.CurrentPos = rand.Intn(len(s.Playlist))
+				} else {
+					if s.CurrentPos >= len(s.Playlist) {
+						if s.Loop {
+							s.CurrentPos = 0
+						} else {
+							s.State = StateStopped
+							s.mu.Unlock()
+							continue
+						}
+					}
+				}
+				filePath = s.Playlist[s.CurrentPos]
+				if !s.Shuffle {
+					s.CurrentPos++
+				}
+			}
+			s.mu.Unlock()
+
+			if filePath == "" {
 				time.Sleep(1 * time.Second)
 				continue
 			}
-
-			if s.CurrentPos >= len(s.Playlist) {
-				if s.Loop {
-					s.CurrentPos = 0
-				} else {
-					s.State = StateStopped
-					s.mu.RUnlock()
-					continue
-				}
-			}
-			filePath := s.Playlist[s.CurrentPos]
-			s.mu.RUnlock()
 
 			err := sm.streamFile(ctx, s, filePath)
 			if err != nil {
 				logrus.WithError(err).Errorf("Streamer %s: Failed to stream %s", s.Name, filePath)
 				time.Sleep(1 * time.Second)
 			}
-
-			s.mu.Lock()
-			s.CurrentPos++
-			s.mu.Unlock()
 		}
 	}
 }

@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TinyIce Admin</title>
     <script src="/assets/js/lucide.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
     <style>
         :root {
             --bg: #0b0f1a; --surface: #161b2c; --surface-hover: #1e253a;
@@ -59,6 +60,9 @@
         .history-mount-btn { padding: 1rem; border: none; background: transparent; color: var(--text-dim); text-align: left; cursor: pointer; border-bottom: 1px solid var(--border); font-size: 0.9rem; width: 100%; }
         .history-mount-btn:hover { background: var(--surface-hover); color: var(--text); }
         .history-mount-btn.active { color: var(--primary); background: var(--primary-glow); font-weight: 700; }
+        .playlist-item.active { border-color: var(--primary) !important; background: var(--primary-glow) !important; }
+        .playlist-item.active span { color: var(--primary); font-weight: 600; }
+        .sortable-ghost { opacity: 0.4; background: var(--primary-glow) !important; }
     </style>
 </head>
 <body>
@@ -387,7 +391,14 @@
                                             Dir: <span style="font-family: monospace; font-size: 0.75rem;">{{.MusicDir}}</span>
                                         </div>
                                     </div>
-                                    <div style="display: flex; gap: 0.5rem;">
+                                <div style="display: flex; gap: 0.5rem;">
+                                        <form action="/admin/player/shuffle" method="POST">
+                                            <input type="hidden" name="csrf" value="{{$.CSRFToken}}">
+                                            <input type="hidden" name="mount" value="{{.OutputMount}}">
+                                            <button type="submit" class="btn {{if .Shuffle}}btn-primary{{else}}btn-outline{{end}} btn-sm" title="Toggle Shuffle">
+                                                <i data-lucide="shuffle" style="width: 14px; height: 14px;"></i>
+                                            </button>
+                                        </form>
                                         <a href="/player{{.OutputMount}}" target="_blank" class="btn btn-outline btn-sm"><i data-lucide="headphones" style="width: 14px; height: 14px; margin-right: 4px;"></i> MONITOR</a>
                                         <form action="/admin/autodj/toggle" method="POST">
                                             <input type="hidden" name="csrf" value="{{$.CSRFToken}}">
@@ -424,6 +435,50 @@
                                     </div>
                                 </div>
                                 {{end}}
+
+                                <div style="margin-top: 1.5rem;">
+                                    {{if .Queue}}
+                                    <div style="margin-bottom: 1rem;">
+                                        <div class="label" style="font-size: 0.65rem; color: var(--primary); margin-bottom: 0.5rem; letter-spacing: 1px;">UP NEXT (QUEUE)</div>
+                                        <div style="display: flex; flex-direction: column; gap: 0.4rem;">
+                                            {{range $qidx, $qfile := .Queue}}
+                                            <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(56, 189, 248, 0.05); padding: 0.5rem; border-radius: 4px; border: 1px dashed var(--primary-glow);">
+                                                <span style="font-size: 0.8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{$qfile}}</span>
+                                                <form action="/admin/player/queue" method="POST">
+                                                    <input type="hidden" name="csrf" value="{{$.CSRFToken}}">
+                                                    <input type="hidden" name="mount" value="{{$.OutputMount}}">
+                                                    <input type="hidden" name="action" value="remove">
+                                                    <input type="hidden" name="index" value="{{$qidx}}">
+                                                    <button type="submit" style="background:none; border:none; color:var(--danger); cursor:pointer;"><i data-lucide="x-circle" style="width:14px; height:14px;"></i></button>
+                                                </form>
+                                            </div>
+                                            {{end}}
+                                        </div>
+                                    </div>
+                                    {{end}}
+
+                                    <div class="label" style="font-size: 0.65rem; color: var(--text-dim); margin-bottom: 0.5rem; letter-spacing: 1px;">PLAYLIST (DRAG TO REORDER)</div>
+                                    <div class="playlist-sortable" data-mount="{{.OutputMount}}" style="max-height: 250px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px;">
+                                        {{$current := .CurrentPos}}
+                                        {{range $idx, $file := .Playlist}}
+                                        <div class="playlist-item {{if and (not $.Shuffle) (eq $idx $current)}}active{{end}}" data-index="{{$idx}}" style="display: flex; justify-content: space-between; align-items: center; background: var(--bg); padding: 0.6rem; border-radius: 4px; cursor: grab; border: 1px solid transparent;">
+                                            <div style="display: flex; align-items: center; gap: 0.75rem; overflow: hidden;">
+                                                <i data-lucide="grip-vertical" style="width: 14px; height: 14px; color: var(--border);"></i>
+                                                <span style="font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{$file}}</span>
+                                            </div>
+                                            <div style="display: flex; gap: 0.5rem;">
+                                                <form action="/admin/player/queue" method="POST">
+                                                    <input type="hidden" name="csrf" value="{{$.CSRFToken}}">
+                                                    <input type="hidden" name="mount" value="{{$.OutputMount}}">
+                                                    <input type="hidden" name="action" value="add">
+                                                    <input type="hidden" name="path" value="{{$file}}">
+                                                    <button type="submit" class="btn btn-outline btn-sm" style="padding: 0.2rem 0.4rem;" title="Add to Queue"><i data-lucide="list-plus" style="width: 14px; height: 14px;"></i></button>
+                                                </form>
+                                            </div>
+                                        </div>
+                                        {{end}}
+                                    </div>
+                                </div>
 
                                 <div style="margin-top: 1rem; display: flex; gap: 1rem;">
                                     <form action="/admin/player/scan" method="POST" style="flex: 1;">
@@ -519,6 +574,35 @@
             });
         }
         setInterval(updateAutoDJProgress, 1000);
+
+        function initSortable() {
+            document.querySelectorAll('.playlist-sortable').forEach(function(el) {
+                new Sortable(el, {
+                    animation: 150,
+                    ghostClass: 'sortable-ghost',
+                    handle: '.lucide-grip-vertical',
+                    onEnd: function(evt) {
+                        const mount = el.dataset.mount;
+                        const from = evt.oldIndex;
+                        const to = evt.newIndex;
+                        if (from === to) return;
+                        
+                        const formData = new FormData();
+                        formData.append('csrf', csrfToken);
+                        formData.append('mount', mount);
+                        formData.append('from', from);
+                        formData.append('to', to);
+                        
+                        fetch('/admin/player/reorder', {
+                            method: 'POST',
+                            body: formData
+                        }).then(r => {
+                            if (!r.ok) alert('Failed to reorder playlist');
+                        });
+                    }
+                });
+            });
+        }
 
         const csrfToken = "{{.CSRFToken}}";
         function showTab(id, updateHash) { 
@@ -885,6 +969,7 @@
 
             drawChart();
             lucide.createIcons();
+            initSortable();
             if (window.location.hash) { var it = window.location.hash.substring(1); if (document.getElementById(it)) { showTab(it, false); } }
         })();
     </script>
