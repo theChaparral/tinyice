@@ -13,6 +13,7 @@ TinyIce is a lightweight, high-performance, and secure Icecast2-compatible strea
 <img width="3023" height="1507" alt="image" src="https://github.com/user-attachments/assets/75010d65-f0ce-4ee0-8a92-7d04df54406a" />
 <img width="3023" height="1507" alt="image" src="https://github.com/user-attachments/assets/4fc8cb37-620c-4e24-ae07-300aff4a2fa9" />
 <img width="2927" height="1506" alt="image" src="https://github.com/user-attachments/assets/d923cc03-1655-426a-a23a-31475e7e64b0" />
+<img width="2927" height="1506" alt="image" src="https://github.com/user-attachments/assets/31d194a5-1587-4f57-bf3f-10053b0e923a" />
 <img width="3027" height="1418" alt="image" src="https://github.com/user-attachments/assets/d531cf1c-1072-4cbc-adc5-c4e7be54e4a6" />
 <img width="3024" height="1852" alt="image" src="https://github.com/user-attachments/assets/d3278890-4f5f-4536-aa88-5fd19518ca3d" />
 
