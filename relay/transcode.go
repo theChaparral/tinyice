@@ -223,35 +223,29 @@ func (tm *TranscoderManager) encodeOpus(ctx context.Context, inst *TranscoderIns
 	}
 
 	// Ogg encapsulation
-	writer := &streamWriter{stream: output, relay: tm.relay, inst: inst}
+	writer := &streamWriter{stream: output, relay: tm.relay, inst: inst, capture: true}
 	serial := uint32(time.Now().UnixNano())
 	pw := ogg.NewPacketWriter(writer, serial)
 
-	// 1. Capture headers in a buffer using a temporary writer with SAME serial
-	var headerBuf bytes.Buffer
-	headerPW := ogg.NewPacketWriter(&headerBuf, serial)
-
+	// ID Header
 	head := ogg.OpusHead{
 		Version:         1,
 		Channels:        uint8(channels),
 		InputSampleRate: uint32(sampleRate),
 	}
 	headPacket, _ := ogg.BuildOpusHeadPacket(head)
-	headerPW.WritePacket(headPacket, 0, true, false)
+	pw.WritePacket(headPacket, 0, true, false)
 
+	// Tags Header
 	tags := ogg.OpusTags{Vendor: "tinyice-opus"}
 	tagsPacket, _ := ogg.BuildOpusTagsPacket(tags)
-	headerPW.WritePacket(tagsPacket, 0, false, false)
-	headerPW.Flush()
-
-	// Store for mid-stream listeners
-	output.OggHead = headerBuf.Bytes()
-
-	// 2. Now write the same packets to the ACTUAL stream using the main writer
-	// This ensures main writer 'seq' starts correctly at 0, 1...
-	pw.WritePacket(headPacket, 0, true, false)
 	pw.WritePacket(tagsPacket, 0, false, false)
 	pw.Flush()
+
+	// Store for mid-stream listeners
+	output.OggHead = writer.headerBuf.Bytes()
+	output.OggHeaderOffset = output.Buffer.Head
+	writer.capture = false // Stop capturing headers
 
 	pcmBuf := make([]byte, frameSize*channels*2)
 	pcmSamples := make([]int16, frameSize*channels)
@@ -300,12 +294,17 @@ func (tm *TranscoderManager) encodeOpus(ctx context.Context, inst *TranscoderIns
 }
 
 type streamWriter struct {
-	stream *Stream
-	relay  *Relay
-	inst   *TranscoderInstance
+	stream    *Stream
+	relay     *Relay
+	inst      *TranscoderInstance
+	headerBuf bytes.Buffer
+	capture   bool
 }
 
 func (w *streamWriter) Write(p []byte) (n int, err error) {
+	if w.capture {
+		w.headerBuf.Write(p)
+	}
 	w.stream.Broadcast(p, w.relay)
 	atomic.AddInt64(&w.inst.BytesEncoded, int64(len(p)))
 	return len(p), nil

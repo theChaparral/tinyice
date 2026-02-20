@@ -91,7 +91,8 @@ type Stream struct {
 
 	LastDataReceived time.Time
 
-	OggHead []byte // Store Ogg headers for Opus/Ogg streams
+	OggHead         []byte // Store Ogg headers for Opus/Ogg streams
+	OggHeaderOffset int64  // Absolute buffer offset where headers end
 
 	Buffer    *CircularBuffer
 	listeners map[string]chan struct{} // Signal channel for new data

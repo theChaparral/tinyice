@@ -865,8 +865,13 @@ func (s *Server) serveStreamData(w http.ResponseWriter, r *http.Request, stream 
 	defer stream.Unsubscribe(id)
 
 	if stream.OggHead != nil {
+		// Always send stored headers for Ogg/Opus
 		if _, err := w.Write(stream.OggHead); err != nil {
 			return false
+		}
+		// If the burst offset is BEFORE the header end, skip the duplicate headers in the buffer
+		if offset < stream.OggHeaderOffset {
+			offset = stream.OggHeaderOffset
 		}
 	}
 

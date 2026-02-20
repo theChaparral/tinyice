@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -145,7 +146,14 @@ func (wm *WebRTCManager) streamToTrack(pc *webrtc.PeerConnection, track *webrtc.
 		ID:     id,
 	}
 
-	opusReader, err := ogg.NewOpusReader(reader)
+	// We wrap the reader to prepend the OggHead if available.
+	// This ensures NewOpusReader always sees the ID/Tag headers.
+	var finalReader io.Reader = reader
+	if stream.OggHead != nil {
+		finalReader = io.MultiReader(bytes.NewReader(stream.OggHead), reader)
+	}
+
+	opusReader, err := ogg.NewOpusReader(finalReader)
 	if err != nil {
 		logrus.WithError(err).Error("Failed to initialize Ogg/Opus reader for WebRTC")
 		return
