@@ -505,6 +505,8 @@ func (s *Server) checkAuth(r *http.Request) (*config.User, bool) {
 		return nil, false
 	}
 
+	// Check if we already have a session, if so, don't log Basic Auth success again
+	// (Browsers often keep sending both)
 	host, _, _ := net.SplitHostPort(r.RemoteAddr)
 	if err := s.checkAuthLimit(host); err != nil {
 		s.logAuthFailed(u, r.RemoteAddr, err.Error())
