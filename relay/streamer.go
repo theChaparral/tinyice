@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -142,7 +143,8 @@ func (s *Streamer) ScanMusicDir() error {
 
 	s.Playlist = []string{}
 	for _, f := range files {
-		if !f.IsDir() && filepath.Ext(f.Name()) == ".mp3" {
+		ext := strings.ToLower(filepath.Ext(f.Name()))
+		if !f.IsDir() && ext == ".mp3" {
 			s.Playlist = append(s.Playlist, filepath.Join(s.MusicDir, f.Name()))
 		}
 	}

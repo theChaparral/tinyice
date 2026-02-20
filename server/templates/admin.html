@@ -378,130 +378,132 @@
                     </section>
                     <section>
                         <h2>Active AutoDJs</h2>
-                        <div id="autodj-list">
-                            {{range .Streamers}}
-                            <div class="card" style="margin-bottom: 1.5rem; padding: 1.5rem;">
-                                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem;">
-                                    <div>
-                                        <h3 style="margin: 0; display: flex; align-items: center; gap: 0.5rem;">
-                                            {{.Name}} 
-                                            <span class="status-pill {{if ne .State 1}}inactive{{end}}" style="font-size: 0.6rem; padding: 0.1rem 0.4rem;">
-                                                <div class="dot"></div> {{if eq .State 1}}LIVE{{else}}IDLE{{end}}
-                                            </span>
-                                        </h3>
-                                        <div style="font-size: 0.8rem; color: var(--text-dim); margin-top: 0.2rem;">
-                                            Mount: <span class="mount-code">{{.OutputMount}}</span> | 
-                                            Format: <span style="font-weight: bold; color: var(--primary);">{{.Format}} {{.Bitrate}}K</span> |
-                                            Dir: <span style="font-family: monospace; font-size: 0.75rem;">{{.MusicDir}}</span>
-                                        </div>
-                                    </div>
-                                                                    <div style="display: flex; gap: 0.5rem;">
-                                                                        <form action="/admin/player/shuffle" method="POST">
+                                                <div id="autodj-list">
+                                                    {{range .Streamers}}
+                                                    {{$st := .}}
+                                                    <div class="card" style="margin-bottom: 1.5rem; padding: 1.5rem;">
+                                                        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem;">
+                                                            <div>
+                                                                <h3 style="margin: 0; display: flex; align-items: center; gap: 0.5rem;">
+                                                                    {{.Name}} 
+                                                                    <span class="status-pill {{if ne .State 1}}inactive{{end}}" style="font-size: 0.6rem; padding: 0.1rem 0.4rem;">
+                                                                        <div class="dot"></div> {{if eq .State 1}}LIVE{{else}}IDLE{{end}}
+                                                                    </span>
+                                                                </h3>
+                                                                <div style="font-size: 0.8rem; color: var(--text-dim); margin-top: 0.2rem;">
+                                                                    Mount: <span class="mount-code">{{.OutputMount}}</span> | 
+                                                                    Format: <span style="font-weight: bold; color: var(--primary);">{{.Format}} {{.Bitrate}}K</span> |
+                                                                    Dir: <span style="font-family: monospace; font-size: 0.75rem;">{{.MusicDir}}</span>
+                                                                </div>
+                                                            </div>
+                                                            <div style="display: flex; gap: 0.5rem;">
+                                                                <form action="/admin/player/shuffle" method="POST">
+                                                                    <input type="hidden" name="csrf" value="{{$.CSRFToken}}">
+                                                                    <input type="hidden" name="mount" value="{{.OutputMount}}">
+                                                                    <button type="submit" class="btn {{if .Shuffle}}btn-primary{{else}}btn-outline{{end}} btn-sm" title="Toggle Shuffle">
+                                                                        <i data-lucide="shuffle" style="width: 14px; height: 14px;"></i>
+                                                                    </button>
+                                                                </form>
+                                                                {{if eq .State 1}}
+                                                                <a href="/player{{.OutputMount}}" target="_blank" class="btn btn-outline btn-sm"><i data-lucide="headphones" style="width: 14px; height: 14px; margin-right: 4px;"></i> MONITOR</a>
+                                                                {{end}}
+                                                                <form action="/admin/autodj/toggle" method="POST">
+                                                                    <input type="hidden" name="csrf" value="{{$.CSRFToken}}">
+                                                                    <input type="hidden" name="mount" value="{{.OutputMount}}">
+                                                                    <button type="submit" class="btn {{if eq .State 1}}btn-warning{{else}}btn-primary{{end}} btn-sm">
+                                                                        {{if eq .State 1}}STOP{{else}}START{{end}}
+                                                                    </button>
+                                                                </form>
+                                                                <form action="/admin/autodj/delete" method="POST" onsubmit="return confirm('Delete this AutoDJ?')">
+                                                                    <input type="hidden" name="csrf" value="{{$.CSRFToken}}">
+                                                                    <input type="hidden" name="mount" value="{{.OutputMount}}">
+                                                                    <button type="submit" class="btn btn-danger btn-sm">DELETE</button>
+                                                                </form>
+                                                            </div>
+                                                        </div>
+                        
+                                                        {{if eq .State 1}}
+                                                        <div style="background: rgba(0,0,0,0.2); padding: 1rem; border-radius: 8px; border: 1px solid var(--border);">
+                                                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                                                                <div class="label" style="font-size: 0.7rem; color: var(--text-dim);">NOW PLAYING</div>
+                                                                <div style="font-size: 0.7rem; color: var(--primary); font-family: monospace;">
+                                                                    Playlist: {{.CurrentPos}} / {{len .Playlist}}
+                                                                </div>
+                                                            </div>
+                                                            <div class="song-title" style="font-size: 1rem; color: var(--text); margin-bottom: 0.75rem;">
+                                                                {{if .CurrentFile}}{{.CurrentFile}}{{else}}Preparing...{{end}}
+                                                            </div>
+                                                            <div style="height: 4px; background: var(--bg); border-radius: 2px; overflow: hidden; position: relative;">
+                                                                <div class="progress-bar-adj" data-start="{{.CurrentFileTime.Unix}}" style="height: 100%; background: var(--primary); width: 0%; transition: width 1s linear;"></div>
+                                                            </div>
+                                                            <div style="display: flex; justify-content: space-between; margin-top: 0.4rem; font-size: 0.7rem; color: var(--text-dim); font-family: monospace;">
+                                                                <span class="progress-time-current">00:00</span>
+                                                                <span class="progress-time-total">--:--</span>
+                                                            </div>
+                                                        </div>
+                                                        {{end}}
+                        
+                                                        <div style="margin-top: 1.5rem;">
+                                                            {{if .Queue}}
+                                                            <div style="margin-bottom: 1rem;">
+                                                                <div class="label" style="font-size: 0.65rem; color: var(--primary); margin-bottom: 0.5rem; letter-spacing: 1px;">UP NEXT (QUEUE)</div>
+                                                                <div style="display: flex; flex-direction: column; gap: 0.4rem;">
+                                                                    {{range $qidx, $qfile := .GetQueueNames}}
+                                                                    <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(56, 189, 248, 0.05); padding: 0.5rem; border-radius: 4px; border: 1px dashed var(--primary-glow);">
+                                                                        <span style="font-size: 0.8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{$qfile}}</span>
+                                                                        <form action="/admin/player/queue" method="POST">
                                                                             <input type="hidden" name="csrf" value="{{$.CSRFToken}}">
-                                                                            <input type="hidden" name="mount" value="{{.OutputMount}}">
-                                                                            <button type="submit" class="btn {{if .Shuffle}}btn-primary{{else}}btn-outline{{end}} btn-sm" title="Toggle Shuffle">
-                                                                                <i data-lucide="shuffle" style="width: 14px; height: 14px;"></i>
-                                                                            </button>
+                                                                            <input type="hidden" name="mount" value="{{$st.OutputMount}}">
+                                                                            <input type="hidden" name="action" value="remove">
+                                                                            <input type="hidden" name="index" value="{{$qidx}}">
+                                                                            <button type="submit" style="background:none; border:none; color:var(--danger); cursor:pointer;"><i data-lucide="x-circle" style="width:14px; height:14px;"></i></button>
                                                                         </form>
-                                                                        {{if eq .State 1}}
-                                                                        <a href="/player{{.OutputMount}}" target="_blank" class="btn btn-outline btn-sm"><i data-lucide="headphones" style="width: 14px; height: 14px; margin-right: 4px;"></i> MONITOR</a>
-                                                                        {{end}}
-                                                                        <form action="/admin/autodj/toggle" method="POST">                                            <input type="hidden" name="csrf" value="{{$.CSRFToken}}">
-                                            <input type="hidden" name="mount" value="{{.OutputMount}}">
-                                            <button type="submit" class="btn {{if eq .State 1}}btn-warning{{else}}btn-primary{{end}} btn-sm">
-                                                {{if eq .State 1}}STOP{{else}}START{{end}}
-                                            </button>
-                                        </form>
-                                        <form action="/admin/autodj/delete" method="POST" onsubmit="return confirm('Delete this AutoDJ?')">
-                                            <input type="hidden" name="csrf" value="{{$.CSRFToken}}">
-                                            <input type="hidden" name="mount" value="{{.OutputMount}}">
-                                            <button type="submit" class="btn btn-danger btn-sm">DELETE</button>
-                                        </form>
-                                    </div>
-                                </div>
-
-                                {{if eq .State 1}}
-                                <div style="background: rgba(0,0,0,0.2); padding: 1rem; border-radius: 8px; border: 1px solid var(--border);">
-                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-                                        <div class="label" style="font-size: 0.7rem; color: var(--text-dim);">NOW PLAYING</div>
-                                        <div style="font-size: 0.7rem; color: var(--primary); font-family: monospace;">
-                                            Playlist: {{.CurrentPos}} / {{len .Playlist}}
-                                        </div>
-                                    </div>
-                                    <div class="song-title" style="font-size: 1rem; color: var(--text); margin-bottom: 0.75rem;">
-                                        {{if .CurrentFile}}{{.CurrentFile}}{{else}}Preparing...{{end}}
-                                    </div>
-                                    <div style="height: 4px; background: var(--bg); border-radius: 2px; overflow: hidden; position: relative;">
-                                        <div class="progress-bar-adj" data-start="{{.CurrentFileTime.Unix}}" style="height: 100%; background: var(--primary); width: 0%; transition: width 1s linear;"></div>
-                                    </div>
-                                    <div style="display: flex; justify-content: space-between; margin-top: 0.4rem; font-size: 0.7rem; color: var(--text-dim); font-family: monospace;">
-                                        <span class="progress-time-current">00:00</span>
-                                        <span class="progress-time-total">--:--</span>
-                                    </div>
-                                </div>
-                                {{end}}
-
-                                <div style="margin-top: 1.5rem;">
-                                    {{if .Queue}}
-                                    <div style="margin-bottom: 1rem;">
-                                        <div class="label" style="font-size: 0.65rem; color: var(--primary); margin-bottom: 0.5rem; letter-spacing: 1px;">UP NEXT (QUEUE)</div>
-                                        <div style="display: flex; flex-direction: column; gap: 0.4rem;">
-                                            {{range $qidx, $qfile := .GetQueueNames}}
-                                            <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(56, 189, 248, 0.05); padding: 0.5rem; border-radius: 4px; border: 1px dashed var(--primary-glow);">
-                                                <span style="font-size: 0.8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{$qfile}}</span>
-                                                <form action="/admin/player/queue" method="POST">
-                                                    <input type="hidden" name="csrf" value="{{$.CSRFToken}}">
-                                                    <input type="hidden" name="mount" value="{{$.OutputMount}}">
-                                                    <input type="hidden" name="action" value="remove">
-                                                    <input type="hidden" name="index" value="{{$qidx}}">
-                                                    <button type="submit" style="background:none; border:none; color:var(--danger); cursor:pointer;"><i data-lucide="x-circle" style="width:14px; height:14px;"></i></button>
-                                                </form>
-                                            </div>
-                                            {{end}}
-                                        </div>
-                                    </div>
-                                    {{end}}
-
-                                    <div class="label" style="font-size: 0.65rem; color: var(--text-dim); margin-bottom: 0.5rem; letter-spacing: 1px;">PLAYLIST (DRAG TO REORDER)</div>
-                                    <div class="playlist-sortable" data-mount="{{.OutputMount}}" style="max-height: 250px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px;">
-                                        {{$current := .CurrentPos}}
-                                        {{range $idx, $file := .GetPlaylistNames}}
-                                        <div class="playlist-item {{if and (not $.Shuffle) (eq $idx $current)}}active{{end}}" data-index="{{$idx}}" style="display: flex; justify-content: space-between; align-items: center; background: var(--bg); padding: 0.6rem; border-radius: 4px; cursor: grab; border: 1px solid transparent;">
-                                            <div style="display: flex; align-items: center; gap: 0.75rem; overflow: hidden;">
-                                                <i data-lucide="grip-vertical" style="width: 14px; height: 14px; color: var(--border);"></i>
-                                                <span style="font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{$file}}">
-                                                    {{$file}}
-                                                </span>
-                                            </div>
-                                            <div style="display: flex; gap: 0.5rem;">
-                                                <form action="/admin/player/queue" method="POST">
-                                                    <input type="hidden" name="csrf" value="{{$.CSRFToken}}">
-                                                    <input type="hidden" name="mount" value="{{$.OutputMount}}">
-                                                    <input type="hidden" name="action" value="add">
-                                                    <input type="hidden" name="path" value="{{index $.Playlist $idx}}">
-                                                    <button type="submit" class="btn btn-outline btn-sm" style="padding: 0.2rem 0.4rem;" title="Add to Queue"><i data-lucide="list-plus" style="width: 14px; height: 14px;"></i></button>
-                                                </form>
-                                            </div>
-                                        </div>
-                                        {{end}}
-                                    </div>
-                                </div>
-
-                                <div style="margin-top: 1rem; display: flex; gap: 1rem;">
-                                    <form action="/admin/player/scan" method="POST" style="flex: 1;">
-                                        <input type="hidden" name="csrf" value="{{$.CSRFToken}}">
-                                        <input type="hidden" name="mount" value="{{.OutputMount}}">
-                                        <button type="submit" class="btn btn-outline btn-sm" style="width: 100%;"><i data-lucide="refresh-cw" style="width: 12px; height: 12px; margin-right: 4px;"></i> RESCAN DIRECTORY</button>
-                                    </form>
-                                    <form action="/admin/player/toggle" method="POST" style="flex: 1;">
-                                        <input type="hidden" name="csrf" value="{{$.CSRFToken}}">
-                                        <input type="hidden" name="mount" value="{{.OutputMount}}">
-                                        <button type="submit" class="btn btn-outline btn-sm" style="width: 100%;">
-                                            {{if eq .State 1}}PAUSE{{else}}RESUME{{end}}
-                                        </button>
-                                    </form>
-                                </div>
-                            </div>
+                                                                    </div>
+                                                                    {{end}}
+                                                                </div>
+                                                            </div>
+                                                            {{end}}
+                        
+                                                            <div class="label" style="font-size: 0.65rem; color: var(--text-dim); margin-bottom: 0.5rem; letter-spacing: 1px;">PLAYLIST (DRAG TO REORDER)</div>
+                                                            <div class="playlist-sortable" data-mount="{{.OutputMount}}" style="max-height: 250px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px;">
+                                                                {{$current := .CurrentPos}}
+                                                                {{range $idx, $file := .GetPlaylistNames}}
+                                                                <div class="playlist-item {{if and (not $st.Shuffle) (eq $idx $current)}}active{{end}}" data-index="{{$idx}}" style="display: flex; justify-content: space-between; align-items: center; background: var(--bg); padding: 0.6rem; border-radius: 4px; cursor: grab; border: 1px solid transparent;">
+                                                                    <div style="display: flex; align-items: center; gap: 0.75rem; overflow: hidden;">
+                                                                        <i data-lucide="grip-vertical" style="width: 14px; height: 14px; color: var(--border);"></i>
+                                                                        <span style="font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{$file}}">
+                                                                            {{$file}}
+                                                                        </span>
+                                                                    </div>
+                                                                    <div style="display: flex; gap: 0.5rem;">
+                                                                        <form action="/admin/player/queue" method="POST">
+                                                                            <input type="hidden" name="csrf" value="{{$.CSRFToken}}">
+                                                                            <input type="hidden" name="mount" value="{{$st.OutputMount}}">
+                                                                            <input type="hidden" name="action" value="add">
+                                                                            <input type="hidden" name="path" value="{{index $st.Playlist $idx}}">
+                                                                            <button type="submit" class="btn btn-outline btn-sm" style="padding: 0.2rem 0.4rem;" title="Add to Queue"><i data-lucide="list-plus" style="width: 14px; height: 14px;"></i></button>
+                                                                        </form>
+                                                                    </div>
+                                                                </div>
+                                                                {{end}}
+                                                            </div>
+                                                        </div>
+                        
+                                                        <div style="margin-top: 1rem; display: flex; gap: 1rem;">
+                                                            <form action="/admin/player/scan" method="POST" style="flex: 1;">
+                                                                <input type="hidden" name="csrf" value="{{$.CSRFToken}}">
+                                                                <input type="hidden" name="mount" value="{{.OutputMount}}">
+                                                                <button type="submit" class="btn btn-outline btn-sm" style="width: 100%;"><i data-lucide="refresh-cw" style="width: 12px; height: 12px; margin-right: 4px;"></i> RESCAN DIRECTORY</button>
+                                                            </form>
+                                                            <form action="/admin/player/toggle" method="POST" style="flex: 1;">
+                                                                <input type="hidden" name="csrf" value="{{$.CSRFToken}}">
+                                                                <input type="hidden" name="mount" value="{{.OutputMount}}">
+                                                                <button type="submit" class="btn btn-outline btn-sm" style="width: 100%;">
+                                                                    {{if eq .State 1}}PAUSE{{else}}RESUME{{end}}
+                                                                </button>
+                                                            </form>
+                                                        </div>
+                                                    </div>
                             {{else}}
                             <div class="card" style="text-align: center; padding: 4rem; color: var(--text-dim); border-style: dashed;">
                                 <i data-lucide="music" style="width: 48px; height: 48px; margin-bottom: 1rem; opacity: 0.3;"></i>

@@ -2241,6 +2241,7 @@ func (s *Server) handleToggleAutoDJ(w http.ResponseWriter, r *http.Request) {
 	}
 
 	mount := r.FormValue("mount")
+	found := false
 	for _, adj := range s.Config.AutoDJs {
 		if adj.Mount == mount {
 			adj.Enabled = !adj.Enabled
@@ -2253,11 +2254,29 @@ func (s *Server) handleToggleAutoDJ(w http.ResponseWriter, r *http.Request) {
 			} else {
 				s.StreamerM.StopStreamer(mount)
 			}
+			found = true
 			break
 		}
 	}
-	s.Config.SaveConfig()
 
+	if !found {
+		// Might be a legacy or manual streamer
+		streamer := s.StreamerM.GetStreamer(mount)
+		if streamer != nil {
+			s.StreamerM.StopStreamer(mount)
+		} else {
+			// If it was the legacy one, we can try to restart it
+			if mount == "/autodj" && s.Config.MusicDir != "" {
+				streamer, err := s.StreamerM.StartStreamer("AutoDJ", "/autodj", s.Config.MusicDir, true, "mp3", 128, true)
+				if err == nil {
+					streamer.ScanMusicDir()
+					streamer.Play()
+				}
+			}
+		}
+	}
+
+	s.Config.SaveConfig()
 	http.Redirect(w, r, "/admin#tab-streamer", http.StatusSeeOther)
 }
 
