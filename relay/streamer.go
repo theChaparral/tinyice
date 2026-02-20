@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/DatanoiseTV/tinyice/config"
+	"github.com/dhowden/tag"
 	"github.com/hajimehoshi/go-mp3"
 	"github.com/sirupsen/logrus"
 )
@@ -352,13 +353,25 @@ func (sm *StreamerManager) streamFile(ctx context.Context, s *Streamer, path str
 	}
 	defer f.Close()
 
+	// Extract metadata
+	songTitle := filepath.Base(path)
+	if m, err := tag.ReadFrom(f); err == nil {
+		if m.Artist() != "" && m.Title() != "" {
+			songTitle = fmt.Sprintf("%s - %s", m.Artist(), m.Title())
+		} else if m.Title() != "" {
+			songTitle = m.Title()
+		}
+	}
+	// Seek back to start after reading tags
+	f.Seek(0, 0)
+
 	decoder, err := mp3.NewDecoder(f)
 	if err != nil {
 		return err
 	}
 
 	s.mu.Lock()
-	s.CurrentFile = filepath.Base(path)
+	s.CurrentFile = songTitle
 	s.CurrentFileTime = time.Now()
 	s.CurrentFileDuration = time.Duration(decoder.Length()) * time.Second / (44100 * 2 * 2) // Rough estimate for 44.1kHz 16bit stereo
 	s.mu.Unlock()
@@ -368,6 +381,7 @@ func (sm *StreamerManager) streamFile(ctx context.Context, s *Streamer, path str
 	if s.InjectMetadata {
 		output.CurrentSong = s.CurrentFile
 		output.Name = s.Name
+		sm.relay.UpdateMetadata(s.OutputMount, s.CurrentFile)
 	}
 	output.Bitrate = fmt.Sprintf("%d", s.Bitrate)
 

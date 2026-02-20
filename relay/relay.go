@@ -247,6 +247,12 @@ func (r *Relay) GetStream(mount string) (*Stream, bool) {
 	return s, ok
 }
 
+func (r *Relay) UpdateMetadata(mount, song string) {
+	if st, ok := r.GetStream(mount); ok {
+		st.SetCurrentSong(song, r)
+	}
+}
+
 // IsOgg returns true if the stream is Ogg-based (Ogg/Vorbis, Ogg/Opus, etc)
 func (s *Stream) IsOgg() bool {
 	ct := strings.ToLower(s.ContentType)
