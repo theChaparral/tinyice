@@ -3,14 +3,13 @@ package relay
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/DatanoiseTV/tinyice/config"
+	"github.com/hajimehoshi/go-mp3"
 	"github.com/sirupsen/logrus"
 )
 
@@ -26,6 +25,8 @@ type Streamer struct {
 	Name        string
 	OutputMount string
 	MusicDir    string
+	Format      string
+	Bitrate     int
 	Playlist    []string
 	CurrentPos  int
 	State       StreamerState
@@ -103,7 +104,7 @@ func (s *Streamer) ScanMusicDir() error {
 	return nil
 }
 
-func (sm *StreamerManager) StartStreamer(name, mount, musicDir string, loop bool) (*Streamer, error) {
+func (sm *StreamerManager) StartStreamer(name, mount, musicDir string, loop bool, format string, bitrate int) (*Streamer, error) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
@@ -116,6 +117,8 @@ func (sm *StreamerManager) StartStreamer(name, mount, musicDir string, loop bool
 		Name:        name,
 		OutputMount: mount,
 		MusicDir:    musicDir,
+		Format:      format,
+		Bitrate:     bitrate,
 		State:       StateStopped,
 		Loop:        loop,
 		relay:       sm.relay,
@@ -205,6 +208,11 @@ func (sm *StreamerManager) streamFile(ctx context.Context, s *Streamer, path str
 	}
 	defer f.Close()
 
+	decoder, err := mp3.NewDecoder(f)
+	if err != nil {
+		return err
+	}
+
 	s.mu.Lock()
 	s.CurrentFile = filepath.Base(path)
 	s.CurrentFileTime = time.Now()
@@ -214,37 +222,15 @@ func (sm *StreamerManager) streamFile(ctx context.Context, s *Streamer, path str
 	output := sm.relay.GetOrCreateStream(s.OutputMount)
 	output.CurrentSong = s.CurrentFile
 	output.Name = s.Name
+	output.Bitrate = fmt.Sprintf("%d", s.Bitrate)
 
-	// For now, we only support MP3 files and we assume they are compatible
-	// with our output settings.
-	// TODO: Add proper decoding/encoding if formats mismatch.
-
-	buf := make([]byte, 8192)
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		default:
-			if s.State != StatePlaying {
-				return nil
-			}
-
-			n, err := f.Read(buf)
-			if n > 0 {
-				output.Broadcast(buf[:n], sm.relay)
-				atomic.AddInt64(&s.BytesStreamed, int64(n))
-
-				// Basic pacing for MP3 (very rough)
-				// We should ideally use a proper pacer or decode to PCM to pace.
-				// For now, let's just assume 128kbps for pacing estimation.
-				time.Sleep(time.Duration(n) * 8 * time.Second / 128000)
-			}
-			if err == io.EOF {
-				return nil
-			}
-			if err != nil {
-				return err
-			}
-		}
+	if s.Format == "opus" {
+		output.ContentType = "audio/ogg"
+		EncodeOpus(ctx, sm.relay, output, decoder, s.Bitrate, &s.BytesStreamed)
+	} else {
+		output.ContentType = "audio/mpeg"
+		EncodeMP3(ctx, sm.relay, output, decoder, s.Bitrate, &s.BytesStreamed)
 	}
+
+	return nil
 }

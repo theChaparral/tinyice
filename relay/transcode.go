@@ -159,21 +159,21 @@ func (tm *TranscoderManager) performTranscode(ctx context.Context, inst *Transco
 	
 	if inst.Config.Format == "mp3" {
 		output.ContentType = "audio/mpeg"
-		tm.encodeMP3(ctx, inst, decoder, output)
+		EncodeMP3(ctx, tm.relay, output, decoder, inst.Config.Bitrate, &inst.BytesEncoded)
 	} else if inst.Config.Format == "opus" {
 		output.ContentType = "audio/ogg"
-		tm.encodeOpus(ctx, inst, decoder, output)
+		EncodeOpus(ctx, tm.relay, output, decoder, inst.Config.Bitrate, &inst.BytesEncoded)
 	}
 }
 
-func (tm *TranscoderManager) encodeMP3(ctx context.Context, inst *TranscoderInstance, decoder io.Reader, output *Stream) {
+func EncodeMP3(ctx context.Context, relay *Relay, output *Stream, decoder io.Reader, bitrate int, stats *int64) {
 	// Shine MP3 initialization
 	encoder := shine.NewEncoder(44100, 2)
-	
+
 	// Output buffer - shine Write uses int16 samples
 	pcmBuf := make([]byte, 4608) // 1152 samples * 2 bytes * 2 channels
 	samples := make([]int16, 2304)
-	
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -192,19 +192,16 @@ func (tm *TranscoderManager) encodeMP3(ctx context.Context, inst *TranscoderInst
 			// Encode and broadcast
 			// Shine writes directly to an io.Writer
 			// We can wrap our broadcast in an io.Writer
-			writer := &streamWriter{stream: output, relay: tm.relay, inst: inst}
+			writer := &streamWriter{stream: output, relay: relay, stats: stats}
 			err = encoder.Write(writer, samples[:n/2])
 			if err != nil {
 				return
 			}
-			// Note: Shine MP3 doesn't have a flush but we should ensure 
-			// our writer is called.
-			atomic.AddInt64(&inst.FramesProcessed, 1)
 		}
 	}
 }
 
-func (tm *TranscoderManager) encodeOpus(ctx context.Context, inst *TranscoderInstance, decoder io.Reader, output *Stream) {
+func EncodeOpus(ctx context.Context, relay *Relay, output *Stream, decoder io.Reader, bitrate int, stats *int64) {
 	// 48kHz is standard for Opus
 	const sampleRate = 48000
 	const channels = 2
@@ -218,12 +215,12 @@ func (tm *TranscoderManager) encodeOpus(ctx context.Context, inst *TranscoderIns
 	}
 	defer enc.Close()
 
-	if inst.Config.Bitrate > 0 {
-		enc.SetBitrate(inst.Config.Bitrate * 1000)
+	if bitrate > 0 {
+		enc.SetBitrate(bitrate * 1000)
 	}
 
 	// Ogg encapsulation
-	writer := &streamWriter{stream: output, relay: tm.relay, inst: inst, capture: true}
+	writer := &streamWriter{stream: output, relay: relay, stats: stats, capture: true}
 	serial := uint32(time.Now().UnixNano())
 	pw := ogg.NewPacketWriter(writer, serial)
 
@@ -255,21 +252,18 @@ func (tm *TranscoderManager) encodeOpus(ctx context.Context, inst *TranscoderIns
 	var granulePos uint64
 	var sentCount int64 = 0
 
-	logrus.Infof("Opus Transcoder %s: Entering main loop", inst.Config.Name)
 	for {
 		select {
 		case <-ctx.Done():
-			logrus.Infof("Opus Transcoder %s: Context cancelled", inst.Config.Name)
 			return
 		default:
 			rn, rerr := io.ReadFull(decoder, pcmBuf)
 			if rerr != nil {
-				logrus.WithError(rerr).Warnf("Opus Transcoder %s: PCM read error", inst.Config.Name)
 				return
 			}
 
 			if sentCount == 0 {
-				logrus.Infof("Opus Transcoder %s: Successfully read first PCM frame (%d bytes)", inst.Config.Name, rn)
+				logrus.Debugf("Opus Encoder: Successfully read first PCM frame (%d bytes)", rn)
 			}
 
 			for i := 0; i < len(pcmSamples); i++ {
@@ -287,9 +281,8 @@ func (tm *TranscoderManager) encodeOpus(ctx context.Context, inst *TranscoderIns
 				return
 			}
 			pw.Flush()
-			
+
 			sentCount++
-			atomic.AddInt64(&inst.FramesProcessed, 1)
 		}
 	}
 }
@@ -297,7 +290,7 @@ func (tm *TranscoderManager) encodeOpus(ctx context.Context, inst *TranscoderIns
 type streamWriter struct {
 	stream    *Stream
 	relay     *Relay
-	inst      *TranscoderInstance
+	stats     *int64
 	headerBuf bytes.Buffer
 	capture   bool
 }
@@ -307,7 +300,9 @@ func (w *streamWriter) Write(p []byte) (n int, err error) {
 		w.headerBuf.Write(p)
 	}
 	w.stream.Broadcast(p, w.relay)
-	atomic.AddInt64(&w.inst.BytesEncoded, int64(len(p)))
+	if w.stats != nil {
+		atomic.AddInt64(w.stats, int64(len(p)))
+	}
 	return len(p), nil
 }
 
