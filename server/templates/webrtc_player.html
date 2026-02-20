@@ -150,7 +150,8 @@
             });
 
             if (!response.ok) {
-                const err = await response.text();
+                const data = await response.json();
+                const err = data.error || "Unknown signaling error";
                 stateEl.textContent = "Error: " + err;
                 log('ERROR', `Signaling failed: ${err}`);
                 btn.disabled = false;
@@ -174,10 +175,14 @@
             const bufferLength = analyzer.frequencyBinCount;
             const dataArray = new Uint8Array(bufferLength);
 
+            let lastLevelReport = 0;
+
             function draw() {
                 requestAnimationFrame(draw);
                 analyzer.getByteFrequencyData(dataArray);
                 cctx.clearRect(0, 0, canvas.width, canvas.height);
+                
+                let sum = 0;
                 const barWidth = (canvas.width / bufferLength) * 2.5;
                 let x = 0;
                 for (let i = 0; i < bufferLength; i++) {
@@ -185,6 +190,15 @@
                     cctx.fillStyle = '#38bdf8';
                     cctx.fillRect(x, canvas.height - barHeight, barWidth, barHeight);
                     x += barWidth + 1;
+                    sum += dataArray[i];
+                }
+
+                // Report signal level every 2 seconds
+                const avg = sum / bufferLength;
+                const now = Date.now();
+                if (now - lastLevelReport > 2000) {
+                    log('AUDIO', `Signal Level: ${Math.round(avg)}`);
+                    lastLevelReport = now;
                 }
             }
             draw();

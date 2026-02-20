@@ -130,7 +130,7 @@ func (tm *TranscoderManager) performTranscode(ctx context.Context, inst *Transco
 	// 2. Decode (assuming MP3 input for now as standard)
 	decoder, err := mp3.NewDecoder(reader)
 	if err != nil {
-		logrus.WithError(err).Error("Failed to initialize decoder")
+		logrus.WithError(err).Errorf("Transcoder %s: Failed to initialize decoder for input %s", inst.Config.Name, inst.Config.InputMount)
 		return
 	}
 

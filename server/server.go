@@ -1824,7 +1824,9 @@ func (s *Server) handleWebRTCOffer(w http.ResponseWriter, r *http.Request) {
 
 	answer, err := s.WebRTCM.HandleOffer(mount, offer)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
 

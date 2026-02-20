@@ -99,14 +99,15 @@ func (wm *WebRTCManager) streamToTrack(pc *webrtc.PeerConnection, track *webrtc.
 	})
 
 	id := fmt.Sprintf("webrtc-%d", time.Now().UnixNano())
-	offset, signal := stream.Subscribe(id, 64*1024)
+	// For WebRTC we start at the current head (no burst)
+	offset, signal := stream.Subscribe(id, 0)
 	defer stream.Unsubscribe(id)
 
 	// Seek to next "OggS" magic
 	syncBuf := make([]byte, 16384)
 	foundSync := false
 	var searched int64 = 0
-	for !foundSync && searched < 512*1024 { // Safeguard: stop after 512KB
+	for !foundSync && searched < 512*1024 {
 		select {
 		case <-ctx.Done():
 			return
@@ -148,6 +149,8 @@ func (wm *WebRTCManager) streamToTrack(pc *webrtc.PeerConnection, track *webrtc.
 		return
 	}
 
+	logrus.Infof("WebRTC: Beginning packet transmission for %s", stream.MountName)
+	sentCount := 0
 	for {
 		packet, err := opusReader.ReadAudioPacket()
 		if err != nil {
@@ -162,6 +165,10 @@ func (wm *WebRTCManager) streamToTrack(pc *webrtc.PeerConnection, track *webrtc.
 			Duration: 20 * time.Millisecond,
 		}); err != nil {
 			return
+		}
+		sentCount++
+		if sentCount%100 == 0 {
+			logrus.Debugf("WebRTC: Sent 100 packets to %s", stream.MountName)
 		}
 	}
 }
