@@ -42,9 +42,11 @@ type Streamer struct {
 	mu     sync.RWMutex
 
 	// Stats
-	BytesStreamed   int64
-	CurrentFile     string
-	CurrentFileTime time.Time
+	BytesStreamed       int64
+	CurrentFile         string
+	CurrentFileTime     time.Time
+	CurrentFileDuration time.Duration
+	MPDServer           *MPDServer
 }
 
 type StreamerManager struct {
@@ -185,7 +187,7 @@ func (s *Streamer) RemoveFromPlaylist(idx int) {
 	}
 }
 
-func (sm *StreamerManager) StartStreamer(name, mount, musicDir string, loop bool, format string, bitrate int, injectMetadata bool, initialPlaylist []string) (*Streamer, error) {
+func (sm *StreamerManager) StartStreamer(name, mount, musicDir string, loop bool, format string, bitrate int, injectMetadata bool, initialPlaylist []string, mpdEnabled bool, mpdPort string) (*Streamer, error) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
@@ -207,6 +209,16 @@ func (sm *StreamerManager) StartStreamer(name, mount, musicDir string, loop bool
 		relay:          sm.relay,
 		cancel:         cancel,
 	}
+
+	if mpdEnabled && mpdPort != "" {
+		s.MPDServer = NewMPDServer(mpdPort, s)
+		if err := s.MPDServer.Start(); err != nil {
+			logrus.WithError(err).Errorf("Failed to start MPD server for AutoDJ %s", name)
+		} else {
+			logrus.Infof("MPD Server for %s listening on port %s", name, mpdPort)
+		}
+	}
+
 	sm.instances[mount] = s
 
 	go sm.runStreamerLoop(ctx, s)
@@ -218,6 +230,9 @@ func (sm *StreamerManager) StopStreamer(mount string) {
 	defer sm.mu.Unlock()
 
 	if s, ok := sm.instances[mount]; ok {
+		if s.MPDServer != nil {
+			s.MPDServer.Stop()
+		}
 		s.Stop()
 		delete(sm.instances, mount)
 	}
@@ -327,6 +342,7 @@ func (sm *StreamerManager) streamFile(ctx context.Context, s *Streamer, path str
 	s.mu.Lock()
 	s.CurrentFile = filepath.Base(path)
 	s.CurrentFileTime = time.Now()
+	s.CurrentFileDuration = time.Duration(decoder.Length()) * time.Second / (44100 * 2 * 2) // Rough estimate for 44.1kHz 16bit stereo
 	s.mu.Unlock()
 
 	// Update stream metadata

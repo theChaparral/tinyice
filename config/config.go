@@ -47,15 +47,17 @@ type WebhookConfig struct {
 }
 
 type AutoDJConfig struct {
-	Name           string `json:"name"`
-	Mount          string `json:"mount"`
-	MusicDir       string `json:"music_dir"`
+	Name           string   `json:"name"`
+	Mount          string   `json:"mount"`
+	MusicDir       string   `json:"music_dir"`
 	Format         string   `json:"format"` // "mp3" or "opus"
 	Bitrate        int      `json:"bitrate"`
 	Enabled        bool     `json:"enabled"`
 	Loop           bool     `json:"loop"`
 	InjectMetadata bool     `json:"inject_metadata"`
 	Playlist       []string `json:"playlist"`
+	MPDEnabled     bool     `json:"mpd_enabled"`
+	MPDPort        string   `json:"mpd_port"`
 }
 
 type Config struct {
@@ -103,10 +105,7 @@ type Config struct {
 	DirectoryServer  string `json:"directory_server"`
 
 	// Internal Streamer (AutoDJ)
-	MPDEnabled bool            `json:"mpd_enabled"`
-	MPDPort    string          `json:"mpd_port"`
-	MusicDir   string          `json:"music_dir"`
-	AutoDJs    []*AutoDJConfig `json:"autodjs"`
+	AutoDJs []*AutoDJConfig `json:"autodjs"`
 
 	// Multi-tenant
 	Users map[string]*User `json:"users"`

@@ -395,7 +395,7 @@ func (s *Server) Start() error {
 	// Start configured AutoDJs
 	for _, adj := range s.Config.AutoDJs {
 		if adj.Enabled {
-			streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, adj.Playlist)
+			streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, adj.Playlist, adj.MPDEnabled, adj.MPDPort)
 			if err != nil {
 				logrus.WithError(err).Errorf("Failed to start AutoDJ %s", adj.Name)
 			} else {
@@ -404,29 +404,6 @@ func (s *Server) Start() error {
 					streamer.ScanMusicDir() // Initial scan
 				}
 			}
-		}
-	}
-
-	// Legacy/Default AutoDJ (backward compatibility)
-	if s.Config.MusicDir != "" && s.StreamerM.GetStreamer("/autodj") == nil {
-		// Start a default streamer for /autodj
-		streamer, err := s.StreamerM.StartStreamer("AutoDJ", "/autodj", s.Config.MusicDir, true, "mp3", 128, true, nil)
-		if err == nil {
-			if s.Config.MPDEnabled {
-				port := s.Config.MPDPort
-				if port == "" {
-					port = "6600"
-				}
-				s.mpdServer = relay.NewMPDServer(port, streamer)
-				if err := s.mpdServer.Start(); err != nil {
-					logrus.WithError(err).Error("Failed to start MPD server")
-				} else {
-					logrus.Infof("MPD Server listening on port %s", port)
-				}
-			}
-			streamer.ScanMusicDir()
-		} else {
-			logrus.WithError(err).Error("Failed to start default streamer")
 		}
 	}
 
@@ -2180,6 +2157,8 @@ func (s *Server) handleAddAutoDJ(w http.ResponseWriter, r *http.Request) {
 	bitrateStr := r.FormValue("bitrate")
 	loop := r.FormValue("loop") == "on"
 	injectMetadata := r.FormValue("inject_metadata") == "on"
+	mpdEnabled := r.FormValue("mpd_enabled") == "on"
+	mpdPort := r.FormValue("mpd_port")
 
 	if name == "" || mount == "" || musicDir == "" {
 		http.Error(w, "Name, mount, and music directory are required", http.StatusBadRequest)
@@ -2207,13 +2186,15 @@ func (s *Server) handleAddAutoDJ(w http.ResponseWriter, r *http.Request) {
 		Enabled:        true,
 		Loop:           loop,
 		InjectMetadata: injectMetadata,
+		MPDEnabled:     mpdEnabled,
+		MPDPort:        mpdPort,
 	}
 
 	s.Config.AutoDJs = append(s.Config.AutoDJs, adj)
 	s.Config.SaveConfig()
 
 	// Start it immediately
-	streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, nil)
+	streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, nil, adj.MPDEnabled, adj.MPDPort)
 	if err == nil {
 		streamer.ScanMusicDir()
 		streamer.Play()
@@ -2261,7 +2242,7 @@ func (s *Server) handleToggleAutoDJ(w http.ResponseWriter, r *http.Request) {
 		if adj.Mount == mount {
 			adj.Enabled = !adj.Enabled
 			if adj.Enabled {
-				streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, adj.Playlist)
+				streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, adj.Playlist, adj.MPDEnabled, adj.MPDPort)
 				if err == nil {
 					if len(adj.Playlist) == 0 {
 						streamer.ScanMusicDir()
@@ -2277,19 +2258,10 @@ func (s *Server) handleToggleAutoDJ(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !found {
-		// Might be a legacy or manual streamer
+		// Might be a manual streamer
 		streamer := s.StreamerM.GetStreamer(mount)
 		if streamer != nil {
 			s.StreamerM.StopStreamer(mount)
-		} else {
-			// If it was the legacy one, we can try to restart it
-			if mount == "/autodj" && s.Config.MusicDir != "" {
-				streamer, err := s.StreamerM.StartStreamer("AutoDJ", "/autodj", s.Config.MusicDir, true, "mp3", 128, true, nil)
-				if err == nil {
-					streamer.ScanMusicDir()
-					streamer.Play()
-				}
-			}
 		}
 	}
 
