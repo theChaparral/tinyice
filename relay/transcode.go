@@ -197,6 +197,8 @@ func (tm *TranscoderManager) encodeMP3(ctx context.Context, inst *TranscoderInst
 			if err != nil {
 				return
 			}
+			// Note: Shine MP3 doesn't have a flush but we should ensure 
+			// our writer is called.
 			atomic.AddInt64(&inst.FramesProcessed, 1)
 		}
 	}
@@ -289,6 +291,7 @@ func (tm *TranscoderManager) encodeOpus(ctx context.Context, inst *TranscoderIns
 			if err := pw.WritePacket(opusPacket[:en], granulePos, false, false); err != nil {
 				return
 			}
+			pw.Flush()
 			
 			sentCount++
 			atomic.AddInt64(&inst.FramesProcessed, 1)
