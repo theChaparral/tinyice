@@ -273,6 +273,7 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/admin/autodj/add", s.handleAddAutoDJ)
 	mux.HandleFunc("/admin/autodj/delete", s.handleDeleteAutoDJ)
 	mux.HandleFunc("/admin/autodj/toggle", s.handleToggleAutoDJ)
+	mux.HandleFunc("/admin/autodj/update", s.handleUpdateAutoDJ)
 	mux.HandleFunc("/admin/add-relay", s.handleAddRelay)
 	mux.HandleFunc("/admin/toggle-relay", s.handleToggleRelay)
 	mux.HandleFunc("/admin/restart-relay", s.handleRestartRelay)
@@ -2385,6 +2386,7 @@ func (s *Server) handlePlayerFiles(w http.ResponseWriter, r *http.Request) {
 	}
 
 	mount := r.URL.Query().Get("mount")
+	subDir := r.URL.Query().Get("path")
 	streamer := s.StreamerM.GetStreamer(mount)
 	if streamer == nil {
 		http.Error(w, "Streamer not found", http.StatusNotFound)
@@ -2392,17 +2394,28 @@ func (s *Server) handlePlayerFiles(w http.ResponseWriter, r *http.Request) {
 	}
 
 	musicDir := streamer.GetMusicDir()
+	fullPath := filepath.Join(musicDir, subDir)
 
-	files, err := os.ReadDir(musicDir)
+	entries, err := os.ReadDir(fullPath)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	var res []string
-	for _, f := range files {
-		if !f.IsDir() && strings.ToLower(filepath.Ext(f.Name())) == ".mp3" {
-			res = append(res, f.Name())
+	type fileEntry struct {
+		Name  string `json:"name"`
+		IsDir bool   `json:"is_dir"`
+		Path  string `json:"path"`
+	}
+	var res []fileEntry
+	for _, f := range entries {
+		ext := strings.ToLower(filepath.Ext(f.Name()))
+		if f.IsDir() || ext == ".mp3" {
+			res = append(res, fileEntry{
+				Name:  f.Name(),
+				IsDir: f.IsDir(),
+				Path:  filepath.Join(subDir, f.Name()),
+			})
 		}
 	}
 
@@ -2421,7 +2434,7 @@ func (s *Server) handlePlayerPlaylistAction(w http.ResponseWriter, r *http.Reque
 
 	mount := r.FormValue("mount")
 	action := r.FormValue("action")
-	fileName := r.FormValue("file")
+	relPath := r.FormValue("file")
 
 	streamer := s.StreamerM.GetStreamer(mount)
 	if streamer == nil {
@@ -2430,8 +2443,23 @@ func (s *Server) handlePlayerPlaylistAction(w http.ResponseWriter, r *http.Reque
 	}
 
 	if action == "add" {
-		fullPath := filepath.Join(streamer.GetMusicDir(), fileName)
-		streamer.AddToPlaylist(fullPath)
+		fullPath := filepath.Join(streamer.GetMusicDir(), relPath)
+		info, err := os.Stat(fullPath)
+		if err == nil {
+			if info.IsDir() {
+				// Add folder recursively
+				filepath.Walk(fullPath, func(p string, i os.FileInfo, e error) error {
+					if e == nil && !i.IsDir() && strings.ToLower(filepath.Ext(p)) == ".mp3" {
+						abs, _ := filepath.Abs(p)
+						streamer.AddToPlaylist(abs)
+					}
+					return nil
+				})
+			} else {
+				abs, _ := filepath.Abs(fullPath)
+				streamer.AddToPlaylist(abs)
+			}
+		}
 	} else if action == "remove" {
 		var idx int
 		fmt.Sscanf(r.FormValue("index"), "%d", &idx)
@@ -2448,6 +2476,66 @@ func (s *Server) handlePlayerPlaylistAction(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
+	http.Redirect(w, r, "/admin#tab-streamer", http.StatusSeeOther)
+}
+
+func (s *Server) handleUpdateAutoDJ(w http.ResponseWriter, r *http.Request) {
+	if !s.isCSRFSafe(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	if _, ok := s.checkAuth(r); !ok {
+		return
+	}
+
+	oldMount := r.FormValue("old_mount")
+	name := r.FormValue("name")
+	newMount := r.FormValue("mount")
+	musicDir := r.FormValue("music_dir")
+	format := r.FormValue("format")
+	bitrateStr := r.FormValue("bitrate")
+	loop := r.FormValue("loop") == "on"
+	injectMetadata := r.FormValue("inject_metadata") == "on"
+	mpdEnabled := r.FormValue("mpd_enabled") == "on"
+	mpdPort := r.FormValue("mpd_port")
+
+	if name == "" || newMount == "" || musicDir == "" {
+		http.Error(w, "Name, mount, and music directory are required", http.StatusBadRequest)
+		return
+	}
+
+	if newMount[0] != '/' {
+		newMount = "/" + newMount
+	}
+
+	bitrate := 128
+	fmt.Sscanf(bitrateStr, "%d", &bitrate)
+
+	for _, adj := range s.Config.AutoDJs {
+		if adj.Mount == oldMount {
+			adj.Name = name
+			adj.Mount = newMount
+			adj.MusicDir = musicDir
+			adj.Format = format
+			adj.Bitrate = bitrate
+			adj.Loop = loop
+			adj.InjectMetadata = injectMetadata
+			adj.MPDEnabled = mpdEnabled
+			adj.MPDPort = mpdPort
+
+			// Restart streamer
+			s.StreamerM.StopStreamer(oldMount)
+			if adj.Enabled {
+				streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, adj.Playlist, adj.MPDEnabled, adj.MPDPort)
+				if err == nil {
+					streamer.Play()
+				}
+			}
+			break
+		}
+	}
+
+	s.Config.SaveConfig()
 	http.Redirect(w, r, "/admin#tab-streamer", http.StatusSeeOther)
 }
 

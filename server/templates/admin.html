@@ -63,6 +63,8 @@
         .playlist-item.active { border-color: var(--primary) !important; background: var(--primary-glow) !important; }
         .playlist-item.active span { color: var(--primary); font-weight: 600; }
         .sortable-ghost { opacity: 0.4; background: var(--primary-glow) !important; }
+        .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); backdrop-filter: blur(4px); }
+        .modal-content { background: var(--surface); margin: 5% auto; padding: 2rem; border: 1px solid var(--border); border-radius: 16px; width: 500px; max-width: 90%; }
     </style>
 </head>
 <body>
@@ -406,6 +408,9 @@
                                                                                                             Dir: <span style="font-family: monospace; font-size: 0.75rem;">{{.MusicDir}}</span>
                                                                                                         </div>                                                            </div>
                                                                                                 <div style="display: flex; gap: 0.5rem; align-items: center;">
+                                                                                                    <button type="button" class="btn btn-outline btn-sm" title="Edit AutoDJ" onclick='showEditAutoDJ({ "Name": "{{.Name}}", "Mount": "{{.OutputMount}}", "MusicDir": "{{.MusicDir}}", "Format": "{{.Format}}", "Bitrate": {{.Bitrate}}, "Loop": {{.Loop}}, "InjectMetadata": {{.InjectMetadata}}, "MPDEnabled": {{if .MPDServer}}true{{else}}false{{end}}, "MPDPort": "{{if .MPDServer}}{{.MPDServer.Port}}{{end}}" })'>
+                                                                                                        <i data-lucide="edit-3" style="width: 14px; height: 14px;"></i>
+                                                                                                    </button>
                                                                                                     <div class="btn-group" style="display: flex; background: rgba(0,0,0,0.2); border-radius: 8px; padding: 2px;">
                                                                                                         <form action="/admin/player/shuffle" method="POST" style="margin:0;">
                                                                                                             <input type="hidden" name="csrf" value="{{$.CSRFToken}}">
@@ -587,7 +592,53 @@
             {{end}}
         </main>
     </div>
-        <template id="stream-row-template"><tr><td><span class="mount-code row-mount"></span><br><span style="font-size:0.7rem;color:var(--text-dim)" class="row-ip"></span></td><td><span class="song-title row-song"></span></td><td style="font-weight:700;color:var(--primary);" class="row-listeners"></td><td><span style="color:var(--success)" class="row-in"></span> / <span style="color:var(--primary)" class="row-out"></span></td><td><span class="row-health"></span></td><td style="font-family:monospace;" class="row-uptime"></span></td><td style="width:20%">
+
+    <!-- Edit AutoDJ Modal -->
+    <div id="edit-autodj-modal" class="modal">
+        <div class="modal-content">
+            <h2>Edit AutoDJ</h2>
+            <form action="/admin/autodj/update" method="POST" id="edit-autodj-form">
+                <input type="hidden" name="csrf" value="{{.CSRFToken}}">
+                <input type="hidden" name="old_mount" id="edit-old-mount">
+                <div class="form-group"><label>Instance Name</label><input type="text" name="name" id="edit-name" required></div>
+                <div class="form-group"><label>Mount Path</label><input type="text" name="mount" id="edit-mount" required></div>
+                <div class="form-group"><label>Music Directory</label><input type="text" name="music_dir" id="edit-music-dir" required></div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                    <div class="form-group">
+                        <label>Format</label>
+                        <select name="format" id="edit-format">
+                            <option value="mp3">MP3</option>
+                            <option value="opus">Opus</option>
+                        </select>
+                    </div>
+                    <div class="form-group"><label>Bitrate (kbps)</label><input type="number" name="bitrate" id="edit-bitrate" required></div>
+                </div>
+                <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem;">
+                    <input type="checkbox" name="loop" id="edit-loop" style="width: auto;">
+                    <label for="edit-loop" style="margin-bottom: 0;">Loop Playlist</label>
+                </div>
+                <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem;">
+                    <input type="checkbox" name="inject_metadata" id="edit-metadata" style="width: auto;">
+                    <label for="edit-metadata" style="margin-bottom: 0;">Inject Metadata (ICY)</label>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; align-items: center;">
+                    <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0;">
+                        <input type="checkbox" name="mpd_enabled" id="edit-mpd" style="width: auto;">
+                        <label for="edit-mpd" style="margin-bottom: 0;">Expose MPD</label>
+                    </div>
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <input type="text" name="mpd_port" id="edit-mpd-port" placeholder="Port (e.g. 6600)" style="padding: 0.4rem;">
+                    </div>
+                </div>
+                <div style="display: flex; gap: 1rem; margin-top: 2rem;">
+                    <button type="submit" class="btn btn-primary" style="flex: 1;">Save Changes</button>
+                    <button type="button" class="btn btn-outline" style="flex: 1;" onclick="closeEditAutoDJ()">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <template id="stream-row-template"><tr><td><span class="mount-code row-mount"></span><br><span style="font-size:0.7rem;color:var(--text-dim)" class="row-ip"></span></td><td><span class="song-title row-song"></span></td><td style="font-weight:700;color:var(--primary);" class="row-listeners"></td><td><span style="color:var(--success)" class="row-in"></span> / <span style="color:var(--primary)" class="row-out"></span></td><td><span class="row-health"></span></td><td style="font-family:monospace;" class="row-uptime"></span></td><td style="width:20%">
     <div style="display:flex;gap:0.5rem;"><a href="" target="_blank" class="btn btn-outline btn-sm row-link">Listen</a><button type="button" class="btn btn-primary btn-sm row-share-btn">SHARE</button><form action="/admin/kick" method="POST" style="display:inline;" class="row-kick-form"><input type="hidden" name="csrf" value="{{.CSRFToken}}"><input type="hidden" name="mount" value=""><button type="submit" class="btn btn-danger btn-sm">KICK</button></form></div></td></tr></template>
     <template id="relay-row-template"><tr><td><div class="status-pill row-relay-status"><div class="dot"></div> <span class="row-relay-status-text"></span></div></td><td style="font-size:0.8rem;color:var(--text-dim)" class="row-relay-url"></td><td><span class="mount-code row-relay-mount"></span></td><td><div style="display:flex; gap:0.3rem"><button type="button" class="btn btn-outline btn-sm row-relay-edit-btn">EDIT</button><form action="/admin/toggle-visible" method="POST" class="row-relay-visible-form"><input type="hidden" name="csrf" value="{{.CSRFToken}}"><input type="hidden" name="mount" value=""><button type="submit" class="btn btn-sm row-relay-visible-btn"></button></form><form action="/admin/toggle-relay" method="POST" class="row-relay-toggle-form"><input type="hidden" name="csrf" value="{{.CSRFToken}}"><input type="hidden" name="mount" value=""><button type="submit" class="btn btn-sm row-relay-toggle-btn"></button></form><form action="/admin/delete-relay" method="POST" class="row-relay-delete-form"><input type="hidden" name="csrf" value="{{.CSRFToken}}"><input type="hidden" name="mount" value=""><button type="submit" class="btn btn-danger btn-sm">STOP</button></form></div></td></tr></template>
     <template id="transcoder-row-template">
@@ -604,6 +655,7 @@
         </tr>
     </template>
     <script>
+        const csrfToken = "{{.CSRFToken}}";
         function updateAutoDJProgress() {
             const bars = document.querySelectorAll('.progress-bar-adj');
             const now = Math.floor(Date.now() / 1000);
@@ -635,49 +687,88 @@
         }
         setInterval(updateAutoDJProgress, 1000);
 
-        function loadLibrary(mount, container) {
-            if (container.style.display === 'block') {
+        function showEditAutoDJ(data) {
+            document.getElementById('edit-old-mount').value = data.Mount;
+            document.getElementById('edit-name').value = data.Name;
+            document.getElementById('edit-mount').value = data.Mount;
+            document.getElementById('edit-music-dir').value = data.MusicDir;
+            document.getElementById('edit-format').value = data.Format;
+            document.getElementById('edit-bitrate').value = data.Bitrate;
+            document.getElementById('edit-loop').checked = data.Loop;
+            document.getElementById('edit-metadata').checked = data.InjectMetadata;
+            document.getElementById('edit-mpd').checked = data.MPDEnabled;
+            document.getElementById('edit-mpd-port').value = data.MPDPort;
+            document.getElementById('edit-autodj-modal').style.display = 'block';
+        }
+
+        function closeEditAutoDJ() {
+            document.getElementById('edit-autodj-modal').style.display = 'none';
+        }
+
+        function loadLibrary(mount, container, subPath = '') {
+            if (subPath === '' && container.style.display === 'block' && container.dataset.loaded === 'true') {
                 container.style.display = 'none';
+                container.dataset.loaded = 'false';
                 return;
             }
             container.innerHTML = '<div style="text-align:center; padding: 1rem; color: var(--text-dim); font-size: 0.8rem;">Scanning directory...</div>';
             container.style.display = 'block';
+            container.dataset.loaded = 'true';
             
-            fetch('/admin/player/files?mount=' + encodeURIComponent(mount))
+            fetch('/admin/player/files?mount=' + encodeURIComponent(mount) + '&path=' + encodeURIComponent(subPath))
                 .then(r => r.json())
-                .then(files => {
-                    if (!files || files.length === 0) {
-                        container.innerHTML = '<div style="text-align:center; padding: 1rem; color: var(--text-dim); font-size: 0.8rem;">No .mp3 files found.</div>';
+                .then(entries => {
+                    if (!entries || entries.length === 0) {
+                        container.innerHTML = '<div style="text-align:center; padding: 1rem; color: var(--text-dim); font-size: 0.8rem;">No entries found.</div>';
                         return;
                     }
                     
                     let html = '<div style="display:flex; flex-direction:column; gap:4px;">';
-                    files.forEach(f => {
+                    
+                    if (subPath !== '') {
+                        const parts = subPath.split('/').filter(p => p !== '');
+                        const parent = parts.slice(0, -1).join('/');
+                        html += `
+                        <div style="display:flex; align-items:center; padding:0.4rem; background:rgba(255,255,255,0.05); border-radius:4px; font-size:0.8rem; cursor:pointer;" onclick="loadLibrary('${mount}', this.parentElement.parentElement, '${parent}')">
+                            <i data-lucide="folder-up" style="width:14px; height:14px; margin-right:0.5rem;"></i>
+                            <span>.. (UP)</span>
+                        </div>`;
+                    }
+
+                    entries.forEach(e => {
+                        const icon = e.is_dir ? 'folder' : 'music';
+                        const actionLabel = e.is_dir ? 'ADD ALL' : 'ADD';
                         html += `
                         <div style="display:flex; justify-content:space-between; align-items:center; padding:0.4rem; background:rgba(255,255,255,0.02); border-radius:4px; font-size:0.8rem;">
-                            <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1;">${f}</span>
+                            <div style="display:flex; align-items:center; flex:1; cursor:${e.is_dir ? 'pointer' : 'default'}; overflow:hidden;" ${e.is_dir ? `onclick="loadLibrary('${mount}', this.parentElement.parentElement.parentElement, '${e.path}')"` : ''}>
+                                <i data-lucide="${icon}" style="width:14px; height:14px; margin-right:0.5rem; opacity:0.6;"></i>
+                                <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${e.name}</span>
+                            </div>
                             <div style="display:flex; gap:0.3rem;">
+                                ${!e.is_dir ? `
                                 <form action="/admin/player/queue" method="POST" style="margin:0;">
                                     <input type="hidden" name="csrf" value="${csrfToken}">
                                     <input type="hidden" name="mount" value="${mount}">
                                     <input type="hidden" name="action" value="add">
-                                    <input type="hidden" name="path" value="${f}">
+                                    <input type="hidden" name="path" value="${e.path}">
                                     <button type="submit" class="btn btn-outline btn-sm" style="padding:0.1rem 0.3rem; font-size:0.7rem;" title="Queue Next">QUEUE</button>
-                                </form>
+                                </form>` : ''}
                                 <form action="/admin/player/playlist-action" method="POST" style="margin:0;">
                                     <input type="hidden" name="csrf" value="${csrfToken}">
                                     <input type="hidden" name="mount" value="${mount}">
                                     <input type="hidden" name="action" value="add">
-                                    <input type="hidden" name="file" value="${f}">
-                                    <button type="submit" class="btn btn-primary btn-sm" style="padding:0.1rem 0.3rem; font-size:0.7rem;" title="Add to Playlist">ADD</button>
+                                    <input type="hidden" name="file" value="${e.path}">
+                                    <button type="submit" class="btn btn-primary btn-sm" style="padding:0.1rem 0.3rem; font-size:0.7rem;" title="${e.is_dir ? 'Add folder recursively' : 'Add to Playlist'}">${actionLabel}</button>
                                 </form>
                             </div>
                         </div>`;
                     });
                     html += '</div>';
                     container.innerHTML = html;
+                    lucide.createIcons();
                 });
         }
+
 
         function initSortable() {
             document.querySelectorAll('.playlist-sortable').forEach(function(el) {

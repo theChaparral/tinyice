@@ -148,19 +148,21 @@ func (s *Streamer) ScanMusicDir() error {
 		return fmt.Errorf("music directory not configured")
 	}
 
-	files, err := os.ReadDir(s.MusicDir)
-	if err != nil {
-		return err
-	}
-
 	s.Playlist = []string{}
-	for _, f := range files {
-		ext := strings.ToLower(filepath.Ext(f.Name()))
-		if !f.IsDir() && ext == ".mp3" {
-			s.Playlist = append(s.Playlist, filepath.Join(s.MusicDir, f.Name()))
+	err := filepath.Walk(s.MusicDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
 		}
-	}
-	return nil
+		if !info.IsDir() {
+			ext := strings.ToLower(filepath.Ext(path))
+			if ext == ".mp3" {
+				absPath, _ := filepath.Abs(path)
+				s.Playlist = append(s.Playlist, absPath)
+			}
+		}
+		return nil
+	})
+	return err
 }
 
 func (s *Streamer) GetMusicDir() string {

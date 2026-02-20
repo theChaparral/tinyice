@@ -11,25 +11,29 @@ import (
 )
 
 type MPDServer struct {
-	addr     string
+	Port     string
 	streamer *Streamer
 	listener net.Listener
 }
 
-func NewMPDServer(addr string, s *Streamer) *MPDServer {
+func NewMPDServer(port string, s *Streamer) *MPDServer {
 	return &MPDServer{
-		addr:     addr,
+		Port:     port,
 		streamer: s,
 	}
 }
 
 func (m *MPDServer) Start() error {
-	l, err := net.Listen("tcp", m.addr)
+	addr := m.Port
+	if !strings.Contains(addr, ":") {
+		addr = ":" + addr
+	}
+	l, err := net.Listen("tcp", addr)
 	if err != nil {
 		return err
 	}
 	m.listener = l
-	logrus.Infof("MPD Server listening on %s", m.addr)
+	logrus.Infof("MPD Server listening on %s", addr)
 
 	go func() {
 		for {
