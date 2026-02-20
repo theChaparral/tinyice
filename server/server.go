@@ -49,6 +49,14 @@ type Server struct {
 
 	sessions   map[string]*session
 	sessionsMu sync.RWMutex
+
+	authAttempts   map[string]*authAttempt // IP -> attempt info
+	authAttemptsMu sync.Mutex
+}
+
+type authAttempt struct {
+	Count     int
+	LockoutBy time.Time
 }
 
 type session struct {
@@ -78,6 +86,7 @@ func NewServer(cfg *config.Config, authLog *logrus.Logger) *Server {
 		startTime:   time.Now(),
 		AuthLog:     authLog,
 		sessions:    make(map[string]*session),
+		authAttempts: make(map[string]*authAttempt),
 	}
 }
 
@@ -338,6 +347,50 @@ func (s *Server) logAuthFailed(user, ip, reason string) {
 	}).Warnf("Authentication failed for user '%s' from %s: %s", user, host, reason)
 }
 
+func (s *Server) checkAuthLimit(ip string) error {
+	s.authAttemptsMu.Lock()
+	defer s.authAttemptsMu.Unlock()
+
+	attempt, exists := s.authAttempts[ip]
+	if !exists {
+		return nil
+	}
+
+	if time.Now().Before(attempt.LockoutBy) {
+		return fmt.Errorf("too many failed attempts. locked out until %s", attempt.LockoutBy.Format("15:04:05"))
+	}
+
+	// Reset if lockout period has passed
+	if time.Now().After(attempt.LockoutBy) && attempt.Count >= 5 {
+		attempt.Count = 0
+	}
+
+	return nil
+}
+
+func (s *Server) recordAuthFailure(ip string) {
+	s.authAttemptsMu.Lock()
+	defer s.authAttemptsMu.Unlock()
+
+	attempt, exists := s.authAttempts[ip]
+	if !exists {
+		attempt = &authAttempt{}
+		s.authAttempts[ip] = attempt
+	}
+
+	attempt.Count++
+	if attempt.Count >= 5 {
+		attempt.LockoutBy = time.Now().Add(15 * time.Minute)
+		logrus.Warnf("IP %s locked out for 15 minutes due to 5 failed auth attempts", ip)
+	}
+}
+
+func (s *Server) recordAuthSuccess(ip string) {
+	s.authAttemptsMu.Lock()
+	defer s.authAttemptsMu.Unlock()
+	delete(s.authAttempts, ip)
+}
+
 func (s *Server) checkAuth(r *http.Request) (*config.User, bool) {
 	// 1. Check Session Cookie first (Web UI)
 	if cookie, err := r.Cookie("sid"); err == nil {
@@ -354,17 +407,26 @@ func (s *Server) checkAuth(r *http.Request) (*config.User, bool) {
 	if !ok {
 		return nil, false
 	}
+
+	host, _, _ := net.SplitHostPort(r.RemoteAddr)
+	if err := s.checkAuthLimit(host); err != nil {
+		s.logAuthFailed(u, r.RemoteAddr, err.Error())
+		return nil, false
+	}
+
 	user, exists := s.Config.Users[u]
 	if !exists {
+		s.recordAuthFailure(host)
 		s.logAuthFailed(u, r.RemoteAddr, "user not found")
 		return nil, false
 	}
 	if !config.CheckPasswordHash(p, user.Password) {
+		s.recordAuthFailure(host)
 		s.logAuthFailed(u, r.RemoteAddr, "invalid password")
 		return nil, false
 	}
 
-	host, _, _ := net.SplitHostPort(r.RemoteAddr)
+	s.recordAuthSuccess(host)
 	s.logAuth().WithFields(logrus.Fields{"user": u, "ip": host}).Info("Admin auth successful (Basic)")
 	return user, true
 }
@@ -826,18 +888,28 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	host, _, _ := net.SplitHostPort(r.RemoteAddr)
+
 	if r.Method == http.MethodPost {
 		u := r.FormValue("username")
 		p := r.FormValue("password")
 
+		if err := s.checkAuthLimit(host); err != nil {
+			data := map[string]interface{}{"Error": err.Error(), "Config": s.Config}
+			s.tmpl.ExecuteTemplate(w, "login.html", data)
+			return
+		}
+
 		user, exists := s.Config.Users[u]
 		if !exists || !config.CheckPasswordHash(p, user.Password) {
+			s.recordAuthFailure(host)
 			s.logAuthFailed(u, r.RemoteAddr, "invalid credentials")
 			data := map[string]interface{}{"Error": "Invalid username or password", "Config": s.Config}
 			s.tmpl.ExecuteTemplate(w, "login.html", data)
 			return
 		}
 
+		s.recordAuthSuccess(host)
 		// Generate Session ID
 		b := make([]byte, 32)
 		rand.Read(b)
