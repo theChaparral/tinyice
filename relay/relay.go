@@ -90,6 +90,8 @@ type Stream struct {
 
 	LastDataReceived time.Time
 
+	OggHead []byte // Store Ogg headers for Opus/Ogg streams
+
 	Buffer    *CircularBuffer
 	listeners map[string]chan struct{} // Signal channel for new data
 	mu        sync.RWMutex

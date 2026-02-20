@@ -863,6 +863,13 @@ func (s *Server) serveStreamData(w http.ResponseWriter, r *http.Request, stream 
 	// Subscribe with 64KB burst (approx 4s @ 128kbps) for instant start
 	offset, signal := stream.Subscribe(id, 65536)
 	defer stream.Unsubscribe(id)
+
+	if stream.OggHead != nil {
+		if _, err := w.Write(stream.OggHead); err != nil {
+			return false
+		}
+	}
+
 	buf := make([]byte, 16384)
 	flusher, _ := w.(http.Flusher)
 

@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -209,7 +210,12 @@ func (tm *TranscoderManager) encodeOpus(ctx context.Context, inst *TranscoderIns
 
 	// Ogg encapsulation
 	writer := &streamWriter{stream: output, relay: tm.relay, inst: inst}
-	pw := ogg.NewPacketWriter(writer, uint32(time.Now().UnixNano()))
+	serial := uint32(time.Now().UnixNano())
+	
+	// We need to capture the raw Ogg page bytes for the headers
+	var headerBuf bytes.Buffer
+	headerWriter := io.MultiWriter(writer, &headerBuf)
+	pw := ogg.NewPacketWriter(headerWriter, serial)
 
 	// ID Header
 	head := ogg.OpusHead{
@@ -224,6 +230,13 @@ func (tm *TranscoderManager) encodeOpus(ctx context.Context, inst *TranscoderIns
 	tags := ogg.OpusTags{Vendor: "tinyice-opus"}
 	tagsPacket, _ := ogg.BuildOpusTagsPacket(tags)
 	pw.WritePacket(tagsPacket, 0, false, false)
+	pw.Flush()
+
+	// Store the full Ogg pages (headers) for new listeners
+	output.OggHead = headerBuf.Bytes()
+
+	// Re-create packet writer for audio data
+	pw = ogg.NewPacketWriter(writer, serial)
 
 	pcmBuf := make([]byte, frameSize*channels*2)
 	pcmSamples := make([]int16, frameSize*channels)
