@@ -377,6 +377,12 @@ func (s *Server) Start() error {
 	mux := s.setupRoutes()
 	addr := s.Config.BindHost + ":" + s.Config.Port
 
+	// IPv6 handling: If the address contains a colon but doesn't start with '[', we assume it's an IPv6 address and wrap it in brackets.
+	if strings.Contains(addr, ":") && !strings.HasPrefix(addr, "[") {
+		addr = "[" + s.Config.BindHost + "]:" + s.Config.Port
+	}
+
+
 	if s.Config.DirectoryListing {
 		go s.directoryReportingTask()
 	}
