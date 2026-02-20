@@ -28,6 +28,7 @@ import (
 	"github.com/gomarkdown/markdown"
 	"github.com/gomarkdown/markdown/html"
 	"github.com/gomarkdown/markdown/parser"
+	"github.com/pion/webrtc/v4"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/crypto/acme"
 	"golang.org/x/crypto/acme/autocert"
@@ -44,6 +45,7 @@ type Server struct {
 	Relay       *relay.Relay
 	RelayM      *relay.RelayManager
 	TranscoderM *relay.TranscoderManager
+	WebRTCM     *relay.WebRTCManager
 	tmpl        *template.Template
 	httpServers []*http.Server
 	startTime   time.Time
@@ -154,6 +156,7 @@ func NewServer(cfg *config.Config, authLog *logrus.Logger) *Server {
 		Relay:       r,
 		RelayM:      relay.NewRelayManager(r),
 		TranscoderM: relay.NewTranscoderManager(r),
+		WebRTCM:     relay.NewWebRTCManager(r),
 		tmpl:        tmpl,
 		startTime:   time.Now(),
 		AuthLog:     authLog,
@@ -194,7 +197,9 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/login", s.handleLogin)
 	mux.HandleFunc("/logout", s.handleLogout)
 	mux.HandleFunc("/explore", s.handleExplore)
+	mux.HandleFunc("/webrtc/offer", s.handleWebRTCOffer)
 	mux.HandleFunc("/player/", s.handlePlayer)
+	mux.HandleFunc("/player-webrtc/", s.handleWebRTCPlayer)
 	mux.HandleFunc("/embed/", s.handleEmbed)
 	mux.HandleFunc("/", s.handleRoot)
 	mux.HandleFunc("/events", s.handlePublicEvents)
@@ -1799,6 +1804,34 @@ func (s *Server) handleGetStats(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) handleWebRTCOffer(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	mount := r.URL.Query().Get("mount")
+	if mount == "" {
+		http.Error(w, "mount query param required", http.StatusBadRequest)
+		return
+	}
+
+	var offer webrtc.SessionDescription
+	if err := json.NewDecoder(r.Body).Decode(&offer); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	answer, err := s.WebRTCM.HandleOffer(mount, offer)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(answer)
+}
+
 func (s *Server) handlePlayer(w http.ResponseWriter, r *http.Request) {
 	mount := strings.TrimPrefix(r.URL.Path, "/player")
 	if mount == "" || mount == "/" {
@@ -1828,6 +1861,28 @@ func (s *Server) handlePlayer(w http.ResponseWriter, r *http.Request) {
 	if err := s.tmpl.ExecuteTemplate(w, "player.html", data); err != nil {
 		logrus.WithError(err).Error("Template error")
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+	}
+}
+
+func (s *Server) handleWebRTCPlayer(w http.ResponseWriter, r *http.Request) {
+	mount := strings.TrimPrefix(r.URL.Path, "/player-webrtc")
+	if mount == "" || mount == "/" {
+		http.Redirect(w, r, "/explore", http.StatusSeeOther)
+		return
+	}
+
+	stream, ok := s.Relay.GetStream(mount)
+	if !ok {
+		http.Error(w, "Stream not found", http.StatusNotFound)
+		return
+	}
+
+	data := map[string]interface{}{
+		"Stream": stream,
+		"Config": s.Config,
+	}
+	if err := s.tmpl.ExecuteTemplate(w, "webrtc_player.html", data); err != nil {
+		logrus.WithError(err).Error("Template error")
 	}
 }
 
