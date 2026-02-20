@@ -42,7 +42,9 @@ Traditional streaming servers can be complex to configure and resource-heavy. Ti
 -   **Instant Start**: Listeners receive a 64KB audio burst upon connection, eliminating the "buffering" delay common in traditional servers.
 -   **High-Performance Distribution**: Shared circular buffer architecture designed for 100,000+ concurrent listeners per stream.
 -   **Icecast2 Compatible**: Works with standard source clients (BUTT, OBS, Mixxx, LadioCast) and players (VLC, web browsers).
--   **Approval Workflow**: New streams are hidden by default until approved by an administrator.
+-   **Approvals Workflow**: New streams are hidden by default until approved by an administrator.
+-   **Integrated AutoDJ**: Automated 24/7 broadcasting from local music directories. Supports recursive folder scanning, shuffle mode, and manual queue management.
+-   **Dedicated MPD Servers**: Optionally expose a standard MPD (Music Player Daemon) server for each AutoDJ instance for remote control via standard clients.
 -   **Stream Relaying**: Act as an edge node by pulling streams from remote servers.
 -   **Outbound ICY Metadata**: Injects song titles directly into the audio stream, ensuring "Now Playing" info appears on all traditional radio players (VLC, Winamp, etc.).
 -   **Built-in Transcoding**: High-performance, pure Go transcoding (MP3/Opus) to provide multiple quality options or formats for a single source.
@@ -103,7 +105,21 @@ TinyIce uses a JSON configuration file (`tinyice.json`). Below are the available
     "directory_listing": true,
     "directory_server": "http://dir.xiph.org/cgi-bin/yp-cgi",
     "low_latency_mode": false,
-    "banned_ips": []
+    "banned_ips": [],
+    "autodjs": [
+        {
+            "name": "24/7 Chill",
+            "mount": "/chill",
+            "music_dir": "/music/chill",
+            "format": "mp3",
+            "bitrate": 128,
+            "enabled": true,
+            "loop": true,
+            "inject_metadata": true,
+            "mpd_enabled": true,
+            "mpd_port": "6600"
+        }
+    ]
 }
 ```
 
@@ -150,6 +166,16 @@ TinyIce includes a built-in, CGO-free transcoder that allows you to take one inp
 - **Dynamic**: Manage transcoders on the fly via the Admin Dashboard.
 
 > **Note**: Currently supporting MP3 (128kbps fixed) and Opus.
+
+### AutoDJ (Internal Streamer)
+TinyIce features a built-in AutoDJ that allows you to stream local music files automatically.
+
+- **Multi-Instance**: Run multiple independent AutoDJs on different mount points.
+- **Recursive Library**: Browse and add entire folders or individual tracks recursively.
+- **MPD Compatible**: Optionally expose a dedicated MPD server for each instance (with optional password protection).
+- **Advanced Management**: Drag-and-drop playlist reordering, manual queueing, and shuffle mode.
+- **Real-time Monitoring**: Track song progress and monitor playback directly from the Admin Dashboard.
+- **Auto-Transcoding**: Stream your local MP3s in either MP3 or Opus format at any bitrate.
 
 **Example Filter (`/etc/fail2ban/filter.d/tinyice.conf`):**
 ```ini
