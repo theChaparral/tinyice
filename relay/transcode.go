@@ -227,7 +227,7 @@ func (tm *TranscoderManager) encodeOpus(ctx context.Context, inst *TranscoderIns
 	serial := uint32(time.Now().UnixNano())
 	pw := ogg.NewPacketWriter(writer, serial)
 
-	// ID Header
+	// 1. ID Header
 	head := ogg.OpusHead{
 		Version:         1,
 		Channels:        uint8(channels),
@@ -235,8 +235,9 @@ func (tm *TranscoderManager) encodeOpus(ctx context.Context, inst *TranscoderIns
 	}
 	headPacket, _ := ogg.BuildOpusHeadPacket(head)
 	pw.WritePacket(headPacket, 0, true, false)
+	pw.Flush()
 
-	// Tags Header
+	// 2. Tags Header
 	tags := ogg.OpusTags{Vendor: "tinyice-opus"}
 	tagsPacket, _ := ogg.BuildOpusTagsPacket(tags)
 	pw.WritePacket(tagsPacket, 0, false, false)

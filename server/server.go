@@ -913,20 +913,13 @@ func (s *Server) serveStreamData(w http.ResponseWriter, r *http.Request, stream 
 	defer stream.Unsubscribe(id)
 
 	if stream.OggHead != nil {
-		// If we are starting from the very beginning of the stream (or burst includes start)
-		// we don't send OggHead because it's already in the buffer at OggHeaderOffset.
-		// BUT for simplicity and robustness, we ALWAYS send OggHead first and then 
-		// ensure our offset is correctly aligned AFTER the headers in the buffer.
+		// Always send stored headers for Ogg/Opus
 		if _, err := w.Write(stream.OggHead); err != nil {
 			return false
 		}
-		
-		// If our starting offset is before where the actual audio data starts, 
-		// skip the header part of the buffer to avoid sending them twice.
-		if offset < stream.OggHeaderOffset {
-			offset = stream.OggHeaderOffset
-		}
-		logrus.Debugf("Ogg Listener %s: Sending stored headers, then starting burst at %d (HeaderEnd: %d)", id, offset, stream.OggHeaderOffset)
+		// The 'offset' returned by Subscribe is already intelligently aligned 
+		// AFTER the headers in the buffer if OggHeaderOffset was set.
+		logrus.Debugf("Ogg Listener %s: Sending stored headers (%d bytes), then starting burst at %d", id, len(stream.OggHead), offset)
 	}
 
 	buf := make([]byte, 16384)

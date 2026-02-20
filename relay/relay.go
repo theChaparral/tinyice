@@ -334,6 +334,12 @@ func (s *Stream) Subscribe(id string, burstSize int) (int64, chan struct{}) {
 		validStart := s.Buffer.Head - s.Buffer.Size
 		if validStart < 0 { validStart = 0 }
 		
+		// If we have an OggHead persistent storage, we want to start reading 
+		// from the Buffer AFTER the initial headers to avoid duplicates.
+		if s.OggHeaderOffset > start {
+			start = s.OggHeaderOffset
+		}
+
 		if start < validStart { start = validStart }
 
 		bestAlign := s.LastPageOffset
@@ -347,7 +353,7 @@ func (s *Stream) Subscribe(id string, burstSize int) (int64, chan struct{}) {
 		}
 		if found {
 			start = bestAlign
-		} else if bestAlign >= validStart {
+		} else if bestAlign >= validStart && bestAlign > 0 {
 			start = bestAlign
 		} else {
 			start = s.Buffer.Head // Fallback to now if nothing valid found
