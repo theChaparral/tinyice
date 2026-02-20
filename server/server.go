@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"embed"
@@ -8,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"io"
 	"io/fs"
 	"net"
 	"net/http"
@@ -62,6 +64,74 @@ type authAttempt struct {
 type session struct {
 	User      *config.User
 	CSRFToken string
+}
+
+// protocolSniffer allows multiplexing TLS and plain HTTP on the same port
+type protocolSniffer struct {
+	net.Listener
+	tlsChan  chan net.Conn
+	httpChan chan net.Conn
+}
+
+func (p *protocolSniffer) Accept() (net.Conn, error) {
+	return nil, fmt.Errorf("use AcceptTLS or AcceptHTTP")
+}
+
+type sniffedConn struct {
+	net.Conn
+	reader io.Reader
+}
+
+func (c *sniffedConn) Read(b []byte) (int, error) {
+	return c.reader.Read(b)
+}
+
+type chanListener struct {
+	addr net.Addr
+	ch   chan net.Conn
+}
+
+func (l *chanListener) Accept() (net.Conn, error) {
+	c, ok := <-l.ch
+	if !ok {
+		return nil, fmt.Errorf("listener closed")
+	}
+	return c, nil
+}
+func (l *chanListener) Close() error   { return nil }
+func (l *chanListener) Addr() net.Addr { return l.addr }
+
+func (p *protocolSniffer) sniff() {
+	for {
+		conn, err := p.Listener.Accept()
+		if err != nil {
+			return
+		}
+
+		go func(c net.Conn) {
+			// Peek at the first byte
+			buf := make([]byte, 1)
+			c.SetReadDeadline(time.Now().Add(5 * time.Second))
+			n, err := c.Read(buf)
+			c.SetReadDeadline(time.Time{})
+
+			if err != nil || n == 0 {
+				c.Close()
+				return
+			}
+
+			wrapped := &sniffedConn{
+				Conn:   c,
+				reader: io.MultiReader(bytes.NewReader(buf), c),
+			}
+
+			if buf[0] == 0x16 { // TLS Handshake record type
+				p.tlsChan <- wrapped
+			} else {
+				p.httpChan <- wrapped
+			}
+		}(conn)
+	}
 }
 
 func NewServer(cfg *config.Config, authLog *logrus.Logger) *Server {
@@ -318,16 +388,33 @@ func (s *Server) startHTTPS(mux *http.ServeMux, addr string) error {
 		}
 	}()
 
-	logrus.Infof("Starting HTTPS server on %s", httpsAddr)
-	ln, err := s.listenWithReuse("tcp", httpsAddr)
+	logrus.Infof("Starting dual-mode HTTPS/HTTP server on %s", httpsAddr)
+	rawLn, err := s.listenWithReuse("tcp", httpsAddr)
 	if err != nil {
 		return err
 	}
 
-	if certManager != nil {
-		return httpsSrv.ServeTLS(ln, "", "")
+	sniffer := &protocolSniffer{
+		Listener: rawLn,
+		tlsChan:  make(chan net.Conn, 1024),
+		httpChan: make(chan net.Conn, 1024),
 	}
-	return httpsSrv.ServeTLS(ln, s.Config.CertFile, s.Config.KeyFile)
+	go sniffer.sniff()
+
+	tlsLn := &chanListener{addr: rawLn.Addr(), ch: sniffer.tlsChan}
+	plainLn := &chanListener{addr: rawLn.Addr(), ch: sniffer.httpChan}
+
+	// Plain HTTP handler for port 443 (sniffed)
+	go func() {
+		if err := httpSrv.Serve(plainLn); err != nil && err != http.ErrServerClosed {
+			logrus.Errorf("Sniffed HTTP server failed: %v", err)
+		}
+	}()
+
+	if certManager != nil {
+		return httpsSrv.ServeTLS(tlsLn, "", "")
+	}
+	return httpsSrv.ServeTLS(tlsLn, s.Config.CertFile, s.Config.KeyFile)
 }
 
 func (s *Server) logAuth() *logrus.Entry {
