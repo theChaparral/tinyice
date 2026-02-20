@@ -381,6 +381,7 @@ func (sm *StreamerManager) streamFile(ctx context.Context, s *Streamer, path str
 	if s.InjectMetadata {
 		output.CurrentSong = s.CurrentFile
 		output.Name = s.Name
+		output.Visible = true
 		sm.relay.UpdateMetadata(s.OutputMount, s.CurrentFile)
 	}
 	output.Bitrate = fmt.Sprintf("%d", s.Bitrate)

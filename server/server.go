@@ -402,6 +402,11 @@ func (s *Server) Start() error {
 				logrus.WithError(err).Errorf("Failed to start AutoDJ %s", adj.Name)
 			} else {
 				logrus.Infof("AutoDJ %s started on %s", adj.Name, adj.Mount)
+				if adj.InjectMetadata {
+					if st, ok := s.Relay.GetStream(adj.Mount); ok {
+						st.SetVisible(true)
+					}
+				}
 				if len(adj.Playlist) == 0 {
 					streamer.ScanMusicDir() // Initial scan
 				}
@@ -2198,6 +2203,11 @@ func (s *Server) handleAddAutoDJ(w http.ResponseWriter, r *http.Request) {
 	// Start it immediately
 	streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, nil, adj.MPDEnabled, adj.MPDPort)
 	if err == nil {
+		if adj.InjectMetadata {
+			if st, ok := s.Relay.GetStream(adj.Mount); ok {
+				st.SetVisible(true)
+			}
+		}
 		streamer.ScanMusicDir()
 		streamer.Play()
 	}
@@ -2246,6 +2256,11 @@ func (s *Server) handleToggleAutoDJ(w http.ResponseWriter, r *http.Request) {
 			if adj.Enabled {
 				streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, adj.Playlist, adj.MPDEnabled, adj.MPDPort)
 				if err == nil {
+					if adj.InjectMetadata {
+						if st, ok := s.Relay.GetStream(adj.Mount); ok {
+							st.SetVisible(true)
+						}
+					}
 					if len(adj.Playlist) == 0 {
 						streamer.ScanMusicDir()
 					}
