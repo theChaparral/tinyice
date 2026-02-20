@@ -54,6 +54,8 @@ type Server struct {
 
 	authAttempts   map[string]*authAttempt // IP -> attempt info
 	authAttemptsMu sync.Mutex
+
+	certManager *autocert.Manager
 }
 
 type authAttempt struct {
@@ -316,9 +318,17 @@ func (s *Server) Start() error {
 	return s.startHTTPS(mux, addr)
 }
 
+func (s *Server) dynamicHostPolicy(ctx context.Context, host string) error {
+	for _, d := range s.Config.Domains {
+		if host == d {
+			return nil
+		}
+	}
+	return fmt.Errorf("acme/autocert: host %q not configured in 'domains'", host)
+}
+
 func (s *Server) startHTTPS(mux *http.ServeMux, addr string) error {
 	httpsAddr := s.Config.BindHost + ":" + s.Config.HTTPSPort
-	var certManager *autocert.Manager
 
 	if s.Config.AutoHTTPS {
 		if len(s.Config.Domains) == 0 {
@@ -328,14 +338,14 @@ func (s *Server) startHTTPS(mux *http.ServeMux, addr string) error {
 			logrus.Warnf("Auto-HTTPS usually requires port 80 and 443 to satisfy ACME challenges. Current ports: HTTP=%s, HTTPS=%s. Ensure you have port forwarding (80->%s, 443->%s) configured.", s.Config.Port, s.Config.HTTPSPort, s.Config.Port, s.Config.HTTPSPort)
 		}
 
-		certManager = &autocert.Manager{
+		s.certManager = &autocert.Manager{
 			Prompt:     autocert.AcceptTOS,
-			HostPolicy: autocert.HostWhitelist(s.Config.Domains...),
+			HostPolicy: s.dynamicHostPolicy,
 			Cache:      autocert.DirCache("certs"),
 			Email:      s.Config.ACMEEmail,
 		}
 		if s.Config.ACMEDirectoryURL != "" {
-			certManager.Client = &acme.Client{DirectoryURL: s.Config.ACMEDirectoryURL}
+			s.certManager.Client = &acme.Client{DirectoryURL: s.Config.ACMEDirectoryURL}
 		}
 	}
 
@@ -346,8 +356,8 @@ func (s *Server) startHTTPS(mux *http.ServeMux, addr string) error {
 		WriteTimeout: 0,
 		IdleTimeout:  120 * time.Second,
 	}
-	if certManager != nil {
-		httpsSrv.TLSConfig = certManager.TLSConfig()
+	if s.certManager != nil {
+		httpsSrv.TLSConfig = s.certManager.TLSConfig()
 	}
 	s.httpServers = append(s.httpServers, httpsSrv)
 
@@ -358,12 +368,12 @@ func (s *Server) startHTTPS(mux *http.ServeMux, addr string) error {
 				mux.ServeHTTP(w, r)
 				return
 			}
-			if certManager != nil && strings.HasPrefix(r.URL.Path, "/.well-known/acme-challenge/") {
+			if s.certManager != nil && strings.HasPrefix(r.URL.Path, "/.well-known/acme-challenge/") {
 				logrus.WithFields(logrus.Fields{
 					"path": r.URL.Path,
 					"ip":   r.RemoteAddr,
 				}).Info("Handling ACME challenge request")
-				certManager.HTTPHandler(nil).ServeHTTP(w, r)
+				s.certManager.HTTPHandler(nil).ServeHTTP(w, r)
 				return
 			}
 			target := "https://" + r.Host + r.URL.Path
@@ -411,7 +421,7 @@ func (s *Server) startHTTPS(mux *http.ServeMux, addr string) error {
 		}
 	}()
 
-	if certManager != nil {
+	if s.certManager != nil {
 		return httpsSrv.ServeTLS(tlsLn, "", "")
 	}
 	return httpsSrv.ServeTLS(tlsLn, s.Config.CertFile, s.Config.KeyFile)
