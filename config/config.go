@@ -47,13 +47,14 @@ type WebhookConfig struct {
 }
 
 type AutoDJConfig struct {
-	Name     string `json:"name"`
-	Mount    string `json:"mount"`
-	MusicDir string `json:"music_dir"`
-	Format   string `json:"format"` // "mp3" or "opus"
-	Bitrate  int    `json:"bitrate"`
-	Enabled  bool   `json:"enabled"`
-	Loop     bool   `json:"loop"`
+	Name           string `json:"name"`
+	Mount          string `json:"mount"`
+	MusicDir       string `json:"music_dir"`
+	Format         string `json:"format"` // "mp3" or "opus"
+	Bitrate        int    `json:"bitrate"`
+	Enabled        bool   `json:"enabled"`
+	Loop           bool   `json:"loop"`
+	InjectMetadata bool   `json:"inject_metadata"`
 }
 
 type Config struct {

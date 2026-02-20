@@ -392,7 +392,7 @@ func (s *Server) Start() error {
 	// Start configured AutoDJs
 	for _, adj := range s.Config.AutoDJs {
 		if adj.Enabled {
-			streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop, adj.Format, adj.Bitrate)
+			streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata)
 			if err != nil {
 				logrus.WithError(err).Errorf("Failed to start AutoDJ %s", adj.Name)
 			} else {
@@ -405,7 +405,7 @@ func (s *Server) Start() error {
 	// Legacy/Default AutoDJ (backward compatibility)
 	if s.Config.MusicDir != "" && s.StreamerM.GetStreamer("/autodj") == nil {
 		// Start a default streamer for /autodj
-		streamer, err := s.StreamerM.StartStreamer("AutoDJ", "/autodj", s.Config.MusicDir, true, "mp3", 128)
+		streamer, err := s.StreamerM.StartStreamer("AutoDJ", "/autodj", s.Config.MusicDir, true, "mp3", 128, true)
 		if err == nil {
 			if s.Config.MPDEnabled {
 				port := s.Config.MPDPort
@@ -2164,6 +2164,7 @@ func (s *Server) handleAddAutoDJ(w http.ResponseWriter, r *http.Request) {
 	format := r.FormValue("format")
 	bitrateStr := r.FormValue("bitrate")
 	loop := r.FormValue("loop") == "on"
+	injectMetadata := r.FormValue("inject_metadata") == "on"
 
 	if name == "" || mount == "" || musicDir == "" {
 		http.Error(w, "Name, mount, and music directory are required", http.StatusBadRequest)
@@ -2183,20 +2184,21 @@ func (s *Server) handleAddAutoDJ(w http.ResponseWriter, r *http.Request) {
 	}
 
 	adj := &config.AutoDJConfig{
-		Name:     name,
-		Mount:    mount,
-		MusicDir: musicDir,
-		Format:   format,
-		Bitrate:  bitrate,
-		Enabled:  true,
-		Loop:     loop,
+		Name:           name,
+		Mount:          mount,
+		MusicDir:       musicDir,
+		Format:         format,
+		Bitrate:        bitrate,
+		Enabled:        true,
+		Loop:           loop,
+		InjectMetadata: injectMetadata,
 	}
 
 	s.Config.AutoDJs = append(s.Config.AutoDJs, adj)
 	s.Config.SaveConfig()
 
 	// Start it immediately
-	streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop, adj.Format, adj.Bitrate)
+	streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata)
 	if err == nil {
 		streamer.ScanMusicDir()
 		streamer.Play()
@@ -2243,7 +2245,7 @@ func (s *Server) handleToggleAutoDJ(w http.ResponseWriter, r *http.Request) {
 		if adj.Mount == mount {
 			adj.Enabled = !adj.Enabled
 			if adj.Enabled {
-				streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop, adj.Format, adj.Bitrate)
+				streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata)
 				if err == nil {
 					streamer.ScanMusicDir()
 					streamer.Play()

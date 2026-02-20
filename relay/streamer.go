@@ -23,17 +23,18 @@ const (
 )
 
 type Streamer struct {
-	Name        string
-	OutputMount string
-	MusicDir    string
-	Format      string
-	Bitrate     int
-	Playlist    []string
-	Queue       []string
-	CurrentPos  int
-	State       StreamerState
-	Loop        bool
-	Shuffle     bool
+	Name           string
+	OutputMount    string
+	MusicDir       string
+	Format         string
+	Bitrate        int
+	Playlist       []string
+	Queue          []string
+	CurrentPos     int
+	State          StreamerState
+	Loop           bool
+	Shuffle        bool
+	InjectMetadata bool
 
 	relay  *Relay
 	cancel context.CancelFunc
@@ -106,6 +107,26 @@ func (s *Streamer) RemoveFromQueue(index int) {
 	s.Queue = append(s.Queue[:index], s.Queue[index+1:]...)
 }
 
+func (s *Streamer) GetPlaylistNames() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	res := make([]string, len(s.Playlist))
+	for i, p := range s.Playlist {
+		res[i] = filepath.Base(p)
+	}
+	return res
+}
+
+func (s *Streamer) GetQueueNames() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	res := make([]string, len(s.Queue))
+	for i, p := range s.Queue {
+		res[i] = filepath.Base(p)
+	}
+	return res
+}
+
 func (s *Streamer) ScanMusicDir() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -128,7 +149,7 @@ func (s *Streamer) ScanMusicDir() error {
 	return nil
 }
 
-func (sm *StreamerManager) StartStreamer(name, mount, musicDir string, loop bool, format string, bitrate int) (*Streamer, error) {
+func (sm *StreamerManager) StartStreamer(name, mount, musicDir string, loop bool, format string, bitrate int, injectMetadata bool) (*Streamer, error) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
@@ -138,15 +159,16 @@ func (sm *StreamerManager) StartStreamer(name, mount, musicDir string, loop bool
 
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &Streamer{
-		Name:        name,
-		OutputMount: mount,
-		MusicDir:    musicDir,
-		Format:      format,
-		Bitrate:     bitrate,
-		State:       StateStopped,
-		Loop:        loop,
-		relay:       sm.relay,
-		cancel:      cancel,
+		Name:           name,
+		OutputMount:    mount,
+		MusicDir:       musicDir,
+		Format:         format,
+		Bitrate:        bitrate,
+		State:          StateStopped,
+		Loop:           loop,
+		InjectMetadata: injectMetadata,
+		relay:          sm.relay,
+		cancel:         cancel,
 	}
 	sm.instances[mount] = s
 
@@ -272,8 +294,10 @@ func (sm *StreamerManager) streamFile(ctx context.Context, s *Streamer, path str
 
 	// Update stream metadata
 	output := sm.relay.GetOrCreateStream(s.OutputMount)
-	output.CurrentSong = s.CurrentFile
-	output.Name = s.Name
+	if s.InjectMetadata {
+		output.CurrentSong = s.CurrentFile
+		output.Name = s.Name
+	}
 	output.Bitrate = fmt.Sprintf("%d", s.Bitrate)
 
 	if s.Format == "opus" {
