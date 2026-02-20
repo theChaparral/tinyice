@@ -58,6 +58,14 @@ type Server struct {
 	authAttemptsMu sync.Mutex
 
 	certManager *autocert.Manager
+
+	scanAttempts   map[string]*scanAttempt // IP -> 404 count
+	scanAttemptsMu sync.Mutex
+}
+
+type scanAttempt struct {
+	Count     int
+	LockoutBy time.Time
 }
 
 type authAttempt struct {
@@ -162,6 +170,7 @@ func NewServer(cfg *config.Config, authLog *logrus.Logger) *Server {
 		AuthLog:     authLog,
 		sessions:    make(map[string]*session),
 		authAttempts: make(map[string]*authAttempt),
+		scanAttempts: make(map[string]*scanAttempt),
 	}
 }
 
@@ -183,6 +192,8 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/admin/remove-user", s.handleRemoveUser)
 	mux.HandleFunc("/admin/add-banned-ip", s.handleAddBannedIP)
 	mux.HandleFunc("/admin/remove-banned-ip", s.handleRemoveBannedIP)
+	mux.HandleFunc("/admin/clear-auth-lockout", s.handleClearAuthLockout)
+	mux.HandleFunc("/admin/clear-scan-lockout", s.handleClearScanLockout)
 	mux.HandleFunc("/admin/add-relay", s.handleAddRelay)
 	mux.HandleFunc("/admin/toggle-relay", s.handleToggleRelay)
 	mux.HandleFunc("/admin/restart-relay", s.handleRestartRelay)
@@ -191,6 +202,7 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/admin/toggle-transcoder", s.handleToggleTranscoder)
 	mux.HandleFunc("/admin/delete-transcoder", s.handleDeleteTranscoder)
 	mux.HandleFunc("/admin/transcoder-stats", s.handleTranscoderStats)
+	mux.HandleFunc("/admin/security-stats", s.handleGetSecurityStats)
 	mux.HandleFunc("/admin/history", s.handleHistory)
 	mux.HandleFunc("/admin/statistics", s.handleGetStats)
 	mux.HandleFunc("/admin/insights", s.handleInsights)
@@ -493,6 +505,23 @@ func (s *Server) recordAuthSuccess(ip string) {
 	delete(s.authAttempts, ip)
 }
 
+func (s *Server) recordScanAttempt(ip string) {
+	s.scanAttemptsMu.Lock()
+	defer s.scanAttemptsMu.Unlock()
+
+	attempt, exists := s.scanAttempts[ip]
+	if !exists {
+		attempt = &scanAttempt{}
+		s.scanAttempts[ip] = attempt
+	}
+
+	attempt.Count++
+	if attempt.Count >= 10 {
+		attempt.LockoutBy = time.Now().Add(15 * time.Minute)
+		logrus.Warnf("IP %s locked out for 15 minutes due to 10 scanning attempts (404s)", ip)
+	}
+}
+
 func (s *Server) checkAuth(r *http.Request) (*config.User, bool) {
 	// 1. Check Session Cookie first (Web UI)
 	if cookie, err := r.Cookie("sid"); err == nil {
@@ -656,6 +685,23 @@ func (s *Server) isBanned(ipStr string) bool {
 	if err != nil {
 		host = ipStr
 	}
+
+	// 1. Check Automated Lockouts (Auth)
+	s.authAttemptsMu.Lock()
+	if att, ok := s.authAttempts[host]; ok && time.Now().Before(att.LockoutBy) {
+		s.authAttemptsMu.Unlock()
+		return true
+	}
+	s.authAttemptsMu.Unlock()
+
+	// 2. Check Automated Lockouts (Scanning)
+	s.scanAttemptsMu.Lock()
+	if att, ok := s.scanAttempts[host]; ok && time.Now().Before(att.LockoutBy) {
+		s.scanAttemptsMu.Unlock()
+		return true
+	}
+	s.scanAttemptsMu.Unlock()
+
 	ip := net.ParseIP(host)
 	if ip == nil {
 		return false
@@ -837,6 +883,8 @@ func (s *Server) handleListener(w http.ResponseWriter, r *http.Request) {
 				time.Sleep(1 * time.Second)
 				continue
 			}
+			host, _, _ := net.SplitHostPort(r.RemoteAddr)
+			s.recordScanAttempt(host)
 			http.NotFound(w, r)
 			return
 		}
@@ -1780,6 +1828,84 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+}
+
+func (s *Server) handleGetSecurityStats(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.checkAuth(r); !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	type ipStat struct {
+		IP        string `json:"ip"`
+		Count     int    `json:"count"`
+		Locked    bool   `json:"locked"`
+		ExpiresIn string `json:"expires_in"`
+	}
+
+	authStats := []ipStat{}
+	s.authAttemptsMu.Lock()
+	for ip, att := range s.authAttempts {
+		expires := "0s"
+		locked := time.Now().Before(att.LockoutBy)
+		if locked {
+			expires = time.Until(att.LockoutBy).Round(time.Second).String()
+		}
+		authStats = append(authStats, ipStat{ip, att.Count, locked, expires})
+	}
+	s.authAttemptsMu.Unlock()
+
+	scanStats := []ipStat{}
+	s.scanAttemptsMu.Lock()
+	for ip, att := range s.scanAttempts {
+		expires := "0s"
+		locked := time.Now().Before(att.LockoutBy)
+		if locked {
+			expires = time.Until(att.LockoutBy).Round(time.Second).String()
+		}
+		scanStats = append(scanStats, ipStat{ip, att.Count, locked, expires})
+	}
+	s.scanAttemptsMu.Unlock()
+
+	// Sort by count desc
+	sort.Slice(authStats, func(i, j int) bool { return authStats[i].Count > authStats[j].Count })
+	sort.Slice(scanStats, func(i, j int) bool { return scanStats[i].Count > scanStats[j].Count })
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"auth_fails": authStats,
+		"scanners":   scanStats,
+	})
+}
+
+func (s *Server) handleClearAuthLockout(w http.ResponseWriter, r *http.Request) {
+	if !s.isCSRFSafe(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	if _, ok := s.checkAuth(r); !ok {
+		return
+	}
+	ip := r.FormValue("ip")
+	s.authAttemptsMu.Lock()
+	delete(s.authAttempts, ip)
+	s.authAttemptsMu.Unlock()
+	http.Redirect(w, r, "/admin#tab-security", http.StatusSeeOther)
+}
+
+func (s *Server) handleClearScanLockout(w http.ResponseWriter, r *http.Request) {
+	if !s.isCSRFSafe(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	if _, ok := s.checkAuth(r); !ok {
+		return
+	}
+	ip := r.FormValue("ip")
+	s.scanAttemptsMu.Lock()
+	delete(s.scanAttempts, ip)
+	s.scanAttemptsMu.Unlock()
+	http.Redirect(w, r, "/admin#tab-security", http.StatusSeeOther)
 }
 
 func (s *Server) handleGetStats(w http.ResponseWriter, r *http.Request) {

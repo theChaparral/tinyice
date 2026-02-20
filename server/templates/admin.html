@@ -281,7 +281,29 @@
                             </div>
                         </div>
                         <div id="tab-security" class="tab-content">
-            <div style="grid-template-columns: 1fr 1fr; display: grid; gap: 2rem;"><section><h2>Ban Address or Range</h2><div class="card"><form action="/admin/add-banned-ip" method="POST"><input type="hidden" name="csrf" value="{{$.CSRFToken}}"><div class="form-group"><label>IP Address or CIDR Range</label><input type="text" name="ip" placeholder="e.g. 1.2.3.4 or 192.168.1.0/24" required></div><button type="submit" class="btn btn-danger">Ban Address</button></form></div></section><section><h2>Access Control List</h2><div class="card" style="padding: 0;"><table><thead><tr><th style="width:70%">Banned IP / Range</th><th style="width:30%">Action</th></tr></thead><tbody>{{range .Config.BannedIPs}}<tr><td>{{.}}</td><td><form action="/admin/remove-banned-ip" method="POST"><input type="hidden" name="csrf" value="{{$.CSRFToken}}"><input type="hidden" name="ip" value="{{.}}"><button type="submit" class="btn btn-outline btn-sm">Unban</button></form></td></tr>{{else}}<tr><td colspan="2" style="text-align:center; padding:2rem">No active bans.</td></tr>{{end}}</tbody></table></div></section></div></div>
+            <div style="grid-template-columns: 1fr 1fr; display: grid; gap: 2rem;"><section><h2>Ban Address or Range</h2><div class="card"><form action="/admin/add-banned-ip" method="POST"><input type="hidden" name="csrf" value="{{$.CSRFToken}}"><div class="form-group"><label>IP Address or CIDR Range</label><input type="text" name="ip" placeholder="e.g. 1.2.3.4 or 192.168.1.0/24" required></div><button type="submit" class="btn btn-danger">Ban Address</button></form></div></section><section><h2>Access Control List</h2><div class="card" style="padding: 0;"><table><thead><tr><th style="width:70%">Banned IP / Range</th><th style="width:30%">Action</th></tr></thead><tbody>{{range .Config.BannedIPs}}<tr><td>{{.}}</td><td><form action="/admin/remove-banned-ip" method="POST"><input type="hidden" name="csrf" value="{{$.CSRFToken}}"><input type="hidden" name="ip" value="{{.}}"><button type="submit" class="btn btn-outline btn-sm">Unban</button></form></td></tr>{{else}}<tr><td colspan="2" style="text-align:center; padding:2rem">No active bans.</td></tr>{{end}}</tbody></table></div></section></div>
+            
+            <div style="grid-template-columns: 1fr 1fr; display: grid; gap: 2rem; margin-top: 3rem;">
+                <section>
+                    <h2>Top Authentication Failures</h2>
+                    <div class="card" style="padding: 0; overflow: hidden;">
+                        <table>
+                            <thead><tr><th>IP Address</th><th>Fails</th><th>Status</th><th>Action</th></tr></thead>
+                            <tbody id="authFailsBody"></tbody>
+                        </table>
+                    </div>
+                </section>
+                <section>
+                    <h2>Top Connection Scanners (404s)</h2>
+                    <div class="card" style="padding: 0; overflow: hidden;">
+                        <table>
+                            <thead><tr><th>IP Address</th><th>Hits</th><th>Status</th><th>Action</th></tr></thead>
+                            <tbody id="scannersBody"></tbody>
+                        </table>
+                    </div>
+                </section>
+            </div>
+        </div>
             {{end}}
         </main>
     </div>
@@ -302,6 +324,7 @@
         </tr>
     </template>
     <script>
+        const csrfToken = "{{.CSRFToken}}";
         function showTab(id, updateHash) { 
             document.querySelectorAll('.tab-content').forEach(function(t) { t.classList.remove('active'); }); 
             document.querySelectorAll('.nav-link').forEach(function(t) { t.classList.remove('active'); }); 
@@ -314,6 +337,31 @@
                 fetchStatistics();
             }
             if (id === 'tab-transcoding') fetchTranscoderStats();
+            if (id === 'tab-security') fetchSecurityStats();
+        }
+
+        function fetchSecurityStats() {
+            if (window.location.hash !== '#tab-security') return;
+            fetch('/admin/security-stats').then(r => r.json()).then(data => {
+                const authBody = document.getElementById('authFailsBody');
+                const scanBody = document.getElementById('scannersBody');
+                
+                let authHtml = '';
+                data.auth_fails.forEach(s => {
+                    const status = s.locked ? `<span style="color:var(--danger); font-weight:bold">LOCKED (${s.expires_in})</span>` : 'Active';
+                    authHtml += `<tr><td>${s.ip}</td><td>${s.count}</td><td>${status}</td><td><form action="/admin/clear-auth-lockout" method="POST"><input type="hidden" name="csrf" value="${csrfToken}"><input type="hidden" name="ip" value="${s.ip}"><button class="btn btn-sm btn-outline">CLEAR</button></form></td></tr>`;
+                });
+                authBody.innerHTML = authHtml || '<tr><td colspan="4" style="text-align:center; padding:1rem">No auth failures recorded.</td></tr>';
+
+                let scanHtml = '';
+                data.scanners.forEach(s => {
+                    const status = s.locked ? `<span style="color:var(--danger); font-weight:bold">LOCKED (${s.expires_in})</span>` : 'Active';
+                    scanHtml += `<tr><td>${s.ip}</td><td>${s.count}</td><td>${status}</td><td><form action="/admin/clear-scan-lockout" method="POST"><input type="hidden" name="csrf" value="${csrfToken}"><input type="hidden" name="ip" value="${s.ip}"><button class="btn btn-sm btn-outline">CLEAR</button></form></td></tr>`;
+                });
+                scanBody.innerHTML = scanHtml || '<tr><td colspan="4" style="text-align:center; padding:1rem">No scanning attempts recorded.</td></tr>';
+
+                setTimeout(fetchSecurityStats, 2000);
+            });
         }
 
         function fetchTranscoderStats() {
