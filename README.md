@@ -43,6 +43,7 @@ Traditional streaming servers can be complex to configure and resource-heavy. Ti
 -   **Approval Workflow**: New streams are hidden by default until approved by an administrator.
 -   **Stream Relaying**: Act as an edge node by pulling streams from remote servers.
 -   **Outbound ICY Metadata**: Injects song titles directly into the audio stream, ensuring "Now Playing" info appears on all traditional radio players (VLC, Winamp, etc.).
+-   **Built-in Transcoding**: High-performance, pure Go transcoding (MP3/Opus) to provide multiple quality options or formats for a single source.
 -   **Web-Based Audio Player**: Every station gets a dedicated, modern player page with real-time metadata and a reactive audio visualizer.
 -   **Embeddable Player**: Minimalist iframe-based player for easy integration into external websites.
 -   **Dual-Protocol Architecture**: Handles HTTPS for listeners while allowing legacy encoders to stream over plain HTTP.
@@ -136,6 +137,17 @@ sudo setcap 'cap_net_bind_service=+ep' ./tinyice
 TinyIce provides a dedicated authentication log that is easy to parse with Fail2Ban. To enable this, run TinyIce with the `-auth-log-file` flag:
 
 `./tinyice -auth-log-file tinyice-auth.log`
+
+... (Fail2Ban details) ...
+
+### Transcoding (Multi-Format Support)
+TinyIce includes a built-in, CGO-free transcoder that allows you to take one input stream and output it in multiple formats or bitrates (e.g., 128kbps MP3 for desktop and 64kbps Opus for mobile).
+
+- **Pure Go**: No external tools like FFmpeg or LAME required.
+- **Low Overhead**: Highly optimized for minimal CPU impact.
+- **Dynamic**: Manage transcoders on the fly via the Admin Dashboard.
+
+> **Note**: Currently supporting MP3 (128kbps fixed) and Opus.
 
 **Example Filter (`/etc/fail2ban/filter.d/tinyice.conf`):**
 ```ini
