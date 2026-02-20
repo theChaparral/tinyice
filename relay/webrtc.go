@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"time"
 
@@ -36,6 +37,12 @@ func (wm *WebRTCManager) HandleOffer(mount string, offer webrtc.SessionDescripti
 	stream, ok := wm.relay.GetStream(mount)
 	if !ok {
 		return nil, fmt.Errorf("stream not found")
+	}
+
+	// WebRTC requires Opus (usually in Ogg container for us)
+	ct := strings.ToLower(stream.ContentType)
+	if !strings.Contains(ct, "ogg") && !strings.Contains(ct, "opus") {
+		return nil, fmt.Errorf("WebRTC requires Opus stream (got %s)", stream.ContentType)
 	}
 
 	peerConnection, err := wm.api.NewPeerConnection(webrtc.Configuration{
@@ -98,7 +105,8 @@ func (wm *WebRTCManager) streamToTrack(pc *webrtc.PeerConnection, track *webrtc.
 	// Seek to next "OggS" magic
 	syncBuf := make([]byte, 16384)
 	foundSync := false
-	for !foundSync {
+	var searched int64 = 0
+	for !foundSync && searched < 512*1024 { // Safeguard: stop after 512KB
 		select {
 		case <-ctx.Done():
 			return
@@ -107,7 +115,7 @@ func (wm *WebRTCManager) streamToTrack(pc *webrtc.PeerConnection, track *webrtc.
 			if n == 0 {
 				continue
 			}
-			for i := 0; i < n-4; i++ {
+			for i := 0; i <= n-4; i++ {
 				if syncBuf[i] == 'O' && syncBuf[i+1] == 'g' && syncBuf[i+2] == 'g' && syncBuf[i+3] == 'S' {
 					offset += int64(i)
 					foundSync = true
@@ -116,8 +124,14 @@ func (wm *WebRTCManager) streamToTrack(pc *webrtc.PeerConnection, track *webrtc.
 			}
 			if !foundSync {
 				offset = next
+				searched += int64(n)
 			}
 		}
+	}
+
+	if !foundSync {
+		logrus.Errorf("WebRTC: Could not find Ogg sync in first 512KB for %s. Is it an Opus stream?", stream.MountName)
+		return
 	}
 
 	reader := &StreamReader{
