@@ -405,19 +405,30 @@
                                                                                                             {{if .MPDServer}}MPD: <span style="color: var(--success); font-weight: bold;">PORT {{.MPDServer.Port}}</span> |{{end}}
                                                                                                             Dir: <span style="font-family: monospace; font-size: 0.75rem;">{{.MusicDir}}</span>
                                                                                                         </div>                                                            </div>
-                                                            <div style="display: flex; gap: 0.5rem;">
-                                                                <form action="/admin/player/shuffle" method="POST">
-                                                                    <input type="hidden" name="csrf" value="{{$.CSRFToken}}">
-                                                                    <input type="hidden" name="mount" value="{{.OutputMount}}">
-                                                                    <button type="submit" class="btn {{if .Shuffle}}btn-primary{{else}}btn-outline{{end}} btn-sm" title="Toggle Shuffle">
-                                                                        <i data-lucide="shuffle" style="width: 14px; height: 14px;"></i>
-                                                                    </button>
-                                                                </form>
-                                                                {{if eq .State 1}}
-                                                                <a href="/player{{.OutputMount}}" target="_blank" class="btn btn-outline btn-sm"><i data-lucide="headphones" style="width: 14px; height: 14px; margin-right: 4px;"></i> MONITOR</a>
-                                                                {{end}}
-                                                                <form action="/admin/autodj/toggle" method="POST">
-                                                                    <input type="hidden" name="csrf" value="{{$.CSRFToken}}">
+                                                                                                <div style="display: flex; gap: 0.5rem; align-items: center;">
+                                                                                                    <div class="btn-group" style="display: flex; background: rgba(0,0,0,0.2); border-radius: 8px; padding: 2px;">
+                                                                                                        <form action="/admin/player/shuffle" method="POST" style="margin:0;">
+                                                                                                            <input type="hidden" name="csrf" value="{{$.CSRFToken}}">
+                                                                                                            <input type="hidden" name="mount" value="{{.OutputMount}}">
+                                                                                                            <button type="submit" class="btn {{if .Shuffle}}btn-primary{{else}}btn-outline{{end}} btn-sm" style="border:none; background:transparent;" title="Toggle Shuffle">
+                                                                                                                <i data-lucide="shuffle" style="width: 14px; height: 14px;"></i>
+                                                                                                            </button>
+                                                                                                        </form>
+                                                                                                        {{if eq .State 1}}
+                                                                                                        <form action="/admin/player/next" method="POST" style="margin:0;">
+                                                                                                            <input type="hidden" name="csrf" value="{{$.CSRFToken}}">
+                                                                                                            <input type="hidden" name="mount" value="{{.OutputMount}}">
+                                                                                                            <button type="submit" class="btn btn-outline btn-sm" style="border:none; background:transparent;" title="Skip to Next">
+                                                                                                                <i data-lucide="skip-forward" style="width: 14px; height: 14px;"></i>
+                                                                                                            </button>
+                                                                                                        </form>
+                                                                                                        {{end}}
+                                                                                                    </div>
+                                                                                                    
+                                                                                                    {{if eq .State 1}}
+                                                                                                    <a href="/player{{.OutputMount}}" target="_blank" class="btn btn-outline btn-sm"><i data-lucide="headphones" style="width: 14px; height: 14px; margin-right: 4px;"></i> MONITOR</a>
+                                                                                                    {{end}}
+                                                                                                    <form action="/admin/autodj/toggle" method="POST">                                                                    <input type="hidden" name="csrf" value="{{$.CSRFToken}}">
                                                                     <input type="hidden" name="mount" value="{{.OutputMount}}">
                                                                     <button type="submit" class="btn {{if eq .State 1}}btn-warning{{else}}btn-primary{{end}} btn-sm">
                                                                         {{if eq .State 1}}STOP{{else}}START{{end}}
@@ -431,25 +442,35 @@
                                                             </div>
                                                         </div>
                         
-                                                        {{if eq .State 1}}
-                                                        <div style="background: rgba(0,0,0,0.2); padding: 1rem; border-radius: 8px; border: 1px solid var(--border);">
-                                                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-                                                                <div class="label" style="font-size: 0.7rem; color: var(--text-dim);">NOW PLAYING</div>
-                                                                <div style="font-size: 0.7rem; color: var(--primary); font-family: monospace;">
-                                                                    Playlist: {{.CurrentPos}} / {{len .Playlist}}
-                                                                </div>
-                                                            </div>
-                                                            <div class="song-title" style="font-size: 1rem; color: var(--text); margin-bottom: 0.75rem;">
-                                                                {{if .CurrentFile}}{{.CurrentFile}}{{else}}Preparing...{{end}}
-                                                            </div>
-                                                                                                <div style="height: 4px; background: var(--bg); border-radius: 2px; overflow: hidden; position: relative;">
-                                                                                                    <div class="progress-bar-adj" data-start="{{.CurrentFileTime.Unix}}" data-duration="{{.CurrentFileDuration.Seconds}}" style="height: 100%; background: var(--primary); width: 0%; transition: width 1s linear;"></div>
+                                                                                        {{if eq .State 1}}
+                                                                                        <div style="background: rgba(0,0,0,0.2); padding: 1rem; border-radius: 8px; border: 1px solid var(--border);">
+                                                                                            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.5rem;">
+                                                                                                <div>
+                                                                                                    <div class="label" style="font-size: 0.7rem; color: var(--text-dim);">NOW PLAYING</div>
+                                                                                                    <div class="song-title" style="font-size: 1rem; color: var(--text); margin-bottom: 0.75rem;">
+                                                                                                        {{if .CurrentFile}}{{.CurrentFile}}{{else}}Preparing...{{end}}
+                                                                                                    </div>
                                                                                                 </div>
-                                                                                                <div style="display: flex; justify-content: space-between; margin-top: 0.4rem; font-size: 0.7rem; color: var(--text-dim); font-family: monospace;">
-                                                                                                    <span class="progress-time-current">00:00</span>
-                                                                                                    <span class="progress-time-total" id="duration-{{.OutputMount}}">00:00</span>
-                                                                                                </div>                                                        </div>
-                                                        {{end}}
+                                                                                                <div style="display: flex; gap: 0.4rem;">
+                                                                                                    <form action="/admin/player/toggle" method="POST" style="margin:0;">
+                                                                                                        <input type="hidden" name="csrf" value="{{$.CSRFToken}}">
+                                                                                                        <input type="hidden" name="mount" value="{{.OutputMount}}">
+                                                                                                        <button type="submit" class="btn btn-outline btn-sm" style="padding: 0.3rem;" title="Pause/Stop Streamer"><i data-lucide="square" style="width: 12px; height: 12px; fill: currentColor;"></i></button>
+                                                                                                    </form>
+                                                                                                </div>
+                                                                                            </div>
+                                                                                            <div style="height: 4px; background: var(--bg); border-radius: 2px; overflow: hidden; position: relative;">
+                                                                                                <div class="progress-bar-adj" data-start="{{.CurrentFileTime.Unix}}" data-duration="{{.CurrentFileDuration.Seconds}}" style="height: 100%; background: var(--primary); width: 0%; transition: width 1s linear;"></div>
+                                                                                            </div>
+                                                                                            <div style="display: flex; justify-content: space-between; margin-top: 0.4rem; font-size: 0.7rem; color: var(--text-dim); font-family: monospace;">
+                                                                                                <span class="progress-time-current">00:00</span>
+                                                                                                <div style="font-size: 0.7rem; color: var(--primary); font-family: monospace;">
+                                                                                                    Playlist: {{.CurrentPos}} / {{len .Playlist}}
+                                                                                                </div>
+                                                                                                <span class="progress-time-total" id="duration-{{.OutputMount}}">00:00</span>
+                                                                                            </div>
+                                                                                        </div>
+                                                                                        {{end}}
                         
                                                         <div style="margin-top: 1.5rem;">
                                                             {{if .Queue}}
@@ -666,7 +687,8 @@
                     handle: '.lucide-grip-vertical',
                     onEnd: function(evt) {
                         const mount = el.dataset.mount;
-                        const from = evt.oldIndex;
+                        // Use dataset.index to get the ORIGINAL index from the backend
+                        const from = parseInt(evt.item.dataset.index);
                         const to = evt.newIndex;
                         if (from === to) return;
                         
@@ -681,6 +703,11 @@
                             body: formData
                         }).then(r => {
                             if (!r.ok) alert('Failed to reorder playlist');
+                            // We don't reload here to avoid losing scroll position, 
+                            // but ideally we should refresh the data-index attributes
+                            // if we want multiple moves without a reload.
+                            // For simplicity, let's just reload for now to keep indices in sync.
+                            window.location.reload();
                         });
                     }
                 });

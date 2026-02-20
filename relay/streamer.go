@@ -41,6 +41,8 @@ type Streamer struct {
 	cancel context.CancelFunc
 	mu     sync.RWMutex
 
+	fileCancel context.CancelFunc
+
 	// Stats
 	BytesStreamed       int64
 	CurrentFile         string
@@ -68,6 +70,14 @@ func (s *Streamer) Play() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.State = StatePlaying
+}
+
+func (s *Streamer) Next() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.fileCancel != nil {
+		s.fileCancel()
+	}
 }
 
 func (s *Streamer) TogglePlay() {
@@ -261,14 +271,10 @@ func (s *Streamer) MovePlaylistItem(from, to int) {
 		return
 	}
 	item := s.Playlist[from]
+	// Remove
 	s.Playlist = append(s.Playlist[:from], s.Playlist[from+1:]...)
-	
-	// Adjust 'to' if it was after 'from'
-	newPlaylist := make([]string, 0, len(s.Playlist)+1)
-	newPlaylist = append(newPlaylist, s.Playlist[:to]...)
-	newPlaylist = append(newPlaylist, item)
-	newPlaylist = append(newPlaylist, s.Playlist[to:]...)
-	s.Playlist = newPlaylist
+	// Insert
+	s.Playlist = append(s.Playlist[:to], append([]string{item}, s.Playlist[to:]...)...)
 }
 
 func (sm *StreamerManager) runStreamerLoop(ctx context.Context, s *Streamer) {
@@ -313,20 +319,30 @@ func (sm *StreamerManager) runStreamerLoop(ctx context.Context, s *Streamer) {
 			}
 			s.mu.Unlock()
 
-			if filePath == "" {
-				time.Sleep(1 * time.Second)
-				continue
+			                        if filePath == "" {
+			                                time.Sleep(1 * time.Second)
+			                                continue
+			                        }
+			
+			                        // Create a per-file context for skipping
+			                        fileCtx, fileCancel := context.WithCancel(ctx)
+			                        s.mu.Lock()
+			                        s.fileCancel = fileCancel
+			                        s.mu.Unlock()
+			
+			                        err := sm.streamFile(fileCtx, s, filePath)
+			                        if err != nil && fileCtx.Err() == nil {
+			                                logrus.WithError(err).Errorf("Streamer %s: Failed to stream %s", s.Name, filePath)
+			                                time.Sleep(1 * time.Second)
+			                        }
+			
+			                        s.mu.Lock()
+			                        s.fileCancel = nil
+			                        fileCancel()
+			                        s.mu.Unlock()
+			                }
+			        }
 			}
-
-			err := sm.streamFile(ctx, s, filePath)
-			if err != nil {
-				logrus.WithError(err).Errorf("Streamer %s: Failed to stream %s", s.Name, filePath)
-				time.Sleep(1 * time.Second)
-			}
-		}
-	}
-}
-
 func (sm *StreamerManager) streamFile(ctx context.Context, s *Streamer, path string) error {
 	f, err := os.Open(path)
 	if err != nil {

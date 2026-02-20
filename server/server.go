@@ -267,6 +267,7 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/admin/player/reorder", s.handlePlayerReorder)
 	mux.HandleFunc("/admin/player/queue", s.handlePlayerQueue)
 	mux.HandleFunc("/admin/player/shuffle", s.handlePlayerShuffle)
+	mux.HandleFunc("/admin/player/next", s.handlePlayerNext)
 	mux.HandleFunc("/admin/player/files", s.handlePlayerFiles)
 	mux.HandleFunc("/admin/player/playlist-action", s.handlePlayerPlaylistAction)
 	mux.HandleFunc("/admin/autodj/add", s.handleAddAutoDJ)
@@ -2354,6 +2355,26 @@ func (s *Server) handlePlayerShuffle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	streamer.ToggleShuffle()
+	http.Redirect(w, r, "/admin#tab-streamer", http.StatusSeeOther)
+}
+
+func (s *Server) handlePlayerNext(w http.ResponseWriter, r *http.Request) {
+	if !s.isCSRFSafe(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	if _, ok := s.checkAuth(r); !ok {
+		return
+	}
+
+	mount := r.FormValue("mount")
+	streamer := s.StreamerM.GetStreamer(mount)
+	if streamer == nil {
+		http.Error(w, "Streamer not found", http.StatusNotFound)
+		return
+	}
+
+	streamer.Next()
 	http.Redirect(w, r, "/admin#tab-streamer", http.StatusSeeOther)
 }
 
