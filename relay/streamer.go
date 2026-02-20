@@ -151,7 +151,41 @@ func (s *Streamer) ScanMusicDir() error {
 	return nil
 }
 
-func (sm *StreamerManager) StartStreamer(name, mount, musicDir string, loop bool, format string, bitrate int, injectMetadata bool) (*Streamer, error) {
+func (s *Streamer) GetMusicDir() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.MusicDir
+}
+
+func (s *Streamer) GetPlaylist() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	res := make([]string, len(s.Playlist))
+	copy(res, s.Playlist)
+	return res
+}
+
+func (s *Streamer) SetPlaylist(p []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Playlist = p
+}
+
+func (s *Streamer) AddToPlaylist(path string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Playlist = append(s.Playlist, path)
+}
+
+func (s *Streamer) RemoveFromPlaylist(idx int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if idx >= 0 && idx < len(s.Playlist) {
+		s.Playlist = append(s.Playlist[:idx], s.Playlist[idx+1:]...)
+	}
+}
+
+func (sm *StreamerManager) StartStreamer(name, mount, musicDir string, loop bool, format string, bitrate int, injectMetadata bool, initialPlaylist []string) (*Streamer, error) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
@@ -166,6 +200,7 @@ func (sm *StreamerManager) StartStreamer(name, mount, musicDir string, loop bool
 		MusicDir:       musicDir,
 		Format:         format,
 		Bitrate:        bitrate,
+		Playlist:       initialPlaylist,
 		State:          StateStopped,
 		Loop:           loop,
 		InjectMetadata: injectMetadata,

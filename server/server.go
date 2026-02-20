@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
@@ -266,6 +267,8 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/admin/player/reorder", s.handlePlayerReorder)
 	mux.HandleFunc("/admin/player/queue", s.handlePlayerQueue)
 	mux.HandleFunc("/admin/player/shuffle", s.handlePlayerShuffle)
+	mux.HandleFunc("/admin/player/files", s.handlePlayerFiles)
+	mux.HandleFunc("/admin/player/playlist-action", s.handlePlayerPlaylistAction)
 	mux.HandleFunc("/admin/autodj/add", s.handleAddAutoDJ)
 	mux.HandleFunc("/admin/autodj/delete", s.handleDeleteAutoDJ)
 	mux.HandleFunc("/admin/autodj/toggle", s.handleToggleAutoDJ)
@@ -392,12 +395,14 @@ func (s *Server) Start() error {
 	// Start configured AutoDJs
 	for _, adj := range s.Config.AutoDJs {
 		if adj.Enabled {
-			streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata)
+			streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, adj.Playlist)
 			if err != nil {
 				logrus.WithError(err).Errorf("Failed to start AutoDJ %s", adj.Name)
 			} else {
 				logrus.Infof("AutoDJ %s started on %s", adj.Name, adj.Mount)
-				streamer.ScanMusicDir() // Initial scan
+				if len(adj.Playlist) == 0 {
+					streamer.ScanMusicDir() // Initial scan
+				}
 			}
 		}
 	}
@@ -405,7 +410,7 @@ func (s *Server) Start() error {
 	// Legacy/Default AutoDJ (backward compatibility)
 	if s.Config.MusicDir != "" && s.StreamerM.GetStreamer("/autodj") == nil {
 		// Start a default streamer for /autodj
-		streamer, err := s.StreamerM.StartStreamer("AutoDJ", "/autodj", s.Config.MusicDir, true, "mp3", 128, true)
+		streamer, err := s.StreamerM.StartStreamer("AutoDJ", "/autodj", s.Config.MusicDir, true, "mp3", 128, true, nil)
 		if err == nil {
 			if s.Config.MPDEnabled {
 				port := s.Config.MPDPort
@@ -2146,6 +2151,16 @@ func (s *Server) handlePlayerScan(w http.ResponseWriter, r *http.Request) {
 		logrus.WithError(err).Error("Failed to scan music directory")
 	}
 
+	// Persist
+	playlistCopy := streamer.GetPlaylist()
+	for _, adj := range s.Config.AutoDJs {
+		if adj.Mount == mount {
+			adj.Playlist = playlistCopy
+			s.Config.SaveConfig()
+			break
+		}
+	}
+
 	http.Redirect(w, r, "/admin#tab-streamer", http.StatusSeeOther)
 }
 
@@ -2198,7 +2213,7 @@ func (s *Server) handleAddAutoDJ(w http.ResponseWriter, r *http.Request) {
 	s.Config.SaveConfig()
 
 	// Start it immediately
-	streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata)
+	streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, nil)
 	if err == nil {
 		streamer.ScanMusicDir()
 		streamer.Play()
@@ -2246,9 +2261,11 @@ func (s *Server) handleToggleAutoDJ(w http.ResponseWriter, r *http.Request) {
 		if adj.Mount == mount {
 			adj.Enabled = !adj.Enabled
 			if adj.Enabled {
-				streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata)
+				streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, adj.Playlist)
 				if err == nil {
-					streamer.ScanMusicDir()
+					if len(adj.Playlist) == 0 {
+						streamer.ScanMusicDir()
+					}
 					streamer.Play()
 				}
 			} else {
@@ -2267,7 +2284,7 @@ func (s *Server) handleToggleAutoDJ(w http.ResponseWriter, r *http.Request) {
 		} else {
 			// If it was the legacy one, we can try to restart it
 			if mount == "/autodj" && s.Config.MusicDir != "" {
-				streamer, err := s.StreamerM.StartStreamer("AutoDJ", "/autodj", s.Config.MusicDir, true, "mp3", 128, true)
+				streamer, err := s.StreamerM.StartStreamer("AutoDJ", "/autodj", s.Config.MusicDir, true, "mp3", 128, true, nil)
 				if err == nil {
 					streamer.ScanMusicDir()
 					streamer.Play()
@@ -2304,6 +2321,17 @@ func (s *Server) handlePlayerReorder(w http.ResponseWriter, r *http.Request) {
 	fmt.Sscanf(toStr, "%d", &to)
 
 	streamer.MovePlaylistItem(from, to)
+
+	// Persist
+	playlistCopy := streamer.GetPlaylist()
+	for _, adj := range s.Config.AutoDJs {
+		if adj.Mount == mount {
+			adj.Playlist = playlistCopy
+			s.Config.SaveConfig()
+			break
+		}
+	}
+
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -2354,6 +2382,79 @@ func (s *Server) handlePlayerShuffle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	streamer.ToggleShuffle()
+	http.Redirect(w, r, "/admin#tab-streamer", http.StatusSeeOther)
+}
+
+func (s *Server) handlePlayerFiles(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.checkAuth(r); !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	mount := r.URL.Query().Get("mount")
+	streamer := s.StreamerM.GetStreamer(mount)
+	if streamer == nil {
+		http.Error(w, "Streamer not found", http.StatusNotFound)
+		return
+	}
+
+	musicDir := streamer.GetMusicDir()
+
+	files, err := os.ReadDir(musicDir)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	var res []string
+	for _, f := range files {
+		if !f.IsDir() && strings.ToLower(filepath.Ext(f.Name())) == ".mp3" {
+			res = append(res, f.Name())
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(res)
+}
+
+func (s *Server) handlePlayerPlaylistAction(w http.ResponseWriter, r *http.Request) {
+	if !s.isCSRFSafe(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	if _, ok := s.checkAuth(r); !ok {
+		return
+	}
+
+	mount := r.FormValue("mount")
+	action := r.FormValue("action")
+	fileName := r.FormValue("file")
+
+	streamer := s.StreamerM.GetStreamer(mount)
+	if streamer == nil {
+		http.Error(w, "Streamer not found", http.StatusNotFound)
+		return
+	}
+
+	if action == "add" {
+		fullPath := filepath.Join(streamer.GetMusicDir(), fileName)
+		streamer.AddToPlaylist(fullPath)
+	} else if action == "remove" {
+		var idx int
+		fmt.Sscanf(r.FormValue("index"), "%d", &idx)
+		streamer.RemoveFromPlaylist(idx)
+	}
+	playlistCopy := streamer.GetPlaylist()
+
+	// Persist
+	for _, adj := range s.Config.AutoDJs {
+		if adj.Mount == mount {
+			adj.Playlist = playlistCopy
+			s.Config.SaveConfig()
+			break
+		}
+	}
+
 	http.Redirect(w, r, "/admin#tab-streamer", http.StatusSeeOther)
 }
 

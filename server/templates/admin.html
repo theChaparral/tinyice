@@ -475,22 +475,38 @@
                                                                             {{$file}}
                                                                         </span>
                                                                     </div>
-                                                                    <div style="display: flex; gap: 0.5rem;">
-                                                                        <form action="/admin/player/queue" method="POST">
-                                                                            <input type="hidden" name="csrf" value="{{$.CSRFToken}}">
-                                                                            <input type="hidden" name="mount" value="{{$st.OutputMount}}">
-                                                                            <input type="hidden" name="action" value="add">
-                                                                            <input type="hidden" name="path" value="{{index $st.Playlist $idx}}">
-                                                                            <button type="submit" class="btn btn-outline btn-sm" style="padding: 0.2rem 0.4rem;" title="Add to Queue"><i data-lucide="list-plus" style="width: 14px; height: 14px;"></i></button>
-                                                                        </form>
-                                                                    </div>
-                                                                </div>
-                                                                {{end}}
-                                                            </div>
-                                                        </div>
-                        
-                                                        <div style="margin-top: 1rem; display: flex; gap: 1rem;">
-                                                            <form action="/admin/player/scan" method="POST" style="flex: 1;">
+                                                                                                                <div style="display: flex; gap: 0.5rem;">
+                                                                                                                    <form action="/admin/player/queue" method="POST">
+                                                                                                                        <input type="hidden" name="csrf" value="{{$.CSRFToken}}">
+                                                                                                                        <input type="hidden" name="mount" value="{{$st.OutputMount}}">
+                                                                                                                        <input type="hidden" name="action" value="add">
+                                                                                                                        <input type="hidden" name="path" value="{{index $st.Playlist $idx}}">
+                                                                                                                        <button type="submit" class="btn btn-outline btn-sm" style="padding: 0.2rem 0.4rem;" title="Add to Queue"><i data-lucide="list-plus" style="width: 14px; height: 14px;"></i></button>
+                                                                                                                    </form>
+                                                                                                                    <form action="/admin/player/playlist-action" method="POST">
+                                                                                                                        <input type="hidden" name="csrf" value="{{$.CSRFToken}}">
+                                                                                                                        <input type="hidden" name="mount" value="{{$st.OutputMount}}">
+                                                                                                                        <input type="hidden" name="action" value="remove">
+                                                                                                                        <input type="hidden" name="index" value="{{$idx}}">
+                                                                                                                        <button type="submit" class="btn btn-danger btn-sm" style="padding: 0.2rem 0.4rem;" title="Remove from Playlist"><i data-lucide="trash-2" style="width: 14px; height: 14px;"></i></button>
+                                                                                                                    </form>
+                                                                                                                </div>
+                                                                                                            </div>
+                                                                                                            {{end}}
+                                                                                                        </div>
+                                                                                                    </div>
+                                                                    
+                                                                                                    <div style="margin-top: 1.5rem; border-top: 1px solid var(--border); padding-top: 1rem;">
+                                                                                                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+                                                                                                            <div class="label" style="font-size: 0.65rem; color: var(--text-dim); margin-bottom: 0; letter-spacing: 1px;">LIBRARY (MUSIC DIRECTORY)</div>
+                                                                                                            <button class="btn btn-outline btn-sm" style="padding: 0.2rem 0.5rem; font-size: 0.7rem;" onclick="loadLibrary('{{.OutputMount}}', this.parentElement.nextElementSibling)">BROWSE FILES</button>
+                                                                                                        </div>
+                                                                                                        <div class="library-container" style="display: none; max-height: 250px; overflow-y: auto; background: rgba(0,0,0,0.1); border-radius: 4px; padding: 0.5rem;">
+                                                                                                            <!-- Populated via JS -->
+                                                                                                        </div>
+                                                                                                    </div>
+                                                                    
+                                                                                                    <div style="margin-top: 1rem; display: flex; gap: 1rem;">                                                            <form action="/admin/player/scan" method="POST" style="flex: 1;">
                                                                 <input type="hidden" name="csrf" value="{{$.CSRFToken}}">
                                                                 <input type="hidden" name="mount" value="{{.OutputMount}}">
                                                                 <button type="submit" class="btn btn-outline btn-sm" style="width: 100%;"><i data-lucide="refresh-cw" style="width: 12px; height: 12px; margin-right: 4px;"></i> RESCAN DIRECTORY</button>
@@ -583,6 +599,50 @@
             });
         }
         setInterval(updateAutoDJProgress, 1000);
+
+        function loadLibrary(mount, container) {
+            if (container.style.display === 'block') {
+                container.style.display = 'none';
+                return;
+            }
+            container.innerHTML = '<div style="text-align:center; padding: 1rem; color: var(--text-dim); font-size: 0.8rem;">Scanning directory...</div>';
+            container.style.display = 'block';
+            
+            fetch('/admin/player/files?mount=' + encodeURIComponent(mount))
+                .then(r => r.json())
+                .then(files => {
+                    if (!files || files.length === 0) {
+                        container.innerHTML = '<div style="text-align:center; padding: 1rem; color: var(--text-dim); font-size: 0.8rem;">No .mp3 files found.</div>';
+                        return;
+                    }
+                    
+                    let html = '<div style="display:flex; flex-direction:column; gap:4px;">';
+                    files.forEach(f => {
+                        html += `
+                        <div style="display:flex; justify-content:space-between; align-items:center; padding:0.4rem; background:rgba(255,255,255,0.02); border-radius:4px; font-size:0.8rem;">
+                            <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1;">${f}</span>
+                            <div style="display:flex; gap:0.3rem;">
+                                <form action="/admin/player/queue" method="POST" style="margin:0;">
+                                    <input type="hidden" name="csrf" value="${csrfToken}">
+                                    <input type="hidden" name="mount" value="${mount}">
+                                    <input type="hidden" name="action" value="add">
+                                    <input type="hidden" name="path" value="${f}">
+                                    <button type="submit" class="btn btn-outline btn-sm" style="padding:0.1rem 0.3rem; font-size:0.7rem;" title="Queue Next">QUEUE</button>
+                                </form>
+                                <form action="/admin/player/playlist-action" method="POST" style="margin:0;">
+                                    <input type="hidden" name="csrf" value="${csrfToken}">
+                                    <input type="hidden" name="mount" value="${mount}">
+                                    <input type="hidden" name="action" value="add">
+                                    <input type="hidden" name="file" value="${f}">
+                                    <button type="submit" class="btn btn-primary btn-sm" style="padding:0.1rem 0.3rem; font-size:0.7rem;" title="Add to Playlist">ADD</button>
+                                </form>
+                            </div>
+                        </div>`;
+                    });
+                    html += '</div>';
+                    container.innerHTML = html;
+                });
+        }
 
         function initSortable() {
             document.querySelectorAll('.playlist-sortable').forEach(function(el) {
