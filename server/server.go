@@ -46,6 +46,8 @@ type Server struct {
 	RelayM      *relay.RelayManager
 	TranscoderM *relay.TranscoderManager
 	WebRTCM     *relay.WebRTCManager
+	StreamerM   *relay.StreamerManager
+	mpdServer   *relay.MPDServer
 	tmpl        *template.Template
 	httpServers []*http.Server
 	startTime   time.Time
@@ -165,6 +167,7 @@ func NewServer(cfg *config.Config, authLog *logrus.Logger) *Server {
 		RelayM:      relay.NewRelayManager(r),
 		TranscoderM: relay.NewTranscoderManager(r),
 		WebRTCM:     relay.NewWebRTCManager(r),
+		StreamerM:   relay.NewStreamerManager(r, cfg),
 		tmpl:        tmpl,
 		startTime:   time.Now(),
 		AuthLog:     authLog,
@@ -258,6 +261,8 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/admin/clear-scan-lockout", s.handleClearScanLockout)
 	mux.HandleFunc("/admin/add-webhook", s.handleAddWebhook)
 	mux.HandleFunc("/admin/delete-webhook", s.handleDeleteWebhook)
+	mux.HandleFunc("/admin/player/toggle", s.handlePlayerToggle)
+	mux.HandleFunc("/admin/player/scan", s.handlePlayerScan)
 	mux.HandleFunc("/admin/add-relay", s.handleAddRelay)
 	mux.HandleFunc("/admin/toggle-relay", s.handleToggleRelay)
 	mux.HandleFunc("/admin/restart-relay", s.handleRestartRelay)
@@ -375,6 +380,27 @@ func (s *Server) Start() error {
 	for _, tc := range s.Config.Transcoders {
 		if tc.Enabled {
 			s.TranscoderM.StartTranscoder(tc)
+		}
+	}
+
+	if s.Config.MusicDir != "" {
+		// Start a default streamer for /autodj
+		streamer, err := s.StreamerM.StartStreamer("AutoDJ", "/autodj", s.Config.MusicDir)
+		if err == nil {
+			if s.Config.MPDEnabled {
+				port := s.Config.MPDPort
+				if port == "" {
+					port = "6600"
+				}
+				s.mpdServer = relay.NewMPDServer(port, streamer)
+				if err := s.mpdServer.Start(); err != nil {
+					logrus.WithError(err).Error("Failed to start MPD server")
+				} else {
+					logrus.Infof("MPD Server listening on port %s", port)
+				}
+			}
+		} else {
+			logrus.WithError(err).Error("Failed to start default streamer")
 		}
 	}
 
@@ -1261,6 +1287,7 @@ func (s *Server) handleAdmin(w http.ResponseWriter, r *http.Request) {
 		"Mounts":         allMounts,
 		"FallbackMounts": s.Config.FallbackMounts,
 		"CSRFToken":      csrf,
+		"Streamers":     s.StreamerM.GetStreamers(),
 	}
 	if err := s.tmpl.ExecuteTemplate(w, "admin.html", data); err != nil {
 		if !strings.Contains(err.Error(), "broken pipe") {
@@ -2055,6 +2082,50 @@ func (s *Server) handleDeleteWebhook(w http.ResponseWriter, r *http.Request) {
 	s.Config.SaveConfig()
 
 	http.Redirect(w, r, "/admin#tab-webhooks", http.StatusSeeOther)
+}
+
+func (s *Server) handlePlayerToggle(w http.ResponseWriter, r *http.Request) {
+	if !s.isCSRFSafe(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	if _, ok := s.checkAuth(r); !ok {
+		return
+	}
+
+	mount := r.FormValue("mount")
+	streamer := s.StreamerM.GetStreamer(mount)
+	if streamer == nil {
+		http.Error(w, "Streamer not found", http.StatusNotFound)
+		return
+	}
+
+	streamer.TogglePlay()
+
+	http.Redirect(w, r, "/admin#tab-streamer", http.StatusSeeOther)
+}
+
+func (s *Server) handlePlayerScan(w http.ResponseWriter, r *http.Request) {
+	if !s.isCSRFSafe(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	if _, ok := s.checkAuth(r); !ok {
+		return
+	}
+
+	mount := r.FormValue("mount")
+	streamer := s.StreamerM.GetStreamer(mount)
+	if streamer == nil {
+		http.Error(w, "Streamer not found", http.StatusNotFound)
+		return
+	}
+
+	if err := streamer.ScanMusicDir(); err != nil {
+		logrus.WithError(err).Error("Failed to scan music directory")
+	}
+
+	http.Redirect(w, r, "/admin#tab-streamer", http.StatusSeeOther)
 }
 
 func (s *Server) handleGetStats(w http.ResponseWriter, r *http.Request) {

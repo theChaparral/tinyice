@@ -90,6 +90,11 @@ type Config struct {
 	DirectoryListing bool   `json:"directory_listing"`
 	DirectoryServer  string `json:"directory_server"`
 
+	// Internal Streamer (AutoDJ)
+	MPDEnabled bool   `json:"mpd_enabled"`
+	MPDPort    string `json:"mpd_port"`
+	MusicDir   string `json:"music_dir"`
+
 	// Multi-tenant
 	Users map[string]*User `json:"users"`
 }

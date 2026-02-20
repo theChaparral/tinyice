@@ -74,6 +74,7 @@
                 {{if eq .User.Role "superadmin"}}
                 <button class="nav-link" onclick="showTab('tab-users')"><i data-lucide="users"></i> User Management</button>
                 <button class="nav-link" onclick="showTab('tab-relays')"><i data-lucide="refresh-ccw"></i> Edge Relays</button>
+                <button class="nav-link" onclick="showTab('tab-streamer')"><i data-lucide="play-circle"></i> Internal Streamer</button>
                 <button class="nav-link" onclick="showTab('tab-transcoding')"><i data-lucide="scissors"></i> Transcoding</button>
                 <button class="nav-link" onclick="showTab('tab-webhooks')"><i data-lucide="webhook"></i> Webhooks</button>
                 <button class="nav-link" onclick="showTab('tab-security')"><i data-lucide="shield-check"></i> Security & Bans</button>
@@ -339,7 +340,83 @@
                                 </section>
                             </div>
                         </div>
-                        <div id="tab-security" class="tab-content">
+                        <div id="tab-streamer" class="tab-content">
+                <div style="display: grid; grid-template-columns: 1fr 1.5fr; gap: 2rem;">
+                    <section>
+                        <h2>AutoDJ Status</h2>
+                        <div class="card">
+                            {{range .Streamers}}
+                            <div style="margin-bottom: 2rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border);">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                                    <div>
+                                        <h3 style="margin: 0;">{{.Name}}</h3>
+                                        <div style="font-size: 0.8rem; color: var(--text-dim);">Mount: <span class="mount-code">{{.OutputMount}}</span></div>
+                                    </div>
+                                    <div class="status-pill {{if ne .State 1}}inactive{{end}}">
+                                        <div class="dot"></div> {{if eq .State 1}}PLAYING{{else}}STOPPED{{end}}
+                                    </div>
+                                </div>
+                                
+                                <div style="background: rgba(0,0,0,0.2); padding: 1rem; border-radius: 8px; margin-bottom: 1rem;">
+                                    <div class="label" style="font-size: 0.7rem; color: var(--text-dim);">NOW PLAYING</div>
+                                    <div class="song-title" style="font-size: 1.1rem;">{{if .CurrentFile}}{{.CurrentFile}}{{else}}---{{end}}</div>
+                                </div>
+
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                                    <form action="/admin/player/toggle" method="POST">
+                                        <input type="hidden" name="csrf" value="{{$.CSRFToken}}">
+                                        <input type="hidden" name="mount" value="{{.OutputMount}}">
+                                        <button type="submit" class="btn {{if eq .State 1}}btn-warning{{else}}btn-primary{{end}}" style="width: 100%;">
+                                            {{if eq .State 1}}STOP{{else}}START{{end}}
+                                        </button>
+                                    </form>
+                                    <form action="/admin/player/scan" method="POST">
+                                        <input type="hidden" name="csrf" value="{{$.CSRFToken}}">
+                                        <input type="hidden" name="mount" value="{{.OutputMount}}">
+                                        <button type="submit" class="btn btn-outline" style="width: 100%;">SCAN LIBRARY</button>
+                                    </form>
+                                </div>
+                            </div>
+                            {{else}}
+                            <div style="text-align: center; padding: 2rem; color: var(--text-dim);">
+                                No streamers active. Enable MPD in config to start AutoDJ.
+                            </div>
+                            {{end}}
+                        </div>
+                    </section>
+                    <section>
+                        <h2>Playlist Management</h2>
+                        <div class="card" style="padding: 0; overflow: hidden;">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th style="width: 80%;">Filename</th>
+                                        <th style="width: 20%;">Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {{range .Streamers}}
+                                        {{$current := .CurrentPos}}
+                                        {{range $idx, $file := .Playlist}}
+                                        <tr>
+                                            <td style="font-size: 0.85rem;">{{$file}}</td>
+                                            <td>
+                                                {{if eq $idx $current}}
+                                                <span class="status-pill">PLAYING</span>
+                                                {{end}}
+                                            </td>
+                                        </tr>
+                                        {{end}}
+                                    {{else}}
+                                    <tr><td colspan="2" style="text-align: center; padding: 2rem;">No playlist data available.</td></tr>
+                                    {{end}}
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+                </div>
+            </div>
+            <div id="tab-security" class="tab-content">
             <div style="grid-template-columns: 1fr 1fr; display: grid; gap: 2rem;"><section><h2>Ban Address or Range</h2><div class="card"><form action="/admin/add-banned-ip" method="POST"><input type="hidden" name="csrf" value="{{$.CSRFToken}}"><div class="form-group"><label>IP Address or CIDR Range</label><input type="text" name="ip" placeholder="e.g. 1.2.3.4 or 192.168.1.0/24" required></div><button type="submit" class="btn btn-danger">Ban Address</button></form></div></section><section><h2>Access Control List</h2><div class="card" style="padding: 0;"><table><thead><tr><th style="width:70%">Banned IP / Range</th><th style="width:30%">Action</th></tr></thead><tbody>{{range .Config.BannedIPs}}<tr><td>{{.}}</td><td><form action="/admin/remove-banned-ip" method="POST"><input type="hidden" name="csrf" value="{{$.CSRFToken}}"><input type="hidden" name="ip" value="{{.}}"><button type="submit" class="btn btn-outline btn-sm">Unban</button></form></td></tr>{{else}}<tr><td colspan="2" style="text-align:center; padding:2rem">No active bans.</td></tr>{{end}}</tbody></table></div></section></div>
             
             <div style="grid-template-columns: 1fr 1fr; display: grid; gap: 2rem; margin-top: 3rem;">
