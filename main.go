@@ -94,6 +94,10 @@ func main() {
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage of TinyIce:\n")
 		flag.PrintDefaults()
+		fmt.Fprintf(os.Stderr, "\nSubcommands:\n")
+		fmt.Fprintf(os.Stderr, "  get <option>          Get a configuration value\n")
+		fmt.Fprintf(os.Stderr, "  set <option> <value>  Set a configuration value\n")
+		fmt.Fprintf(os.Stderr, "  dump-config           Pretty-print the current configuration\n")
 	}
 	flag.Parse()
 
@@ -112,6 +116,10 @@ func main() {
 	cfg, err := config.LoadConfig(*configPath)
 	if err != nil {
 		logrus.Fatalf("Failed to load config: %v", err)
+	}
+
+	if handleCommands(cfg) {
+		return
 	}
 
 	// Override config with CLI flags if provided
@@ -147,6 +155,99 @@ func main() {
 	}()
 
 	runEventLoop(srv, sigs)
+}
+
+func handleCommands(cfg *config.Config) bool {
+	args := flag.Args()
+	if len(args) == 0 {
+		return false
+	}
+
+	cmd := args[0]
+	switch cmd {
+	case "dump-config":
+		data, _ := json.MarshalIndent(cfg, "", "    ")
+		fmt.Println(string(data))
+		return true
+
+	case "get":
+		if len(args) < 2 {
+			fmt.Println("Usage: get <option>")
+			return true
+		}
+		val := getField(cfg, args[1])
+		fmt.Printf("%s = %v\n", args[1], val)
+		return true
+
+	case "set":
+		if len(args) < 3 {
+			fmt.Println("Usage: set <option> <value>")
+			return true
+		}
+		if setField(cfg, args[1], args[2]) {
+			cfg.SaveConfig()
+			fmt.Printf("Updated %s to %s\n", args[1], args[2])
+		} else {
+			fmt.Printf("Unknown or unsupported option: %s\n", args[1])
+		}
+		return true
+	}
+
+	return false
+}
+
+func getField(cfg *config.Config, field string) interface{} {
+	switch strings.ToLower(field) {
+	case "host", "bind_host":
+		return cfg.BindHost
+	case "port":
+		return cfg.Port
+	case "hostname":
+		return cfg.HostName
+	case "use_https":
+		return cfg.UseHTTPS
+	case "auto_https":
+		return cfg.AutoHTTPS
+	case "https_port":
+		return cfg.HTTPSPort
+	case "page_title":
+		return cfg.PageTitle
+	case "page_subtitle":
+		return cfg.PageSubtitle
+	case "acme_email":
+		return cfg.ACMEEmail
+	case "domains":
+		return cfg.Domains
+	}
+	return "unknown"
+}
+
+func setField(cfg *config.Config, field, value string) bool {
+	switch strings.ToLower(field) {
+	case "host", "bind_host":
+		cfg.BindHost = value
+	case "port":
+		cfg.Port = value
+	case "hostname":
+		cfg.HostName = value
+	case "use_https":
+		cfg.UseHTTPS = (value == "true")
+	case "auto_https":
+		cfg.AutoHTTPS = (value == "true")
+	case "https_port":
+		cfg.HTTPSPort = value
+	case "page_title":
+		cfg.PageTitle = value
+	case "page_subtitle":
+		cfg.PageSubtitle = value
+	case "acme_email":
+		cfg.ACMEEmail = value
+	case "domains":
+		cfg.Domains = strings.Split(value, ",")
+	default:
+		return false
+	}
+	return true
 }
 
 func handleDaemonMode() {
