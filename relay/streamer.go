@@ -131,9 +131,12 @@ type PlaylistItem struct {
 
 func (s *Streamer) GetPlaylistInfo() []PlaylistItem {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-	res := make([]PlaylistItem, len(s.Playlist))
-	for i, p := range s.Playlist {
+	playlist := make([]string, len(s.Playlist))
+	copy(playlist, s.Playlist)
+	s.mu.RUnlock()
+
+	res := make([]PlaylistItem, len(playlist))
+	for i, p := range playlist {
 		res[i] = PlaylistItem{
 			Title: s.GetSongTitle(p),
 			Path:  p,
@@ -144,39 +147,41 @@ func (s *Streamer) GetPlaylistInfo() []PlaylistItem {
 
 func (s *Streamer) GetSongTitle(path string) string {
 	s.mu.RLock()
+	defer s.mu.RUnlock()
 	if title, ok := s.titleCache[path]; ok {
-		s.mu.RUnlock()
 		return title
 	}
-	s.mu.RUnlock()
+	return filepath.Base(path)
+}
 
-	f, err := os.Open(path)
-	if err != nil {
-		return filepath.Base(path)
-	}
-	defer f.Close()
-
+func (s *Streamer) fetchTitleAndCache(path string) string {
 	title := filepath.Base(path)
-	if m, err := tag.ReadFrom(f); err == nil {
-		if m.Artist() != "" && m.Title() != "" {
-			title = fmt.Sprintf("%s - %s", m.Artist(), m.Title())
-		} else if m.Title() != "" {
-			title = m.Title()
+	f, err := os.Open(path)
+	if err == nil {
+		if m, err := tag.ReadFrom(f); err == nil {
+			if m.Artist() != "" && m.Title() != "" {
+				title = fmt.Sprintf("%s - %s", m.Artist(), m.Title())
+			} else if m.Title() != "" {
+				title = m.Title()
+			}
 		}
+		f.Close()
 	}
 
 	s.mu.Lock()
 	s.titleCache[path] = title
 	s.mu.Unlock()
-
 	return title
 }
 
 func (s *Streamer) GetQueueInfo() []PlaylistItem {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-	res := make([]PlaylistItem, len(s.Queue))
-	for i, p := range s.Queue {
+	queue := make([]string, len(s.Queue))
+	copy(queue, s.Queue)
+	s.mu.RUnlock()
+
+	res := make([]PlaylistItem, len(queue))
+	for i, p := range queue {
 		res[i] = PlaylistItem{
 			Title: s.GetSongTitle(p),
 			Path:  p,
@@ -228,6 +233,17 @@ func (s *Streamer) ScanMusicDir() error {
 		}
 		return nil
 	})
+
+	if err == nil {
+		// Populate cache in background
+		playlistCopy := make([]string, len(s.Playlist))
+		copy(playlistCopy, s.Playlist)
+		go func() {
+			for _, p := range playlistCopy {
+				s.fetchTitleAndCache(p)
+			}
+		}()
+	}
 	return err
 }
 
@@ -322,10 +338,11 @@ func (sm *StreamerManager) StartStreamer(name, mount, musicDir string, loop bool
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
+	absMusicDir, _ := filepath.Abs(musicDir)
 	s := &Streamer{
 		Name:           name,
 		OutputMount:    mount,
-		MusicDir:       musicDir,
+		MusicDir:       absMusicDir,
 		Format:         format,
 		Bitrate:        bitrate,
 		Playlist:       initialPlaylist,

@@ -702,7 +702,7 @@
                         if (progressBox) progressBox.style.opacity = '0.3';
                     }
                     return;
-                };
+                }
                 
                 const progressBox = card.querySelector('.adj-progress-box');
                 if (progressBox) progressBox.style.opacity = '1';
@@ -761,7 +761,12 @@
             container.dataset.loaded = 'true';
             
             fetch('/admin/player/files?mount=' + encodeURIComponent(mount) + '&path=' + encodeURIComponent(subPath))
-                .then(r => r.json())
+                .then(r => {
+                    if (!r.ok) {
+                        return r.text().then(err => { throw new Error(err); });
+                    }
+                    return r.json();
+                })
                 .then(entries => {
                     if (!entries || entries.length === 0) {
                         container.innerHTML = '<div style="text-align:center; padding: 1rem; color: var(--text-dim); font-size: 0.8rem;">No entries found.</div>';
@@ -811,6 +816,9 @@
                     html += '</div>';
                     container.innerHTML = html;
                     lucide.createIcons();
+                })
+                .catch(err => {
+                    container.innerHTML = `<div style="text-align:center; padding: 1rem; color: var(--danger); font-size: 0.8rem;">Error: ${err.message}</div>`;
                 });
         }
 

@@ -162,10 +162,25 @@ func (p *protocolSniffer) sniff() {
 				reader: io.MultiReader(bytes.NewReader(buf), c),
 			}
 
-			if buf[0] == 0x16 { // TLS Handshake record type
-				p.tlsChan <- wrapped
-			} else {
-				p.httpChan <- wrapped
+			target := p.httpChan
+			if buf[0] == 0x16 {
+				target = p.tlsChan
+			}
+
+			select {
+			case target <- wrapped:
+			default:
+				// Channel full, drop the oldest to make room for new (likely asset) requests
+				select {
+				case old := <-target:
+					old.Close()
+				default:
+				}
+				select {
+				case target <- wrapped:
+				default:
+					c.Close() // Really full
+				}
 			}
 		}(conn)
 	}
@@ -341,7 +356,7 @@ func (s *Server) listenWithReuse(network, address string) (net.Listener, error) 
 	if err != nil {
 		return nil, err
 	}
-	return &BannedListener{ln, s}, nil
+	return ln, nil
 }
 
 func (s *Server) Shutdown(ctx context.Context) error {
@@ -416,9 +431,11 @@ func (s *Server) Start() error {
 			s.TranscoderM.StartTranscoder(tc)
 		}
 	}
+	// Start configured AutoDJs
 	for _, adj := range s.Config.AutoDJs {
 		if adj.Enabled {
-			streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, adj.Playlist, adj.MPDEnabled, adj.MPDPort, adj.MPDPassword, adj.Visible)
+			absMusicDir, _ := filepath.Abs(adj.MusicDir)
+			streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, absMusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, adj.Playlist, adj.MPDEnabled, adj.MPDPort, adj.MPDPassword, adj.Visible)
 			if err != nil {
 				logrus.WithError(err).Errorf("Failed to start AutoDJ %s", adj.Name)
 			} else {
@@ -659,8 +676,8 @@ func (s *Server) startHTTPS(mux *http.ServeMux, addr string) error {
 
 	sniffer := &protocolSniffer{
 		Listener: rawLn,
-		tlsChan:  make(chan net.Conn, 1024),
-		httpChan: make(chan net.Conn, 1024),
+		tlsChan:  make(chan net.Conn, 4096),
+		httpChan: make(chan net.Conn, 4096),
 	}
 	go sniffer.sniff()
 
@@ -2354,6 +2371,8 @@ func (s *Server) handleAddAutoDJ(w http.ResponseWriter, r *http.Request) {
 		format = "mp3"
 	}
 
+	absMusicDir, _ := filepath.Abs(musicDir)
+
 	if mount[0] != '/' {
 		mount = "/" + mount
 	}
@@ -2361,7 +2380,7 @@ func (s *Server) handleAddAutoDJ(w http.ResponseWriter, r *http.Request) {
 	adj := &config.AutoDJConfig{
 		Name:           name,
 		Mount:          mount,
-		MusicDir:       musicDir,
+		MusicDir:       absMusicDir,
 		Format:         format,
 		Bitrate:        bitrate,
 		Enabled:        true,
@@ -2440,7 +2459,8 @@ func (s *Server) handleToggleAutoDJ(w http.ResponseWriter, r *http.Request) {
 
 			if adj.Enabled {
 				if existing == nil {
-					streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, adj.Playlist, adj.MPDEnabled, adj.MPDPort, adj.MPDPassword, adj.Visible)
+					absMusicDir, _ := filepath.Abs(adj.MusicDir)
+					streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, absMusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, adj.Playlist, adj.MPDEnabled, adj.MPDPort, adj.MPDPassword, adj.Visible)
 					if err == nil {
 						if adj.InjectMetadata {
 							if st, ok := s.Relay.GetStream(adj.Mount); ok {
@@ -2531,14 +2551,25 @@ func (s *Server) handlePlayerQueue(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if action == "add" {
-		streamer.PushToQueue(path)
+		musicDir := streamer.GetMusicDir()
+		fullPath := path
+		if !filepath.IsAbs(path) {
+			fullPath = filepath.Join(musicDir, path)
+		}
+		// Security: Ensure fullPath is still within musicDir
+		if !strings.HasPrefix(fullPath, musicDir) {
+			http.Error(w, "Forbidden", http.StatusForbidden)
+			return
+		}
+		abs, _ := filepath.Abs(fullPath)
+		streamer.PushToQueue(abs)
 	} else if action == "remove" {
 		var index int
 		fmt.Sscanf(r.FormValue("index"), "%d", &index)
 		streamer.RemoveFromQueue(index)
 	}
 
-	http.Redirect(w, r, "/admin#tab-streamer", http.StatusSeeOther)
+	w.WriteHeader(http.StatusOK)
 }
 
 func (s *Server) handlePlayerShuffle(w http.ResponseWriter, r *http.Request) {
@@ -2598,8 +2629,22 @@ func (s *Server) handlePlayerFiles(w http.ResponseWriter, r *http.Request) {
 	musicDir := streamer.GetMusicDir()
 	fullPath := filepath.Join(musicDir, subDir)
 
+	// Security: Ensure fullPath is still within musicDir
+	if !strings.HasPrefix(fullPath, musicDir) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"mount":    mount,
+		"musicDir": musicDir,
+		"subDir":   subDir,
+		"fullPath": fullPath,
+	}).Debug("AutoDJ File Browser: Reading directory")
+
 	entries, err := os.ReadDir(fullPath)
 	if err != nil {
+		logrus.WithError(err).Errorf("AutoDJ File Browser: Failed to read directory: %s", fullPath)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -2651,7 +2696,15 @@ func (s *Server) handlePlayerPlaylistAction(w http.ResponseWriter, r *http.Reque
 	}
 
 	if action == "add" {
-		fullPath := filepath.Join(streamer.GetMusicDir(), relPath)
+		musicDir := streamer.GetMusicDir()
+		fullPath := filepath.Join(musicDir, relPath)
+
+		// Security: Ensure fullPath is still within musicDir
+		if !strings.HasPrefix(fullPath, musicDir) {
+			http.Error(w, "Forbidden", http.StatusForbidden)
+			return
+		}
+
 		info, err := os.Stat(fullPath)
 		if err == nil {
 			if info.IsDir() {
@@ -2721,11 +2774,13 @@ func (s *Server) handleUpdateAutoDJ(w http.ResponseWriter, r *http.Request) {
 	bitrate := 128
 	fmt.Sscanf(bitrateStr, "%d", &bitrate)
 
+	absMusicDir, _ := filepath.Abs(musicDir)
+
 	for _, adj := range s.Config.AutoDJs {
 		if adj.Mount == oldMount {
 			adj.Name = name
 			adj.Mount = newMount
-			adj.MusicDir = musicDir
+			adj.MusicDir = absMusicDir
 			adj.Format = format
 			adj.Bitrate = bitrate
 			adj.Loop = loop
