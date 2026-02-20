@@ -77,7 +77,6 @@
                 <button class="nav-link" onclick="showTab('tab-security')"><i data-lucide="shield-check"></i> Security & Bans</button>
                 {{end}}
                 <button class="nav-link" onclick="showTab('tab-insights')"><i data-lucide="trending-up"></i> Insights</button>
-                <button class="nav-link" onclick="showTab('tab-statistics')"><i data-lucide="bar-chart-3"></i> Statistics</button>
                 <a href="/logout" class="nav-link" style="color: var(--danger); margin-top: 1rem; text-decoration: none;"><i data-lucide="log-out"></i> Sign Out</a>
             </div>
             <div style="margin-top: auto; padding-top: 2rem;">
@@ -181,55 +180,54 @@
                 </section>
             </div>
             {{if eq .User.Role "superadmin"}}
-                        <div id="tab-statistics" class="tab-content">
-                            <section>
-                                <h2>Top Streams (Current Listeners)</h2>
-                                <div class="card" style="padding: 0; overflow: hidden;">
-                                    <table>
-                                        <thead>
-                                            <tr>
-                                                <th>Mount</th>
-                                                <th>Name</th>
-                                                <th>Listeners</th>
-                                                <th>Bitrate</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="topStreamsBody"></tbody>
-                                    </table>
-                                </div>
-                            </section>
-                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem;">
-                                <section>
-                                    <h2>Top Listener User-Agents</h2>
-                                    <div class="card" style="padding: 0; overflow: hidden;">
-                                        <table>
-                                            <thead><tr><th>User-Agent</th><th>Hits</th></tr></thead>
-                                            <tbody id="topListenersUABody"></tbody>
-                                        </table>
-                                    </div>
-                                </section>
-                                <section>
-                                    <h2>Top Source User-Agents</h2>
-                                    <div class="card" style="padding: 0; overflow: hidden;">
-                                        <table>
-                                            <thead><tr><th>User-Agent</th><th>Hits</th></tr></thead>
-                                            <tbody id="topSourcesUABody"></tbody>
-                                        </table>
-                                    </div>
-                                </section>
-                            </div>
-                        </div>
                         <div id="tab-insights" class="tab-content">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
-                    <h2>Historical Insights (All Stations)</h2>
+                    <h2>Historical Insights & Trends</h2>
                     <div id="insights-legend" style="display: flex; gap: 1rem; flex-wrap: wrap;"></div>
                 </div>
-                <div class="card" style="padding: 2rem;">
+                <div class="card" style="padding: 2rem; margin-bottom: 2rem;">
                     <h3>24-Hour Listener Trends</h3>
                     <canvas id="insightsChart" style="width: 100%; height: 350px;"></canvas>
                 </div>
-                <div id="insights-summary" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem; margin-top: 2rem;">
+                <div id="insights-summary" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem; margin-bottom: 3rem;">
                     <!-- Populated via JS -->
+                </div>
+
+                <section>
+                    <h2>Top Streams (Current Listeners)</h2>
+                    <div class="card" style="padding: 0; overflow: hidden; margin-bottom: 2rem;">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Mount</th>
+                                    <th>Name</th>
+                                    <th>Listeners</th>
+                                    <th>Bitrate</th>
+                                </tr>
+                            </thead>
+                            <tbody id="topStreamsBody"></tbody>
+                        </table>
+                    </div>
+                </section>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem;">
+                    <section>
+                        <h2>Top Listener User-Agents</h2>
+                        <div class="card" style="padding: 0; overflow: hidden;">
+                            <table>
+                                <thead><tr><th>User-Agent</th><th>Hits</th></tr></thead>
+                                <tbody id="topListenersUABody"></tbody>
+                            </table>
+                        </div>
+                    </section>
+                    <section>
+                        <h2>Top Source User-Agents</h2>
+                        <div class="card" style="padding: 0; overflow: hidden;">
+                            <table>
+                                <thead><tr><th>User-Agent</th><th>Hits</th></tr></thead>
+                                <tbody id="topSourcesUABody"></tbody>
+                            </table>
+                        </div>
+                    </section>
                 </div>
             </div>
             <div id="tab-users" class="tab-content">
@@ -310,8 +308,10 @@
             var btn = Array.from(document.querySelectorAll('.nav-link')).find(function(b) { return b.getAttribute('onclick') && b.getAttribute('onclick').indexOf(id) !== -1; }); 
             if (btn) btn.classList.add('active'); 
             if (updateHash !== false) window.location.hash = id; 
-            if (id === 'tab-statistics') fetchStatistics();
-            if (id === 'tab-insights') fetchInsights();
+            if (id === 'tab-insights') {
+                fetchInsights();
+                fetchStatistics();
+            }
             if (id === 'tab-transcoding') fetchTranscoderStats();
         }
 
@@ -345,6 +345,7 @@
         }
 
         function fetchStatistics() {
+            if (window.location.hash !== '#tab-insights') return;
             fetch('/admin/statistics').then(function(r) { return r.json(); }).then(function(data) {
                 var tsBody = document.getElementById('topStreamsBody');
                 if (tsBody) {
@@ -375,6 +376,7 @@
                         tsUABody.appendChild(row);
                     });
                 }
+                setTimeout(fetchStatistics, 5000);
             });
         }
         
