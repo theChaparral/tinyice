@@ -272,6 +272,16 @@ func (sm *StreamerManager) StartStreamer(name, mount, musicDir string, loop bool
 	}
 
 	if mpdEnabled && mpdPort != "" {
+		// Check for port conflicts within our own instances
+		for _, inst := range sm.instances {
+			inst.mu.RLock()
+			if inst.MPDServer != nil && inst.MPDServer.Port == mpdPort {
+				inst.mu.RUnlock()
+				return nil, fmt.Errorf("MPD port %s is already in use by AutoDJ %s", mpdPort, inst.Name)
+			}
+			inst.mu.RUnlock()
+		}
+
 		s.MPDServer = NewMPDServer(mpdPort, mpdPassword, s)
 		if err := s.MPDServer.Start(); err != nil {
 			logrus.WithError(err).Errorf("Failed to start MPD server for AutoDJ %s", name)
