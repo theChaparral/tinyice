@@ -81,46 +81,137 @@ You can download the latest pre-built binary for your system directly from GitHu
   Look for a URL matching `tinyice-<your-os>-<your-arch>`.
 
 **c. Download the Binary and Checksums:**
-  Replace `<YOUR_OS>` and `<YOUR_ARCH>` with your system's details (e.g., `tinyice-linux-amd64`).
-  ```bash
+
+  Choose the appropriate commands for your operating system and architecture.
+
+  **For Linux (AMD64):**
+  \`\`\`bash
   # Download the binary
-  curl -LJO "https://github.com/DatanoiseTV/tinyice/releases/latest/download/tinyice-<YOUR_OS>-<YOUR_ARCH>"
+  curl -LJO "https://github.com/DatanoiseTV/tinyice/releases/latest/download/tinyice-linux-amd64"
   # Download the checksums file
   curl -LJO "https://github.com/DatanoiseTV/tinyice/releases/latest/download/checksums.txt"
-  ```
-  *Alternatively, you can use `wget`:*
-  ```bash
+  \`\`\`
+  *Alternatively, using `wget`:*
+  \`\`\`bash
   # Download the binary
-  wget "https://github.com/DatanoiseTV/tinyice/releases/latest/download/tinyice-<YOUR_OS>-<YOUR_ARCH>"
+  wget "https://github.com/DatanoiseTV/tinyice/releases/latest/download/tinyice-linux-amd64"
   # Download the checksums file
   wget "https://github.com/DatanoiseTV/tinyice/releases/latest/download/checksums.txt"
-  ```
+  \`\`\`
+
+  **For Linux (ARM64):**
+  \`\`\`bash
+  # Download the binary
+  curl -LJO "https://github.com/DatanoiseTV/tinyice/releases/latest/download/tinyice-linux-arm64"
+  # Download the checksums file
+  curl -LJO "https://github.com/DatanoiseTV/tinyice/releases/latest/download/checksums.txt"
+  \`\`\`
+  *Alternatively, using `wget`:*
+  \`\`\`bash
+  # Download the binary
+  wget "https://github.com/DatanoiseTV/tinyice/releases/latest/download/tinyice-linux-arm64"
+  # Download the checksums file
+  wget "https://github.com/DatanoiseTV/tinyice/releases/latest/download/checksums.txt"
+  \`\`\`
+
+  **For macOS (AMD64 - Intel Macs):**
+  \`\`\`bash
+  # Download the binary
+  curl -LJO "https://github.com/DatanoiseTV/tinyice/releases/latest/download/tinyice-darwin-amd64"
+  # Download the checksums file
+  curl -LJO "https://github.com/DatanoiseTV/tinyice/releases/latest/download/checksums.txt"
+  \`\`\`
+  *Alternatively, using `wget`:*
+  \`\`\`bash
+  # Download the binary
+  wget "https://github.com/DatanoiseTV/tinyice/releases/latest/download/tinyice-darwin-amd64"
+  # Download the checksums file
+  wget "https://github.com/DatanoiseTV/tinyice/releases/latest/download/checksums.txt"
+  \`\`\`
+
+  **For macOS (ARM64 - Apple Silicon Macs):**
+  \`\`\`bash
+  # Download the binary
+  curl -LJO "https://github.com/DatanoiseTV/tinyice/releases/latest/download/tinyice-darwin-arm64"
+  # Download the checksums file
+  curl -LJO "https://github.com/DatanoiseTV/tinyice/releases/latest/download/checksums.txt"
+  \`\`\`
+  *Alternatively, using `wget`:*
+  \`\`\`bash
+  # Download the binary
+  wget "https://github.com/DatanoiseTV/tinyice/releases/latest/download/tinyice-darwin-arm64"
+  # Download the checksums file
+  wget "https://github.com/DatanoiseTV/tinyice/releases/latest/download/checksums.txt"
+  \`\`\`
+
+  **For FreeBSD (AMD64):**
+  \`\`\`bash
+  # Download the binary
+  curl -LJO "https://github.com/DatanoiseTV/tinyice/releases/latest/download/tinyice-freebsd-amd64"
+  # Download the checksums file
+  curl -LJO "https://github.com/DatanoiseTV/tinyice/releases/latest/download/checksums.txt"
+  \`\`\`
+  *Alternatively, using `wget`:*
+  \`\`\`bash
+  # Download the binary
+  wget "https://github.com/DatanoiseTV/tinyice/releases/latest/download/tinyice-freebsd-amd64"
+  # Download the checksums file
+  wget "https://github.com/DatanoiseTV/tinyice/releases/latest/download/checksums.txt"
+  \`\`\`
+
+  **For FreeBSD (ARM64):**
+  \`\`\`bash
+  # Download the binary
+  curl -LJO "https://github.com/DatanoiseTV/tinyice/releases/latest/download/tinyice-freebsd-arm64"
+  # Download the checksums file
+  curl -LJO "https://github.com/DatanoiseTV/tinyice/releases/latest/download/checksums.txt"
+  \`\`\`
+  *Alternatively, using `wget`:*
+  \`\`\`bash
+  # Download the binary
+  wget "https://github.com/DatanoiseTV/tinyice/releases/latest/download/tinyice-freebsd-arm64"
+  # Download the checksums file
+  wget "https://github.com/DatanoiseTV/tinyice/releases/latest/download/checksums.txt"
+  \`\`\`
 
 **d. Verify the Binary (Important!):**
   Ensure the downloaded binary is authentic and untampered by verifying its SHA256 checksum.
-  ```bash
-  # For Linux/BSD
+  Match the downloaded binary file name (e.g., `tinyice-linux-amd64`) with the correct checksum command.
+
+  **For Linux and FreeBSD:**
+  \`\`\`bash
   sha256sum tinyice-<YOUR_OS>-<YOUR_ARCH>
-  # For macOS
+  \`\`\`
+
+  **For macOS:**
+  \`\`\`bash
   shasum -a 256 tinyice-<YOUR_OS>-<YOUR_ARCH>
-  ```
+  \`\`\`
   Compare the output with the corresponding entry in `checksums.txt`. If they don't match, **DO NOT RUN THE BINARY**.
 
 **e. Make Executable and Install (Optional):**
   Move the binary to a location in your system's `PATH` and make it executable.
+
+  *First, rename the downloaded binary to just `tinyice` for convenience:*
+  \`\`\`bash
+  mv tinyice-<YOUR_OS>-<YOUR_ARCH> tinyice
+  \`\`\`
+
+  *Then choose your installation method:*
+
   *For user-specific installation (recommended for most users, no sudo required):*
-  ```bash
+  \`\`\`bash
   mkdir -p ~/.local/bin
-  mv tinyice-<YOUR_OS>-<YOUR_ARCH> ~/.local/bin/tinyice
+  mv tinyice ~/.local/bin/tinyice
   chmod +x ~/.local/bin/tinyice
   # Ensure ~/.local/bin is in your PATH. Add the following to your shell's config (e.g., ~/.bashrc, ~/.zshrc):
   # export PATH="$HOME/.local/bin:$PATH"
-  ```
+  \`\`\`
   *For system-wide installation (requires sudo):*
-  ```bash
-  sudo mv tinyice-<YOUR_OS>-<YOUR_ARCH> /usr/local/bin/tinyice
+  \`\`\`bash
+  sudo mv tinyice /usr/local/bin/tinyice
   sudo chmod +x /usr/local/bin/tinyice
-  ```
+  \`\`\`
 
 ### 2. Build from Source (Optional)
 
