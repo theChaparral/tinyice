@@ -910,14 +910,14 @@
                             </div>
                             <div style="display:flex; gap:0.3rem;">
                                 ${(!e.is_dir && !e.is_pls) ? `
-                                <form action="/admin/player/queue" method="POST" onsubmit="console.log('Queueing:', '${e.abs_path}'); return submitForm(event, false)" style="margin:0;">
+                                <form action="/admin/player/queue" method="POST" onsubmit="return submitForm(event, false)" style="margin:0;">
                                     <input type="hidden" name="csrf" value="${csrfToken}">
                                     <input type="hidden" name="mount" value="${mount}">
                                     <input type="hidden" name="action" value="add">
                                     <input type="hidden" name="path" value="${e.abs_path}">
                                     <button type="submit" class="btn btn-outline btn-sm" style="padding:0.1rem 0.3rem; font-size:0.7rem;" title="Queue Next">QUEUE</button>
                                 </form>` : ''}
-                                <form action="${actionURL}" method="POST" onsubmit="console.log('Adding:', '${e.abs_path}'); ${confirmMsg ? `if(confirm('${confirmMsg}')) ` : ''}return submitForm(event, true)" style="margin:0;">
+                                <form action="${actionURL}" method="POST" onsubmit="${confirmMsg ? `if(confirm('${confirmMsg}')) ` : ''}return submitForm(event, true)" style="margin:0;">
                                     <input type="hidden" name="csrf" value="${csrfToken}">
                                     <input type="hidden" name="mount" value="${mount}">
                                     <input type="hidden" name="action" value="add">

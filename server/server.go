@@ -359,7 +359,7 @@ func (s *Server) listenWithReuse(network, address string) (net.Listener, error) 
 	if err != nil {
 		return nil, err
 	}
-	return ln, nil
+	return &BannedListener{ln, s}, nil
 }
 
 func (s *Server) Shutdown(ctx context.Context) error {
