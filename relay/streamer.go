@@ -272,7 +272,13 @@ func (s *Streamer) LoadPlaylist(filename string) error {
 	if err != nil {
 		if os.IsNotExist(err) {
 			if filename == s.Name+".pls" {
-				return s.SavePlaylist()
+				// Only save if we don't have a playlist in memory either
+				s.mu.RLock()
+				empty := len(s.Playlist) == 0
+				s.mu.RUnlock()
+				if empty {
+					return s.SavePlaylist()
+				}
 			}
 			return nil
 		}
@@ -449,7 +455,12 @@ func (sm *StreamerManager) StartStreamer(name, mount, musicDir string, loop bool
 	}
 
 	sm.instances[mount] = s
-	s.LoadPlaylist("")
+	
+	if lastPlaylist != "" {
+		s.LoadPlaylist(lastPlaylist)
+	} else {
+		s.LoadPlaylist("")
+	}
 
 	go sm.runStreamerLoop(ctx, s)
 	return s, nil

@@ -2536,7 +2536,10 @@ func (s *Server) handlePlayerLoadPlaylist(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if err := streamer.LoadPlaylist(filename); err != nil {
+	// Filename from library browser is absolute now
+	playlistName := filepath.Base(filename)
+
+	if err := streamer.LoadPlaylist(playlistName); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -2546,7 +2549,7 @@ func (s *Server) handlePlayerLoadPlaylist(w http.ResponseWriter, r *http.Request
 	for _, adj := range s.Config.AutoDJs {
 		if adj.Mount == mount {
 			adj.Playlist = playlistCopy
-			adj.LastPlaylist = filename
+			adj.LastPlaylist = playlistName
 			s.Config.SaveConfig()
 			break
 		}
@@ -2795,21 +2798,33 @@ func (s *Server) handlePlayerPlaylistAction(w http.ResponseWriter, r *http.Reque
 
 	if action == "add" {
 		fullPath := relPath // Already absolute from frontend now
-		logrus.Debugf("AutoDJ %s: Adding song %s to playlist", mount, fullPath)
+		logrus.Infof("AutoDJ %s: Attempting to add %s", mount, fullPath)
 
 		info, err := os.Stat(fullPath)
-		if err == nil {
-			if info.IsDir() {
-				// Add folder recursively
-				filepath.Walk(fullPath, func(p string, i os.FileInfo, e error) error {
-					if e == nil && !i.IsDir() && strings.ToLower(filepath.Ext(p)) == ".mp3" {
-						streamer.AddToPlaylist(p)
-					}
+		if err != nil {
+			logrus.WithError(err).Errorf("AutoDJ %s: Failed to stat path %s", mount, fullPath)
+			http.Error(w, "File not found", http.StatusNotFound)
+			return
+		}
+
+		if info.IsDir() {
+			logrus.Infof("AutoDJ %s: Adding directory %s", mount, fullPath)
+			err := filepath.Walk(fullPath, func(p string, i os.FileInfo, e error) error {
+				if e != nil {
+					logrus.WithError(e).Warnf("AutoDJ %s: Error walking path %s", mount, p)
 					return nil
-				})
-			} else {
-				streamer.AddToPlaylist(fullPath)
+				}
+				if !i.IsDir() && strings.ToLower(filepath.Ext(p)) == ".mp3" {
+					streamer.AddToPlaylist(p)
+				}
+				return nil
+			})
+			if err != nil {
+				logrus.WithError(err).Errorf("AutoDJ %s: Walk failed for %s", mount, fullPath)
 			}
+		} else {
+			logrus.Infof("AutoDJ %s: Adding single file %s", mount, fullPath)
+			streamer.AddToPlaylist(fullPath)
 		}
 	} else if action == "remove" {
 		var idx int

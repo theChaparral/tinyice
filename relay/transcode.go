@@ -273,13 +273,9 @@ func EncodeOpus(ctx context.Context, relay *Relay, output *Stream, decoder io.Re
 		case <-ctx.Done():
 			return
 		default:
-			rn, rerr := io.ReadFull(decoder, pcmBuf)
+			_, rerr := io.ReadFull(decoder, pcmBuf)
 			if rerr != nil {
 				return
-			}
-
-			if sentCount == 0 {
-				logrus.Debugf("Opus Encoder: Successfully read first PCM frame (%d bytes)", rn)
 			}
 
 			for i := 0; i < len(pcmSamples); i++ {
