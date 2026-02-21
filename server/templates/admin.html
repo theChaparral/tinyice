@@ -487,27 +487,24 @@
                                                                                             </div>
                                                                                         </div>
                         
-                                                        <div style="margin-top: 1.5rem;">
-                                                                                                {{if .Queue}}
-                                                                                                <div style="margin-bottom: 1rem;">
-                                                                                                    <div class="label" style="font-size: 0.65rem; color: var(--primary); margin-bottom: 0.5rem; letter-spacing: 1px;">UP NEXT (QUEUE)</div>
-                                                                                                    <div style="display: flex; flex-direction: column; gap: 0.4rem;">
-                                                                                                        {{range $qidx, $qitem := .GetQueueInfo}}
-                                                                                                        <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(56, 189, 248, 0.05); padding: 0.5rem; border-radius: 4px; border: 1px dashed var(--primary-glow);">
-                                                                                                            <span style="font-size: 0.8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{$qitem.Path}}">{{$qitem.Title}}</span>
-                                                                                                            <form action="/admin/player/queue" method="POST" onsubmit="return submitForm(event, false)">
-                                                                                                                <input type="hidden" name="csrf" value="{{$.CSRFToken}}">
-                                                                                                                <input type="hidden" name="mount" value="{{$st.OutputMount}}">
-                                                                                                                <input type="hidden" name="action" value="remove">
-                                                                                                                <input type="hidden" name="index" value="{{$qidx}}">
-                                                                                                                <button type="submit" style="background:none; border:none; color:var(--danger); cursor:pointer;"><i data-lucide="x-circle" style="width:14px; height:14px;"></i></button>
-                                                                                                            </form>
-                                                                                                        </div>
-                                                                                                        {{end}}
+                                                                                        <div style="margin-top: 1.5rem;">
+                                                                                            <div class="adj-queue-container" style="margin-bottom: 1rem; {{if not .Queue}}display: none;{{end}}">
+                                                                                                <div class="label" style="font-size: 0.65rem; color: var(--primary); margin-bottom: 0.5rem; letter-spacing: 1px;">UP NEXT (QUEUE)</div>
+                                                                                                <div class="adj-queue-list" style="display: flex; flex-direction: column; gap: 0.4rem;">
+                                                                                                    {{range $qidx, $qitem := .GetQueueInfo}}
+                                                                                                    <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(56, 189, 248, 0.05); padding: 0.5rem; border-radius: 4px; border: 1px dashed var(--primary-glow);">
+                                                                                                        <span style="font-size: 0.8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{$qitem.Path}}">{{$qitem.Title}}</span>
+                                                                                                        <form action="/admin/player/queue" method="POST" onsubmit="return submitForm(event, false)">
+                                                                                                            <input type="hidden" name="csrf" value="{{$.CSRFToken}}">
+                                                                                                            <input type="hidden" name="mount" value="{{$st.OutputMount}}">
+                                                                                                            <input type="hidden" name="action" value="remove">
+                                                                                                            <input type="hidden" name="index" value="{{$qidx}}">
+                                                                                                            <button type="submit" style="background:none; border:none; color:var(--danger); cursor:pointer;"><i data-lucide="x-circle" style="width:14px; height:14px;"></i></button>
+                                                                                                        </form>
                                                                                                     </div>
+                                                                                                    {{end}}
                                                                                                 </div>
-                                                                                                {{end}}                        
-                                                                                                                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                                                                                            </div>                                                                                                                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
                                                                                                                                         <div class="label" style="font-size: 0.65rem; color: var(--text-dim); margin-bottom: 0; letter-spacing: 1px;">PLAYLIST (DRAG TO REORDER)</div>
                                                                                                                                         <form action="/admin/player/clear-playlist" method="POST" onsubmit="if(confirm('Clear entire playlist?')) return submitForm(event, true)" style="margin:0;">
                                                                                                                                             <input type="hidden" name="csrf" value="{{$.CSRFToken}}">
@@ -897,8 +894,13 @@
                     }
 
                     entries.forEach(e => {
-                        const icon = e.is_dir ? 'folder' : 'music';
-                        const actionLabel = e.is_dir ? 'ADD ALL' : 'ADD';
+                        let icon = e.is_dir ? 'folder' : 'music';
+                        if (e.is_pls) icon = 'file-audio';
+                        
+                        const actionLabel = e.is_dir ? 'ADD ALL' : (e.is_pls ? 'LOAD' : 'ADD');
+                        const actionURL = e.is_pls ? '/admin/player/load-playlist' : '/admin/player/playlist-action';
+                        const confirmMsg = e.is_pls ? 'Load this playlist? Current unsaved changes will be lost.' : null;
+
                         html += `
                         <div style="display:flex; justify-content:space-between; align-items:center; padding:0.4rem; background:rgba(255,255,255,0.02); border-radius:4px; font-size:0.8rem;">
                             <div style="display:flex; align-items:center; flex:1; cursor:${e.is_dir ? 'pointer' : 'default'}; overflow:hidden;" ${e.is_dir ? `onclick="loadLibrary('${mount}', this.parentElement.parentElement.parentElement, '${e.path}')"` : ''}>
@@ -906,7 +908,7 @@
                                 <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${e.title || e.name}</span>
                             </div>
                             <div style="display:flex; gap:0.3rem;">
-                                ${!e.is_dir ? `
+                                ${(!e.is_dir && !e.is_pls) ? `
                                 <form action="/admin/player/queue" method="POST" onsubmit="return submitForm(event, false)" style="margin:0;">
                                     <input type="hidden" name="csrf" value="${csrfToken}">
                                     <input type="hidden" name="mount" value="${mount}">
@@ -914,12 +916,12 @@
                                     <input type="hidden" name="path" value="${e.path}">
                                     <button type="submit" class="btn btn-outline btn-sm" style="padding:0.1rem 0.3rem; font-size:0.7rem;" title="Queue Next">QUEUE</button>
                                 </form>` : ''}
-                                <form action="/admin/player/playlist-action" method="POST" onsubmit="return submitForm(event, true)" style="margin:0;">
+                                <form action="${actionURL}" method="POST" onsubmit="${confirmMsg ? `if(confirm('${confirmMsg}')) ` : ''}return submitForm(event, true)" style="margin:0;">
                                     <input type="hidden" name="csrf" value="${csrfToken}">
                                     <input type="hidden" name="mount" value="${mount}">
                                     <input type="hidden" name="action" value="add">
                                     <input type="hidden" name="file" value="${e.path}">
-                                    <button type="submit" class="btn btn-primary btn-sm" style="padding:0.1rem 0.3rem; font-size:0.7rem;" title="${e.is_dir ? 'Add folder recursively' : 'Add to Playlist'}">${actionLabel}</button>
+                                    <button type="submit" class="btn ${e.is_pls ? 'btn-warning' : 'btn-primary'} btn-sm" style="padding:0.1rem 0.3rem; font-size:0.7rem;" title="${e.is_dir ? 'Add folder recursively' : (e.is_pls ? 'Load playlist file' : 'Add to Playlist')}">${actionLabel}</button>
                                 </form>
                             </div>
                         </div>`;
@@ -1320,6 +1322,8 @@
                         const adjPos = card.querySelector('.adj-pos');
                         const adjLen = card.querySelector('.adj-len');
                         const adjDetails = card.querySelector('.adj-details');
+                        const queueContainer = card.querySelector('.adj-queue-container');
+                        const queueList = card.querySelector('.adj-queue-list');
 
                         if (st.state === 1) { // Playing
                             statusPill.classList.remove('inactive');
@@ -1333,6 +1337,31 @@
                             }
                             if (adjPos) adjPos.textContent = st.playlist_pos;
                             if (adjLen) adjLen.textContent = st.playlist_len;
+
+                            // Update Queue
+                            if (queueContainer && queueList) {
+                                if (st.queue && st.queue.length > 0) {
+                                    queueContainer.style.display = 'block';
+                                    let qHtml = '';
+                                    st.queue.forEach((qitem, qidx) => {
+                                        qHtml += `
+                                        <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(56, 189, 248, 0.05); padding: 0.5rem; border-radius: 4px; border: 1px dashed var(--primary-glow);">
+                                            <span style="font-size: 0.8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${qitem.Path}">${qitem.Title}</span>
+                                            <form action="/admin/player/queue" method="POST" onsubmit="return submitForm(event, false)" style="margin:0;">
+                                                <input type="hidden" name="csrf" value="${csrfToken}">
+                                                <input type="hidden" name="mount" value="${st.mount}">
+                                                <input type="hidden" name="action" value="remove">
+                                                <input type="hidden" name="index" value="${qidx}">
+                                                <button type="submit" style="background:none; border:none; color:var(--danger); cursor:pointer;"><i data-lucide="x-circle" style="width:14px; height:14px;"></i></button>
+                                            </form>
+                                        </div>`;
+                                    });
+                                    queueList.innerHTML = qHtml;
+                                    lucide.createIcons();
+                                } else {
+                                    queueContainer.style.display = 'none';
+                                }
+                            }
                         } else {
                             statusPill.classList.add('inactive');
                             statusText.textContent = 'IDLE';

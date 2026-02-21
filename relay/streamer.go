@@ -262,12 +262,15 @@ func (s *Streamer) SavePlaylist() error {
 	return nil
 }
 
-func (s *Streamer) LoadPlaylist() error {
-	path := filepath.Join("playlists", s.Name+".pls")
+func (s *Streamer) LoadPlaylist(filename string) error {
+	if filename == "" {
+		filename = s.Name + ".pls"
+	}
+	path := filepath.Join("playlists", filename)
 	f, err := os.Open(path)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return s.SavePlaylist() // Create empty
+		if os.IsNotExist(err) && filename == s.Name+".pls" {
+			return s.SavePlaylist() // Create default empty
 		}
 		return err
 	}
@@ -276,9 +279,6 @@ func (s *Streamer) LoadPlaylist() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.Playlist = []string{}
-
-	var entries int
-	fmt.Fscanf(f, "[playlist]\nNumberOfEntries=%d\n", &entries)
 
 	// Simple PLS parser
 	scanner := bufio.NewScanner(f)
@@ -430,7 +430,7 @@ func (sm *StreamerManager) StartStreamer(name, mount, musicDir string, loop bool
 	}
 
 	sm.instances[mount] = s
-	s.LoadPlaylist()
+	s.LoadPlaylist("")
 
 	go sm.runStreamerLoop(ctx, s)
 	return s, nil

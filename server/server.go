@@ -303,6 +303,7 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/admin/player/scan", s.handlePlayerScan)
 	mux.HandleFunc("/admin/player/clear-playlist", s.handlePlayerClearPlaylist)
 	mux.HandleFunc("/admin/player/save-playlist", s.handlePlayerSavePlaylist)
+	mux.HandleFunc("/admin/player/load-playlist", s.handlePlayerLoadPlaylist)
 	mux.HandleFunc("/admin/player/reorder", s.handlePlayerReorder)
 	mux.HandleFunc("/admin/player/queue", s.handlePlayerQueue)
 	mux.HandleFunc("/admin/player/shuffle", s.handlePlayerShuffle)
@@ -2020,15 +2021,16 @@ type relayEventInfo struct {
 }
 
 type streamerEventInfo struct {
-	Name        string  `json:"name"`
-	Mount       string  `json:"mount"`
-	State       int     `json:"state"`
-	CurrentSong string  `json:"song"`
-	StartTime   int64   `json:"start_time"`
-	Duration    float64 `json:"duration"`
-	PlaylistPos int     `json:"playlist_pos"`
-	PlaylistLen int     `json:"playlist_len"`
-	Shuffle     bool    `json:"shuffle"`
+	Name         string   `json:"name"`
+	Mount        string   `json:"mount"`
+	State        int      `json:"state"`
+	CurrentSong  string   `json:"song"`
+	StartTime    int64    `json:"start_time"`
+	Duration     float64  `json:"duration"`
+	PlaylistPos  int      `json:"playlist_pos"`
+	PlaylistLen  int      `json:"playlist_len"`
+	Shuffle      bool     `json:"shuffle"`
+	Queue        []relay.PlaylistItem `json:"queue"`
 }
 
 func (s *Server) collectStatsPayload(user *config.User) ([]byte, error) {
@@ -2086,6 +2088,7 @@ func (s *Server) collectStatsPayload(user *config.User) ([]byte, error) {
 				PlaylistPos: stats.PlaylistPos,
 				PlaylistLen: stats.PlaylistLen,
 				Shuffle:     stats.Shuffle,
+				Queue:       st.GetQueueInfo(),
 			})
 		}
 	}
@@ -2509,6 +2512,41 @@ func (s *Server) handleToggleAutoDJ(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/admin#tab-streamer", http.StatusSeeOther)
 }
 
+func (s *Server) handlePlayerLoadPlaylist(w http.ResponseWriter, r *http.Request) {
+	if !s.isCSRFSafe(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	if _, ok := s.checkAuth(r); !ok {
+		return
+	}
+
+	mount := r.FormValue("mount")
+	filename := r.FormValue("file")
+	streamer := s.StreamerM.GetStreamer(mount)
+	if streamer == nil {
+		http.Error(w, "Streamer not found", http.StatusNotFound)
+		return
+	}
+
+	if err := streamer.LoadPlaylist(filename); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Persist new playlist to config
+	playlistCopy := streamer.GetPlaylist()
+	for _, adj := range s.Config.AutoDJs {
+		if adj.Mount == mount {
+			adj.Playlist = playlistCopy
+			s.Config.SaveConfig()
+			break
+		}
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
 func (s *Server) handlePlayerReorder(w http.ResponseWriter, r *http.Request) {
 	if !s.isCSRFSafe(r) {
 		http.Error(w, "Forbidden", http.StatusForbidden)
@@ -2690,8 +2728,27 @@ func (s *Server) handlePlayerFiles(w http.ResponseWriter, r *http.Request) {
 		Title string `json:"title"`
 		IsDir bool   `json:"is_dir"`
 		Path  string `json:"path"`
+		IsPLS bool   `json:"is_pls"`
 	}
 	var res []fileEntry
+
+	// If we are at the root, also list available playlists
+	if subDir == "" {
+		if plsEntries, err := os.ReadDir("playlists"); err == nil {
+			for _, f := range plsEntries {
+				if !f.IsDir() && strings.HasSuffix(f.Name(), ".pls") {
+					res = append(res, fileEntry{
+						Name:  f.Name(),
+						Title: "Playlist: " + f.Name(),
+						IsDir: false,
+						Path:  f.Name(),
+						IsPLS: true,
+					})
+				}
+			}
+		}
+	}
+
 	for _, f := range entries {
 		ext := strings.ToLower(filepath.Ext(f.Name()))
 		if f.IsDir() || ext == ".mp3" {
@@ -2704,6 +2761,7 @@ func (s *Server) handlePlayerFiles(w http.ResponseWriter, r *http.Request) {
 				Title: title,
 				IsDir: f.IsDir(),
 				Path:  filepath.Join(subDir, f.Name()),
+				IsPLS: false,
 			})
 		}
 	}
