@@ -71,6 +71,7 @@ type Server struct {
 	StreamerM   *relay.StreamerManager
 	mpdServer   *relay.MPDServer
 	tmpl        *template.Template
+	Version     string
 	httpServers []*http.Server
 	startTime   time.Time
 	AuthLog     *logrus.Logger
@@ -188,7 +189,7 @@ func (p *protocolSniffer) sniff() {
 	}
 }
 
-func NewServer(cfg *config.Config, authLog *logrus.Logger) *Server {
+func NewServer(cfg *config.Config, authLog *logrus.Logger, version string) *Server {
 	tmpl := template.New("base")
 	tmpl, err := tmpl.ParseFS(templateFS, "templates/*.html")
 	if err != nil {
@@ -209,6 +210,7 @@ func NewServer(cfg *config.Config, authLog *logrus.Logger) *Server {
 		WebRTCM:      relay.NewWebRTCManager(r),
 		StreamerM:    relay.NewStreamerManager(r, cfg),
 		tmpl:         tmpl,
+		Version:      version,
 		startTime:    time.Now(),
 		AuthLog:      authLog,
 		sessions:     make(map[string]*session),
@@ -1588,6 +1590,7 @@ func (s *Server) handleAdmin(w http.ResponseWriter, r *http.Request) {
 		"FallbackMounts": s.Config.FallbackMounts,
 		"CSRFToken":      csrf,
 		"Streamers":      s.StreamerM.GetStreamers(),
+		"Version":        s.Version,
 	}
 	if err := s.tmpl.ExecuteTemplate(w, "admin.html", data); err != nil {
 		if !strings.Contains(err.Error(), "broken pipe") {
@@ -2903,6 +2906,7 @@ func (s *Server) handleAutoDJStudio(w http.ResponseWriter, r *http.Request) {
 		"CSRFToken": csrf,
 		"Config":    s.Config,
 		"User":      user,
+		"Version":   s.Version,
 	}
 
 	w.Header().Set("Content-Type", "text/html")

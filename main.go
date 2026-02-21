@@ -21,6 +21,8 @@ import (
 )
 
 var (
+	Version = "dev"
+
 	configPath  = flag.String("config", "tinyice.json", "Path to configuration file")
 	bindHost    = flag.String("host", "0.0.0.0", "Network interface to bind to")
 	bindPort    = flag.String("port", "", "Network port to bind to (overrides config)")
@@ -150,7 +152,7 @@ func main() {
 		cfg.AutoUpdate = true
 	}
 
-	srv := server.NewServer(cfg, authLogger)
+	srv := server.NewServer(cfg, authLogger, Version)
 
 	// Start Updater if enabled
 	if cfg.AutoUpdate {

@@ -120,11 +120,10 @@
                 
                 <a href="/logout" class="nav-link" style="color: var(--danger); margin-top: 1rem; text-decoration: none;"><i data-lucide="log-out"></i> Sign Out</a>
             </div>
-            <div style="margin-top: auto; padding-top: 2rem;">
-                <div style="font-size: 0.8rem; color: var(--text-dim); margin-bottom: 1rem;">User: <strong>{{.User.Username}}</strong> <span class="role-badge {{if eq .User.Role "superadmin"}}role-super{{else}}role-admin{{end}}">{{.User.Role}}</span></div>
-                <div style="font-size: 0.75rem; color: var(--text-dim);">Powered by TinyIce<br>Host: {{.Config.HostName}}</div>
-            </div>
-        </aside>
+                          <div style="margin-top: auto; padding-top: 2rem;">
+                              <div style="font-size: 0.8rem; color: var(--text-dim); margin-bottom: 1rem;">User: <strong>{{.User.Username}}</strong> <span class="role-badge {{if eq .User.Role "superadmin"}}role-super{{else}}role-admin{{end}}">{{.User.Role}}</span></div>
+                              <div style="font-size: 0.75rem; color: var(--text-dim);">Powered by <strong>TinyIce {{.Version}}</strong><br>Host: {{.Config.HostName}}</div>
+                          </div>        </aside>
         <main>
             <div id="tab-overview" class="tab-content active">
                 <h1 class="page-title"><i data-lucide="layout-dashboard"></i> Dashboard</h1>
@@ -789,6 +788,14 @@
                     text.textContent = 'Success';
                     lucide.createIcons();
                     
+                    if (url === '/admin/hotswap') {
+                        text.textContent = 'Hot Swap initiated. Reloading in 5s...';
+                        setTimeout(() => {
+                            window.location.reload();
+                        }, 5000);
+                        return; // Don't hide overlay immediately
+                    }
+
                     setTimeout(() => {
                         overlay.style.display = 'none';
                         if (typeof onSuccess === 'function') onSuccess();
