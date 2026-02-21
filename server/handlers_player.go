@@ -222,7 +222,7 @@ func (s *Server) handlePlayerQueue(w http.ResponseWriter, r *http.Request) {
 	mount := r.FormValue("mount")
 	path := r.FormValue("path")
 	action := r.FormValue("action")
-	
+
 	logrus.Debugf("handlePlayerQueue: mount=%s action=%s path=%s", mount, action, path)
 
 	streamer := s.StreamerM.GetStreamer(mount)
@@ -391,7 +391,7 @@ func (s *Server) handlePlayerFiles(w http.ResponseWriter, r *http.Request) {
 	}
 
 	musicDir := streamer.GetMusicDir()
-	
+
 	fullPath, err := s.validatePathInMusicDir(musicDir, filepath.Join(musicDir, subDir))
 	if err != nil {
 		logrus.WithError(err).Warnf("Security: Blocked file browser access to %s for mount %s", subDir, mount)
@@ -477,7 +477,7 @@ func (s *Server) handlePlayerPlaylistAction(w http.ResponseWriter, r *http.Reque
 	mount := r.FormValue("mount")
 	action := r.FormValue("action")
 	relPath := r.FormValue("file")
-	
+
 	logrus.Debugf("handlePlayerPlaylistAction: mount=%s action=%s file=%s", mount, action, relPath)
 
 	streamer := s.StreamerM.GetStreamer(mount)
@@ -494,7 +494,6 @@ func (s *Server) handlePlayerPlaylistAction(w http.ResponseWriter, r *http.Reque
 			http.Error(w, "Forbidden", http.StatusForbidden)
 			return
 		}
-
 
 		logrus.Infof("AutoDJ %s: Attempting to add %s", mount, fullPath)
 
@@ -530,13 +529,13 @@ func (s *Server) handlePlayerPlaylistAction(w http.ResponseWriter, r *http.Reque
 		streamer.RemoveFromPlaylist(idx)
 	}
 	playlistCopy := streamer.GetPlaylist()
-	
+
 	lastPl := streamer.GetStats().LastPlaylist
 	if action == "add" && lastPl == "" {
 		lastPl = streamer.Name + ".pls"
 		streamer.SetLastPlaylist(lastPl)
 	}
-	
+
 	streamer.SavePlaylist()
 
 	for _, adj := range s.Config.AutoDJs {
@@ -711,7 +710,7 @@ func (s *Server) handleAutoDJStudio(w http.ResponseWriter, r *http.Request) {
 
 	mount := r.URL.Query().Get("mount")
 	logrus.Infof("Studio: Requested mount: %s", mount)
-	
+
 	streamer := s.StreamerM.GetStreamer(mount)
 	if streamer == nil {
 		logrus.Warnf("Studio: Streamer not found for mount: %s", mount)

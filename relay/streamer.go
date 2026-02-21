@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/DatanoiseTV/tinyice/config"
-	"github.com/dhowden/tag"
 	"github.com/bogem/id3v2/v2"
+	"github.com/dhowden/tag"
 	"github.com/hajimehoshi/go-mp3"
 	"github.com/sirupsen/logrus"
 )
@@ -47,8 +47,8 @@ type Streamer struct {
 	cancel context.CancelFunc
 	mu     sync.RWMutex
 
-	fileCancel context.CancelFunc
-	titleCache map[string]string
+	fileCancel   context.CancelFunc
+	titleCache   map[string]string
 	titleFetchWg sync.WaitGroup
 
 	// Stats
@@ -168,7 +168,8 @@ func (s *Streamer) MoveQueueItem(from, to int) {
 	s.Queue = append(s.Queue[:to], append([]string{item}, s.Queue[to:]...)...)
 }
 
-type PlaylistItem struct {	Title string
+type PlaylistItem struct {
+	Title string
 	Path  string
 }
 
@@ -207,7 +208,7 @@ func (s *Streamer) fetchTitleAndCache(path string) {
 	s.titleFetchWg.Add(1)
 	go func() {
 		defer s.titleFetchWg.Done()
-		
+
 		s.mu.Lock()
 		if _, ok := s.titleCache[path]; ok {
 			s.mu.Unlock()
@@ -216,7 +217,7 @@ func (s *Streamer) fetchTitleAndCache(path string) {
 		s.mu.Unlock()
 
 		title := filepath.Base(path)
-		
+
 		// Use id3v2 for extraction (Pure Go, no CGO/iconv)
 		logrus.Debugf("fetchTitleAndCache: Opening %s for ID3v2 parsing...", path)
 		tag, err := id3v2.Open(path, id3v2.Options{Parse: true})
@@ -226,7 +227,7 @@ func (s *Streamer) fetchTitleAndCache(path string) {
 			defer tag.Close()
 			artist := strings.TrimSpace(tag.Artist())
 			song := strings.TrimSpace(tag.Title())
-			
+
 			logrus.Debugf("fetchTitleAndCache: Raw tags for %s: artist=[%s] title=[%s]", path, artist, song)
 
 			if artist != "" && song != "" {
@@ -288,7 +289,7 @@ func (s *Streamer) ScanMusicDir() error {
 
 	// Clear cache
 	s.titleCache = make(map[string]string)
-	
+
 	// Copy playlist to process outside of lock
 	currentPlaylist := make([]string, len(s.Playlist))
 	copy(currentPlaylist, s.Playlist)
@@ -437,42 +438,42 @@ type StreamerStats struct {
 	MPDPort        string
 	MPDPassword    string
 	MusicDir       string
-		Loop           bool
-		InjectMetadata bool
-		Visible        bool
-		LastPlaylist   string
+	Loop           bool
+	InjectMetadata bool
+	Visible        bool
+	LastPlaylist   string
+}
+
+func (s *Streamer) GetStats() StreamerStats {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	mpdPort := ""
+	mpdPassword := ""
+	if s.MPDServer != nil {
+		mpdPort = s.MPDServer.Port
+		mpdPassword = s.MPDPassword
 	}
-	
-	func (s *Streamer) GetStats() StreamerStats {
-		s.mu.RLock()
-		defer s.mu.RUnlock()
-		
-		mpdPort := ""
-		mpdPassword := ""
-		if s.MPDServer != nil {
-			mpdPort = s.MPDServer.Port
-			mpdPassword = s.MPDPassword
-		}
-	
-		return StreamerStats{
-			Name:           s.Name,
-			Mount:          s.OutputMount,
-			State:          s.State,
-			CurrentSong:    s.CurrentFile,
-			StartTime:      s.CurrentFileTime,
-			Duration:       s.CurrentFileDuration,
-			PlaylistPos:    s.CurrentPos,
-			PlaylistLen:    len(s.Playlist),
-			Shuffle:        s.Shuffle,
-			MPDPort:        mpdPort,
-			MPDPassword:    mpdPassword,
-			MusicDir:       s.MusicDir,
-			Loop:           s.Loop,
-			InjectMetadata: s.InjectMetadata,
-			Visible:        s.Visible,
-			LastPlaylist:   s.LastPlaylist,
-		}
+
+	return StreamerStats{
+		Name:           s.Name,
+		Mount:          s.OutputMount,
+		State:          s.State,
+		CurrentSong:    s.CurrentFile,
+		StartTime:      s.CurrentFileTime,
+		Duration:       s.CurrentFileDuration,
+		PlaylistPos:    s.CurrentPos,
+		PlaylistLen:    len(s.Playlist),
+		Shuffle:        s.Shuffle,
+		MPDPort:        mpdPort,
+		MPDPassword:    mpdPassword,
+		MusicDir:       s.MusicDir,
+		Loop:           s.Loop,
+		InjectMetadata: s.InjectMetadata,
+		Visible:        s.Visible,
+		LastPlaylist:   s.LastPlaylist,
 	}
+}
 
 func (sm *StreamerManager) StartStreamer(name, mount, musicDir string, loop bool, format string, bitrate int, injectMetadata bool, initialPlaylist []string, mpdEnabled bool, mpdPort, mpdPassword string, visible bool, lastPlaylist string) (*Streamer, error) {
 	sm.mu.Lock()
@@ -522,7 +523,7 @@ func (sm *StreamerManager) StartStreamer(name, mount, musicDir string, loop bool
 	}
 
 	sm.instances[mount] = s
-	
+
 	if lastPlaylist != "" {
 		s.LoadPlaylist(lastPlaylist)
 	} else {
@@ -542,7 +543,7 @@ func (sm *StreamerManager) StopStreamer(mount string) {
 			s.MPDServer.Stop()
 		}
 		s.Stop()
-		// We DON'T delete it from sm.instances anymore, 
+		// We DON'T delete it from sm.instances anymore,
 		// so it remains manageable via UI even when stopped.
 	}
 }

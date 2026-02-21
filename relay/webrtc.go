@@ -139,10 +139,10 @@ func (wm *WebRTCManager) HandleSourceOffer(mount string, offer webrtc.SessionDes
 
 	peerConnection.OnTrack(func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
 		logrus.Infof("WebRTC Source: Received track %s from %s", track.ID(), mount)
-		
+
 		stream := wm.relay.GetOrCreateStream(mount)
 		stream.mu.Lock()
-		stream.ContentType = "audio/ogg" 
+		stream.ContentType = "audio/ogg"
 		stream.IsOggStream = true
 		stream.SourceIP = "webrtc-source"
 		// Reset page offsets so we don't sync to old pages from a previous session

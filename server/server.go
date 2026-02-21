@@ -50,18 +50,18 @@ var assetFS embed.FS
 // multiple goroutines concurrently, so all handler methods must be safe
 // for concurrent access.
 type Server struct {
-	Config      *config.Config      // Application configuration
-	Relay       *relay.Relay        // Core relay/streaming engine
-	RelayM      *relay.RelayManager // Relay stream management
+	Config      *config.Config           // Application configuration
+	Relay       *relay.Relay             // Core relay/streaming engine
+	RelayM      *relay.RelayManager      // Relay stream management
 	TranscoderM *relay.TranscoderManager // Transcoding management
-	WebRTCM     *relay.WebRTCManager // WebRTC connection management
-	StreamerM   *relay.StreamerManager // AutoDJ/streamer management
-	mpdServer   *relay.MPDServer    // MPD protocol server (optional)
-	tmpl        *template.Template  // HTML template for web interface
-	Version     string              // TinyIce version
-	Commit      string              // Git commit hash
-	httpServers []*http.Server       // Active HTTP servers
-	startTime   time.Time           // Server start time
+	WebRTCM     *relay.WebRTCManager     // WebRTC connection management
+	StreamerM   *relay.StreamerManager   // AutoDJ/streamer management
+	mpdServer   *relay.MPDServer         // MPD protocol server (optional)
+	tmpl        *template.Template       // HTML template for web interface
+	Version     string                   // TinyIce version
+	Commit      string                   // Git commit hash
+	httpServers []*http.Server           // Active HTTP servers
+	startTime   time.Time                // Server start time
 	AuthLog     *logrus.Logger
 
 	sessions   map[string]*session

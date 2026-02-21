@@ -32,41 +32,42 @@ import (
 //   - Ogg page tracking enables proper synchronization for Opus streams
 //
 // Example Usage:
-//   stream := relay.GetOrCreateStream("/live")
-//   stream.Broadcast(audioData, relayInstance)
-//   offset, signal := stream.Subscribe("listener-id", 32*1024)
+//
+//	stream := relay.GetOrCreateStream("/live")
+//	stream.Broadcast(audioData, relayInstance)
+//	offset, signal := stream.Subscribe("listener-id", 32*1024)
 type Stream struct {
 	// Basic stream information
-	MountName   string    // Mount point path (e.g., "/stream", "/live")
-	ContentType string    // MIME type (e.g., "audio/mpeg", "audio/ogg")
-	Description string    // Stream description for directory listings
-	Genre       string    // Music genre
-	URL         string     // Associated website URL
-	Name        string     // Display name
-	Bitrate     string     // Bitrate in kbps (e.g., "128", "192")
-	
+	MountName   string // Mount point path (e.g., "/stream", "/live")
+	ContentType string // MIME type (e.g., "audio/mpeg", "audio/ogg")
+	Description string // Stream description for directory listings
+	Genre       string // Music genre
+	URL         string // Associated website URL
+	Name        string // Display name
+	Bitrate     string // Bitrate in kbps (e.g., "128", "192")
+
 	// Timing and source information
-	Started           time.Time // When the stream was created
-	SourceIP          string    // IP address of the source client
-	LastDataReceived  time.Time // Last time data was received from source
-	
+	Started          time.Time // When the stream was created
+	SourceIP         string    // IP address of the source client
+	LastDataReceived time.Time // Last time data was received from source
+
 	// Stream state and visibility
 	Enabled      bool // Whether the stream is accepting connections
 	Public       bool // Whether to advertise in public directories
 	Visible      bool // Whether to show in admin UI
 	IsTranscoded bool // True if this stream is an output of a transcoder
-	
+
 	// Format-specific optimizations
 	IsOggStream bool // Pre-calculated for speed (true for Ogg/Opus streams)
-	
+
 	// Audio data and listener management
 	CurrentSong string // Currently playing song title
-	
+
 	// Statistics (atomic for performance)
 	BytesIn      int64 // Total bytes received from source
 	BytesOut     int64 // Total bytes sent to listeners
 	BytesDropped int64 // Track total bytes dropped due to slow listeners
-	
+
 	// Ogg/Opus specific state for proper synchronization
 	// These fields enable new listeners to start at proper page boundaries
 	OggHead         []byte  // Store Ogg headers for Opus/Ogg streams
@@ -74,14 +75,12 @@ type Stream struct {
 	LastPageOffset  int64   // Absolute offset of the last valid Ogg page start
 	PageOffsets     []int64 // Circular list of last ~100 page starts
 	PageIndex       int     // Index for managing PageOffsets circular list
-	
+
 	// Core streaming infrastructure
-	Buffer    *CircularBuffer      // Audio data buffer (typically 2MB)
+	Buffer    *CircularBuffer          // Audio data buffer (typically 2MB)
 	listeners map[string]chan struct{} // Signal channels for connected listeners
-	mu        sync.RWMutex          // Mutex protecting all fields
+	mu        sync.RWMutex             // Mutex protecting all fields
 }
-
-
 
 // IsOgg returns true if the stream is Ogg-based (Ogg/Vorbis, Ogg/Opus, etc).
 //
@@ -90,17 +89,19 @@ type Stream struct {
 // Opus streams which require special synchronization.
 //
 // Returns:
-//   true if the stream content type contains "ogg" or "opus"
-//   false otherwise
+//
+//	true if the stream content type contains "ogg" or "opus"
+//	false otherwise
 //
 // Performance:
 //   - O(1) operation (simple string contains check)
 //   - Thread-safe (reads immutable field)
 //
 // Example:
-//   if stream.IsOgg() {
-//       // Handle Ogg/Opus specific logic
-//   }
+//
+//	if stream.IsOgg() {
+//	    // Handle Ogg/Opus specific logic
+//	}
 func (s *Stream) IsOgg() bool {
 	ct := strings.ToLower(s.ContentType)
 	return strings.Contains(ct, "ogg") || strings.Contains(ct, "opus")
@@ -123,8 +124,9 @@ func (s *Stream) IsOgg() bool {
 //   - Uses exclusive lock (Lock) to prevent concurrent modifications
 //
 // Example:
-//   stream.Close()
-//   relay.RemoveStream("/live")
+//
+//	stream.Close()
+//	relay.RemoveStream("/live")
 func (s *Stream) Close() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -151,8 +153,9 @@ func (s *Stream) DisconnectListeners() {
 // Ogg page boundaries (for Opus streams), and notifying listeners of new data.
 //
 // Parameters:
-//   data  - The audio data to broadcast to all listeners
-//   relay - The relay instance for updating global statistics
+//
+//	data  - The audio data to broadcast to all listeners
+//	relay - The relay instance for updating global statistics
 //
 // Behavior:
 //   - Updates LastDataReceived timestamp
@@ -172,7 +175,8 @@ func (s *Stream) DisconnectListeners() {
 //   - Uses exclusive lock (Lock) to protect stream state
 //
 // Example:
-//   stream.Broadcast(audioChunk, relayInstance)
+//
+//	stream.Broadcast(audioChunk, relayInstance)
 func (s *Stream) Broadcast(data []byte, relay *Relay) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -219,12 +223,14 @@ func (s *Stream) Broadcast(data []byte, relay *Relay) {
 // starts at a proper Ogg page boundary to avoid corruption.
 //
 // Parameters:
-//   id        - Unique identifier for this listener
-//   burstSize - Number of bytes to rewind from current position for instant playback
+//
+//	id        - Unique identifier for this listener
+//	burstSize - Number of bytes to rewind from current position for instant playback
 //
 // Returns:
-//   int64          - Absolute offset in buffer to start reading from
-//   chan struct{}  - Signal channel that will be closed when stream ends or listener is removed
+//
+//	int64          - Absolute offset in buffer to start reading from
+//	chan struct{}  - Signal channel that will be closed when stream ends or listener is removed
 //
 // Behavior:
 //   - Creates a buffered signal channel (size 1) for the listener
@@ -234,9 +240,10 @@ func (s *Stream) Broadcast(data []byte, relay *Relay) {
 //   - Adds listener to the listeners map
 //
 // Ogg Synchronization:
-//   The method implements sophisticated Ogg page boundary detection to ensure
-//   Opus listeners start at valid page boundaries. This prevents audio corruption
-//   and ensures proper decoding from the first packet.
+//
+//	The method implements sophisticated Ogg page boundary detection to ensure
+//	Opus listeners start at valid page boundaries. This prevents audio corruption
+//	and ensures proper decoding from the first packet.
 //
 // Thread Safety:
 //   - Safe to call from any goroutine
@@ -247,8 +254,9 @@ func (s *Stream) Broadcast(data []byte, relay *Relay) {
 //   - Lock held for entire operation
 //
 // Example:
-//   offset, signal := stream.Subscribe("listener-123", 32*1024)
-//   reader := NewStreamReader(stream.Buffer, offset, signal, ctx, "listener-123")
+//
+//	offset, signal := stream.Subscribe("listener-123", 32*1024)
+//	reader := NewStreamReader(stream.Buffer, offset, signal, ctx, "listener-123")
 func (s *Stream) Subscribe(id string, burstSize int) (int64, chan struct{}) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

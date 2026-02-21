@@ -53,17 +53,17 @@ func (w *StreamWriter) Write(p []byte) (n int, err error) {
 	if w.capture && w.headerBuf != nil {
 		w.headerBuf.Write(p)
 	}
-	
+
 	if w.debug {
 		logrus.Debugf("StreamWriter(%s): Broadcasting %d bytes to %s", w.name, len(p), w.stream.MountName)
 	}
-	
+
 	w.stream.Broadcast(p, w.relay)
-	
+
 	if w.stats != nil {
 		atomic.AddInt64(w.stats, int64(len(p)))
 	}
-	
+
 	return len(p), nil
 }
 
@@ -77,13 +77,13 @@ func (w *StreamWriter) GetCapturedHeaders() []byte {
 
 // StreamReader is a generic reader that reads from a circular buffer with signal-based notification
 type StreamReader struct {
-	buffer   *CircularBuffer
-	offset   int64
-	signal   chan struct{}
-	ctx      context.Context
-	id       string
-	oggSync  bool
-	stream   *Stream // Optional reference to stream for Ogg synchronization
+	buffer  *CircularBuffer
+	offset  int64
+	signal  chan struct{}
+	ctx     context.Context
+	id      string
+	oggSync bool
+	stream  *Stream // Optional reference to stream for Ogg synchronization
 }
 
 // NewStreamReader creates a new StreamReader
@@ -108,7 +108,7 @@ func (r *StreamReader) WithOggSync(stream *Stream) *StreamReader {
 func (r *StreamReader) Read(p []byte) (int, error) {
 	for {
 		n, next, skipped := r.buffer.ReadAt(r.offset, p)
-		
+
 		// Handle Ogg synchronization if enabled
 		if skipped && r.oggSync && r.stream != nil {
 			r.stream.mu.RLock()
@@ -116,7 +116,7 @@ func (r *StreamReader) Read(p []byte) (int, error) {
 			r.stream.mu.RUnlock()
 			continue // Retry read at aligned offset
 		}
-		
+
 		if n > 0 {
 			r.offset = next
 			return n, nil

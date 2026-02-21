@@ -24,9 +24,10 @@ import (
 // goroutines. The Relay uses RWMutex for protecting the streams map.
 //
 // Example:
-//   relay := NewRelay(true, historyManager)
-//   stream := relay.GetOrCreateStream("/live")
-//   stats := relay.Snapshot()
+//
+//	relay := NewRelay(true, historyManager)
+//	stream := relay.GetOrCreateStream("/live")
+//	stats := relay.Snapshot()
 type Relay struct {
 	Streams    map[string]*Stream // Active streams by mount point
 	mu         sync.RWMutex       // Mutex protecting the streams map
@@ -51,10 +52,12 @@ func NewRelay(lowLatency bool, history *HistoryManager) *Relay {
 // with default settings and added to the relay.
 //
 // Parameters:
-//   mount - The mount point path (e.g., "/live", "/stream")
+//
+//	mount - The mount point path (e.g., "/live", "/stream")
 //
 // Returns:
-//   A pointer to the Stream instance (either existing or newly created)
+//
+//	A pointer to the Stream instance (either existing or newly created)
 //
 // Behavior:
 //   - Creates a new stream with 2MB circular buffer if mount doesn't exist
@@ -67,8 +70,9 @@ func NewRelay(lowLatency bool, history *HistoryManager) *Relay {
 //   - Safe to call from any goroutine
 //
 // Example:
-//   stream := relay.GetOrCreateStream("/live")
-//   stream.Broadcast(audioData, relay)
+//
+//	stream := relay.GetOrCreateStream("/live")
+//	stream.Broadcast(audioData, relay)
 func (r *Relay) GetOrCreateStream(mount string) *Stream {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -150,7 +154,8 @@ func (r *Relay) GetMetrics() (int64, int64) {
 // creation time with newest streams first.
 //
 // Returns:
-//   A slice of StreamStats containing snapshots of all active streams
+//
+//	A slice of StreamStats containing snapshots of all active streams
 //
 // Behavior:
 //   - Takes a read lock (RLock) for thread-safe access
@@ -163,10 +168,11 @@ func (r *Relay) GetMetrics() (int64, int64) {
 //   - Minimal locking - only holds read lock during data collection
 //
 // Example:
-//   snapshot := relay.Snapshot()
-//   for _, stats := range snapshot {
-//       fmt.Printf("Stream %s: %d listeners\n", stats.MountName, stats.ListenersCount)
-//   }
+//
+//	snapshot := relay.Snapshot()
+//	for _, stats := range snapshot {
+//	    fmt.Printf("Stream %s: %d listeners\n", stats.MountName, stats.ListenersCount)
+//	}
 func (r *Relay) Snapshot() []StreamStats {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

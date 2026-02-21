@@ -27,9 +27,10 @@ import (
 //   - Fixed memory footprint (no dynamic allocations during operation)
 //
 // Typical Usage:
-//   buffer := NewCircularBuffer(512 * 1024) // 512KB buffer
-//   buffer.Write(audioData)
-//   bytesRead, newOffset, skipped := buffer.ReadAt(offset, readBuffer)
+//
+//	buffer := NewCircularBuffer(512 * 1024) // 512KB buffer
+//	buffer.Write(audioData)
+//	bytesRead, newOffset, skipped := buffer.ReadAt(offset, readBuffer)
 type CircularBuffer struct {
 	Data []byte       // The actual buffer storage
 	Size int64        // Maximum size of the buffer in bytes
@@ -89,13 +90,14 @@ func (cb *CircularBuffer) Write(p []byte) {
 // multiple goroutines. This makes it safe to call from any goroutine.
 //
 // Example:
-//   bytesRead, newOffset, wasSkipped := buffer.ReadAt(currentOffset, audioBuffer)
+//
+//	bytesRead, newOffset, wasSkipped := buffer.ReadAt(currentOffset, audioBuffer)
 func (cb *CircularBuffer) ReadAt(start int64, p []byte) (int, int64, bool) {
 	cb.mu.RLock()
 	defer cb.mu.RUnlock()
 
 	skipped := false
-	
+
 	// If requested position is ahead of current write position, no data available
 	if start >= cb.Head {
 		return 0, start, false
@@ -108,10 +110,10 @@ func (cb *CircularBuffer) ReadAt(start int64, p []byte) (int, int64, bool) {
 		skipped = true
 	}
 
-	pos := start % cb.Size   // Calculate read position within buffer bounds
+	pos := start % cb.Size       // Calculate read position within buffer bounds
 	available := cb.Head - start // Calculate available bytes from start position
-	n := int64(len(p))        // Requested read size
-	
+	n := int64(len(p))           // Requested read size
+
 	// Limit read to available data
 	if n > available {
 		n = available
@@ -126,4 +128,3 @@ func (cb *CircularBuffer) ReadAt(start int64, p []byte) (int, int64, bool) {
 	actual := copy(p, cb.Data[pos:pos+n])
 	return actual, start + int64(actual), skipped
 }
-
