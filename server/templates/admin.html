@@ -913,14 +913,14 @@
                                     <input type="hidden" name="csrf" value="${csrfToken}">
                                     <input type="hidden" name="mount" value="${mount}">
                                     <input type="hidden" name="action" value="add">
-                                    <input type="hidden" name="path" value="${e.path}">
+                                    <input type="hidden" name="path" value="${e.abs_path}">
                                     <button type="submit" class="btn btn-outline btn-sm" style="padding:0.1rem 0.3rem; font-size:0.7rem;" title="Queue Next">QUEUE</button>
                                 </form>` : ''}
                                 <form action="${actionURL}" method="POST" onsubmit="${confirmMsg ? `if(confirm('${confirmMsg}')) ` : ''}return submitForm(event, true)" style="margin:0;">
                                     <input type="hidden" name="csrf" value="${csrfToken}">
                                     <input type="hidden" name="mount" value="${mount}">
                                     <input type="hidden" name="action" value="add">
-                                    <input type="hidden" name="file" value="${e.path}">
+                                    <input type="hidden" name="file" value="${e.abs_path}">
                                     <button type="submit" class="btn ${e.is_pls ? 'btn-warning' : 'btn-primary'} btn-sm" style="padding:0.1rem 0.3rem; font-size:0.7rem;" title="${e.is_dir ? 'Add folder recursively' : (e.is_pls ? 'Load playlist file' : 'Add to Playlist')}">${actionLabel}</button>
                                 </form>
                             </div>
@@ -1331,41 +1331,41 @@
                             if (adjDetails) adjDetails.style.display = 'block';
                             if (songTitle) songTitle.textContent = st.song || 'Preparing...';
                             if (progressBar) {
-                                // IMPORTANT: Update these to reset the timeline
                                 progressBar.dataset.start = st.start_time;
                                 progressBar.dataset.duration = st.duration;
-                            }
-                            if (adjPos) adjPos.textContent = st.playlist_pos;
-                            if (adjLen) adjLen.textContent = st.playlist_len;
-
-                            // Update Queue
-                            if (queueContainer && queueList) {
-                                if (st.queue && st.queue.length > 0) {
-                                    queueContainer.style.display = 'block';
-                                    let qHtml = '';
-                                    st.queue.forEach((qitem, qidx) => {
-                                        qHtml += `
-                                        <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(56, 189, 248, 0.05); padding: 0.5rem; border-radius: 4px; border: 1px dashed var(--primary-glow);">
-                                            <span style="font-size: 0.8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${qitem.Path}">${qitem.Title}</span>
-                                            <form action="/admin/player/queue" method="POST" onsubmit="return submitForm(event, false)" style="margin:0;">
-                                                <input type="hidden" name="csrf" value="${csrfToken}">
-                                                <input type="hidden" name="mount" value="${st.mount}">
-                                                <input type="hidden" name="action" value="remove">
-                                                <input type="hidden" name="index" value="${qidx}">
-                                                <button type="submit" style="background:none; border:none; color:var(--danger); cursor:pointer;"><i data-lucide="x-circle" style="width:14px; height:14px;"></i></button>
-                                            </form>
-                                        </div>`;
-                                    });
-                                    queueList.innerHTML = qHtml;
-                                    lucide.createIcons();
-                                } else {
-                                    queueContainer.style.display = 'none';
-                                }
                             }
                         } else {
                             statusPill.classList.add('inactive');
                             statusText.textContent = 'IDLE';
                             if (adjDetails) adjDetails.style.display = 'none';
+                        }
+
+                        if (adjPos) adjPos.textContent = st.playlist_pos;
+                        if (adjLen) adjLen.textContent = st.playlist_len;
+
+                        // Update Queue
+                        if (queueContainer && queueList) {
+                            if (st.queue && st.queue.length > 0) {
+                                queueContainer.style.display = 'block';
+                                let qHtml = '';
+                                st.queue.forEach((qitem, qidx) => {
+                                    qHtml += `
+                                    <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(56, 189, 248, 0.05); padding: 0.5rem; border-radius: 4px; border: 1px dashed var(--primary-glow);">
+                                        <span style="font-size: 0.8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${qitem.Path}">${qitem.Title}</span>
+                                        <form action="/admin/player/queue" method="POST" onsubmit="return submitForm(event, false)" style="margin:0;">
+                                            <input type="hidden" name="csrf" value="${csrfToken}">
+                                            <input type="hidden" name="mount" value="${st.mount}">
+                                            <input type="hidden" name="action" value="remove">
+                                            <input type="hidden" name="index" value="${qidx}">
+                                            <button type="submit" style="background:none; border:none; color:var(--danger); cursor:pointer;"><i data-lucide="x-circle" style="width:14px; height:14px;"></i></button>
+                                        </form>
+                                    </div>`;
+                                });
+                                queueList.innerHTML = qHtml;
+                                lucide.createIcons();
+                            } else {
+                                queueContainer.style.display = 'none';
+                            }
                         }
                     });
                 }

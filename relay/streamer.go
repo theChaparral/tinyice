@@ -272,31 +272,34 @@ func (s *Streamer) LoadPlaylist(filename string) error {
 	if err != nil {
 		if os.IsNotExist(err) {
 			if filename == s.Name+".pls" {
-				return s.SavePlaylist() // Create default empty
+				return s.SavePlaylist()
 			}
-			return nil // Just ignore if custom playlist doesn't exist yet
+			return nil
 		}
 		return err
 	}
 	defer f.Close()
 
-	s.mu.Lock()
-	s.Playlist = []string{}
-	s.LastPlaylist = filename
-	s.mu.Unlock()
-
-	// Simple PLS parser
+	var newPlaylist []string
 	scanner := bufio.NewScanner(f)
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	for scanner.Scan() {
-		line := scanner.Text()
-		if strings.HasPrefix(line, "File") {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "[") || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(strings.ToLower(line), "file") {
 			parts := strings.SplitN(line, "=", 2)
 			if len(parts) == 2 {
-				s.Playlist = append(s.Playlist, parts[1])
+				newPlaylist = append(newPlaylist, strings.TrimSpace(parts[1]))
 			}
 		}
+	}
+
+	if len(newPlaylist) > 0 {
+		s.mu.Lock()
+		s.Playlist = newPlaylist
+		s.LastPlaylist = filename
+		s.mu.Unlock()
 	}
 	return nil
 }
@@ -319,6 +322,12 @@ func (s *Streamer) SetPlaylist(p []string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.Playlist = p
+}
+
+func (s *Streamer) SetLastPlaylist(name string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.LastPlaylist = name
 }
 
 func (s *Streamer) AddToPlaylist(path string) {
@@ -455,7 +464,8 @@ func (sm *StreamerManager) StopStreamer(mount string) {
 			s.MPDServer.Stop()
 		}
 		s.Stop()
-		delete(sm.instances, mount)
+		// We DON'T delete it from sm.instances anymore, 
+		// so it remains manageable via UI even when stopped.
 	}
 }
 

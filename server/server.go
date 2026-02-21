@@ -436,13 +436,14 @@ func (s *Server) Start() error {
 	}
 	// Start configured AutoDJs
 	for _, adj := range s.Config.AutoDJs {
-		if adj.Enabled {
-			absMusicDir, _ := filepath.Abs(adj.MusicDir)
-			streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, absMusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, adj.Playlist, adj.MPDEnabled, adj.MPDPort, adj.MPDPassword, adj.Visible, adj.LastPlaylist)
-			if err != nil {
-				logrus.WithError(err).Errorf("Failed to start AutoDJ %s", adj.Name)
-			} else {
-				logrus.Infof("AutoDJ %s started on %s", adj.Name, adj.Mount)
+		absMusicDir, _ := filepath.Abs(adj.MusicDir)
+		streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, absMusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, adj.Playlist, adj.MPDEnabled, adj.MPDPort, adj.MPDPassword, adj.Visible, adj.LastPlaylist)
+		if err == nil {
+			// If we have a last playlist file, it's the source of truth
+			if adj.LastPlaylist != "" {
+				streamer.LoadPlaylist(adj.LastPlaylist)
+			}
+			if adj.Enabled {
 				if adj.LastPlaylist != "" {
 					streamer.LoadPlaylist(adj.LastPlaylist)
 				}
@@ -454,7 +455,10 @@ func (s *Server) Start() error {
 				if len(adj.Playlist) == 0 {
 					streamer.ScanMusicDir()
 				}
+				streamer.Play()
 			}
+		} else {
+			logrus.WithError(err).Errorf("Failed to initialize AutoDJ %s", adj.Name)
 		}
 	}
 
@@ -2609,18 +2613,8 @@ func (s *Server) handlePlayerQueue(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if action == "add" {
-		musicDir := streamer.GetMusicDir()
-		fullPath := path
-		if !filepath.IsAbs(path) {
-			fullPath = filepath.Join(musicDir, path)
-		}
-		// Security: Ensure fullPath is still within musicDir
-		if !strings.HasPrefix(fullPath, musicDir) {
-			http.Error(w, "Forbidden", http.StatusForbidden)
-			return
-		}
-		abs, _ := filepath.Abs(fullPath)
-		streamer.PushToQueue(abs)
+		streamer.PushToQueue(path)
+		logrus.Debugf("AutoDJ %s: Queued song %s", mount, path)
 	} else if action == "remove" {
 		var index int
 		fmt.Sscanf(r.FormValue("index"), "%d", &index)
@@ -2728,11 +2722,12 @@ func (s *Server) handlePlayerFiles(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type fileEntry struct {
-		Name  string `json:"name"`
-		Title string `json:"title"`
-		IsDir bool   `json:"is_dir"`
-		Path  string `json:"path"`
-		IsPLS bool   `json:"is_pls"`
+		Name    string `json:"name"`
+		Title   string `json:"title"`
+		IsDir   bool   `json:"is_dir"`
+		Path    string `json:"path"`
+		AbsPath string `json:"abs_path"`
+		IsPLS   bool   `json:"is_pls"`
 	}
 	var res []fileEntry
 
@@ -2741,12 +2736,14 @@ func (s *Server) handlePlayerFiles(w http.ResponseWriter, r *http.Request) {
 		if plsEntries, err := os.ReadDir("playlists"); err == nil {
 			for _, f := range plsEntries {
 				if !f.IsDir() && strings.HasSuffix(f.Name(), ".pls") {
+					abs, _ := filepath.Abs(filepath.Join("playlists", f.Name()))
 					res = append(res, fileEntry{
-						Name:  f.Name(),
-						Title: "Playlist: " + f.Name(),
-						IsDir: false,
-						Path:  f.Name(),
-						IsPLS: true,
+						Name:    f.Name(),
+						Title:   "Playlist: " + f.Name(),
+						IsDir:   false,
+						Path:    f.Name(),
+						AbsPath: abs,
+						IsPLS:   true,
 					})
 				}
 			}
@@ -2757,15 +2754,18 @@ func (s *Server) handlePlayerFiles(w http.ResponseWriter, r *http.Request) {
 		ext := strings.ToLower(filepath.Ext(f.Name()))
 		if f.IsDir() || ext == ".mp3" {
 			title := f.Name()
+			full := filepath.Join(fullPath, f.Name())
 			if !f.IsDir() {
-				title = streamer.GetSongTitle(filepath.Join(fullPath, f.Name()))
+				title = streamer.GetSongTitle(full)
 			}
+			abs, _ := filepath.Abs(full)
 			res = append(res, fileEntry{
-				Name:  f.Name(),
-				Title: title,
-				IsDir: f.IsDir(),
-				Path:  filepath.Join(subDir, f.Name()),
-				IsPLS: false,
+				Name:    f.Name(),
+				Title:   title,
+				IsDir:   f.IsDir(),
+				Path:    filepath.Join(subDir, f.Name()),
+				AbsPath: abs,
+				IsPLS:   false,
 			})
 		}
 	}
@@ -2794,14 +2794,8 @@ func (s *Server) handlePlayerPlaylistAction(w http.ResponseWriter, r *http.Reque
 	}
 
 	if action == "add" {
-		musicDir := streamer.GetMusicDir()
-		fullPath := filepath.Join(musicDir, relPath)
-
-		// Security: Ensure fullPath is still within musicDir
-		if !strings.HasPrefix(fullPath, musicDir) {
-			http.Error(w, "Forbidden", http.StatusForbidden)
-			return
-		}
+		fullPath := relPath // Already absolute from frontend now
+		logrus.Debugf("AutoDJ %s: Adding song %s to playlist", mount, fullPath)
 
 		info, err := os.Stat(fullPath)
 		if err == nil {
@@ -2809,14 +2803,12 @@ func (s *Server) handlePlayerPlaylistAction(w http.ResponseWriter, r *http.Reque
 				// Add folder recursively
 				filepath.Walk(fullPath, func(p string, i os.FileInfo, e error) error {
 					if e == nil && !i.IsDir() && strings.ToLower(filepath.Ext(p)) == ".mp3" {
-						abs, _ := filepath.Abs(p)
-						streamer.AddToPlaylist(abs)
+						streamer.AddToPlaylist(p)
 					}
 					return nil
 				})
 			} else {
-				abs, _ := filepath.Abs(fullPath)
-				streamer.AddToPlaylist(abs)
+				streamer.AddToPlaylist(fullPath)
 			}
 		}
 	} else if action == "remove" {
@@ -2825,12 +2817,21 @@ func (s *Server) handlePlayerPlaylistAction(w http.ResponseWriter, r *http.Reque
 		streamer.RemoveFromPlaylist(idx)
 	}
 	playlistCopy := streamer.GetPlaylist()
+	
+	// If we added a song and haven't saved a playlist yet, set the default name
+	lastPl := streamer.GetStats().LastPlaylist
+	if action == "add" && lastPl == "" {
+		lastPl = streamer.Name + ".pls"
+		streamer.SetLastPlaylist(lastPl)
+	}
+	
 	streamer.SavePlaylist()
 
 	// Persist
 	for _, adj := range s.Config.AutoDJs {
 		if adj.Mount == mount {
 			adj.Playlist = playlistCopy
+			adj.LastPlaylist = lastPl
 			s.Config.SaveConfig()
 			break
 		}
@@ -2891,9 +2892,9 @@ func (s *Server) handleUpdateAutoDJ(w http.ResponseWriter, r *http.Request) {
 
 			// Restart streamer
 			s.StreamerM.StopStreamer(oldMount)
-			if adj.Enabled {
-				streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, adj.Playlist, adj.MPDEnabled, adj.MPDPort, adj.MPDPassword, adj.Visible, adj.LastPlaylist)
-				if err == nil {
+			streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, absMusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, adj.Playlist, adj.MPDEnabled, adj.MPDPort, adj.MPDPassword, adj.Visible, adj.LastPlaylist)
+			if err == nil {
+				if adj.Enabled {
 					if adj.InjectMetadata {
 						if st, ok := s.Relay.GetStream(adj.Mount); ok {
 							st.SetVisible(adj.Visible)
