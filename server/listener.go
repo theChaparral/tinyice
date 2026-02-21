@@ -1,0 +1,344 @@
+package server
+
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"strings"
+	"sync"
+	"syscall"
+	"time"
+
+	"github.com/sirupsen/logrus"
+	"golang.org/x/crypto/acme"
+	"golang.org/x/crypto/acme/autocert"
+)
+
+type BannedListener struct {
+	net.Listener
+	s *Server
+}
+
+func (l *BannedListener) Accept() (net.Conn, error) {
+	for {
+		conn, err := l.Listener.Accept()
+		if err != nil {
+			return nil, err
+		}
+		remoteAddr := conn.RemoteAddr().String()
+		if l.s.isBanned(remoteAddr) {
+			logrus.WithField("ip", remoteAddr).Warn("Dropping connection from banned IP at TCP level")
+			conn.Close()
+			continue
+		}
+		return conn, nil
+	}
+}
+
+// protocolSniffer allows multiplexing TLS and plain HTTP on the same port
+type protocolSniffer struct {
+	net.Listener
+	tlsChan  chan net.Conn
+	httpChan chan net.Conn
+}
+
+func (p *protocolSniffer) Accept() (net.Conn, error) {
+	return nil, fmt.Errorf("use AcceptTLS or AcceptHTTP")
+}
+
+type sniffedConn struct {
+	net.Conn
+	reader io.Reader
+}
+
+func (c *sniffedConn) Read(b []byte) (int, error) {
+	return c.reader.Read(b)
+}
+
+type chanListener struct {
+	addr net.Addr
+	ch   chan net.Conn
+}
+
+func (l *chanListener) Accept() (net.Conn, error) {
+	c, ok := <-l.ch
+	if !ok {
+		return nil, fmt.Errorf("listener closed")
+	}
+	return c, nil
+}
+func (l *chanListener) Close() error   { return nil }
+func (l *chanListener) Addr() net.Addr { return l.addr }
+
+func (p *protocolSniffer) sniff() {
+	for {
+		conn, err := p.Listener.Accept()
+		if err != nil {
+			return
+		}
+
+		go func(c net.Conn) {
+			buf := make([]byte, 1)
+			c.SetReadDeadline(time.Now().Add(5 * time.Second))
+			n, err := c.Read(buf)
+			c.SetReadDeadline(time.Time{})
+
+			if err != nil || n == 0 {
+				c.Close()
+				return
+			}
+
+			wrapped := &sniffedConn{
+				Conn:   c,
+				reader: io.MultiReader(bytes.NewReader(buf), c),
+			}
+
+			target := p.httpChan
+			if buf[0] == 0x16 {
+				target = p.tlsChan
+			}
+
+			select {
+			case target <- wrapped:
+			default:
+				select {
+				case old := <-target:
+					old.Close()
+				default:
+				}
+				select {
+				case target <- wrapped:
+				default:
+					c.Close()
+				}
+			}
+		}(conn)
+	}
+}
+
+// multiListener fans in Accept() calls from multiple net.Listeners into one.
+type multiListener struct {
+	listeners []net.Listener
+	connCh    chan net.Conn
+	once      sync.Once
+	closeOnce sync.Once
+	done      chan struct{}
+}
+
+func newMultiListener(ls []net.Listener) *multiListener {
+	ml := &multiListener{
+		listeners: ls,
+		connCh:    make(chan net.Conn, 64),
+		done:      make(chan struct{}),
+	}
+	for _, l := range ls {
+		go ml.accept(l)
+	}
+	return ml
+}
+
+func (ml *multiListener) accept(l net.Listener) {
+	for {
+		conn, err := l.Accept()
+		if err != nil {
+			select {
+			case <-ml.done:
+				return
+			default:
+				logrus.WithError(err).Warn("multiListener accept error")
+				return
+			}
+		}
+		ml.connCh <- conn
+	}
+}
+
+func (ml *multiListener) Accept() (net.Conn, error) {
+	select {
+	case conn := <-ml.connCh:
+		return conn, nil
+	case <-ml.done:
+		return nil, fmt.Errorf("listener closed")
+	}
+}
+
+func (ml *multiListener) Close() error {
+	ml.closeOnce.Do(func() {
+		close(ml.done)
+		for _, l := range ml.listeners {
+			l.Close()
+		}
+	})
+	return nil
+}
+
+func (ml *multiListener) Addr() net.Addr {
+	if len(ml.listeners) > 0 {
+		return ml.listeners[0].Addr()
+	}
+	return nil
+}
+
+func (s *Server) listenWithReuse(network, address string) (net.Listener, error) {
+	lc := net.ListenConfig{
+		Control: func(network, address string, c syscall.RawConn) error {
+			var err error
+			err2 := c.Control(func(fd uintptr) {
+				err = setReusePort(fd)
+			})
+			if err2 != nil {
+				return err2
+			}
+			return err
+		},
+	}
+	ln, err := lc.Listen(context.Background(), network, address)
+	if err != nil {
+		return nil, err
+	}
+	return &BannedListener{ln, s}, nil
+}
+
+// buildListeners returns one listener per usable network family for the given port.
+func (s *Server) buildListeners(port string) ([]net.Listener, error) {
+	host := s.Config.BindHost
+
+	if host != "" && host != "0.0.0.0" && host != "::" {
+		addr := net.JoinHostPort(host, port)
+		ln, err := s.listenWithReuse("tcp", addr)
+		if err != nil {
+			return nil, err
+		}
+		return []net.Listener{ln}, nil
+	}
+
+	addrs := []string{
+		net.JoinHostPort("0.0.0.0", port),
+		net.JoinHostPort("::", port),
+	}
+
+	var listeners []net.Listener
+	for _, addr := range addrs {
+		ln, err := s.listenWithReuse("tcp", addr)
+		if err != nil {
+			logrus.Warnf("Could not listen on %s: %v (skipping)", addr, err)
+			continue
+		}
+		listeners = append(listeners, ln)
+	}
+
+	if len(listeners) == 0 {
+		return nil, fmt.Errorf("failed to bind on any address for port %s", port)
+	}
+	return listeners, nil
+}
+
+func (s *Server) dynamicHostPolicy(ctx context.Context, host string) error {
+	for _, d := range s.Config.Domains {
+		if host == d {
+			return nil
+		}
+	}
+	return fmt.Errorf("acme/autocert: host %q not configured in 'domains'", host)
+}
+
+func (s *Server) startHTTPS(mux *http.ServeMux, addr string) error {
+	httpsAddr := net.JoinHostPort(s.Config.BindHost, s.Config.HTTPSPort)
+	if s.Config.AutoHTTPS {
+		if len(s.Config.Domains) == 0 {
+			logrus.Warn("Auto-HTTPS is enabled but no domains are configured in 'domains'. Certificates will not be issued.")
+		}
+		if s.Config.Port != "80" || s.Config.HTTPSPort != "443" {
+			logrus.Warnf("Auto-HTTPS usually requires port 80 and 443 to satisfy ACME challenges. Current ports: HTTP=%s, HTTPS=%s. Ensure you have port forwarding (80->%s, 443->%s) configured.", s.Config.Port, s.Config.HTTPSPort, s.Config.Port, s.Config.HTTPSPort)
+		}
+
+		s.certManager = &autocert.Manager{
+			Prompt:     autocert.AcceptTOS,
+			HostPolicy: s.dynamicHostPolicy,
+			Cache:      autocert.DirCache("certs"),
+			Email:      s.Config.ACMEEmail,
+		}
+		if s.Config.ACMEDirectoryURL != "" {
+			s.certManager.Client = &acme.Client{DirectoryURL: s.Config.ACMEDirectoryURL}
+		}
+	}
+
+	httpsSrv := &http.Server{
+		Addr:         httpsAddr,
+		Handler:      mux,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 0,
+		IdleTimeout:  120 * time.Second,
+	}
+	if s.certManager != nil {
+		httpsSrv.TLSConfig = s.certManager.TLSConfig()
+	}
+	s.httpServers = append(s.httpServers, httpsSrv)
+
+	httpSrv := &http.Server{
+		Addr: addr,
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == "PUT" || r.Method == "SOURCE" {
+				mux.ServeHTTP(w, r)
+				return
+			}
+			if s.certManager != nil && strings.HasPrefix(r.URL.Path, "/.well-known/acme-challenge/") {
+				logrus.WithFields(logrus.Fields{
+					"path": r.URL.Path,
+					"ip":   r.RemoteAddr,
+				}).Info("Handling ACME challenge request")
+				s.certManager.HTTPHandler(nil).ServeHTTP(w, r)
+				return
+			}
+			target := "https://" + r.Host + r.URL.Path
+			if len(r.URL.RawQuery) > 0 {
+				target += "?" + r.URL.RawQuery
+			}
+			http.Redirect(w, r, target, http.StatusMovedPermanently)
+		}),
+		ReadTimeout: 10 * time.Second,
+		IdleTimeout: 120 * time.Second,
+	}
+	s.httpServers = append(s.httpServers, httpSrv)
+
+	go func() {
+		logrus.Infof("Starting HTTP listener on %s", addr)
+		ln, err := s.listenWithReuse("tcp", addr)
+		if err != nil {
+			logrus.Fatalf("HTTP listen failed: %v", err)
+		}
+		if err := httpSrv.Serve(ln); err != nil && err != http.ErrServerClosed {
+			logrus.Fatalf("HTTP server failed: %v", err)
+		}
+	}()
+
+	logrus.Infof("Starting dual-mode HTTPS/HTTP server on %s", httpsAddr)
+	rawLn, err := s.listenWithReuse("tcp", httpsAddr)
+	if err != nil {
+		return err
+	}
+
+	sniffer := &protocolSniffer{
+		Listener: rawLn,
+		tlsChan:  make(chan net.Conn, 4096),
+		httpChan: make(chan net.Conn, 4096),
+	}
+	go sniffer.sniff()
+
+	tlsLn := &chanListener{addr: rawLn.Addr(), ch: sniffer.tlsChan}
+	plainLn := &chanListener{addr: rawLn.Addr(), ch: sniffer.httpChan}
+
+	go func() {
+		if err := httpSrv.Serve(plainLn); err != nil && err != http.ErrServerClosed {
+			logrus.Errorf("Sniffed HTTP server failed: %v", err)
+		}
+	}()
+
+	if s.certManager != nil {
+		return httpsSrv.ServeTLS(tlsLn, "", "")
+	}
+	return httpsSrv.ServeTLS(tlsLn, s.Config.CertFile, s.Config.KeyFile)
+}
