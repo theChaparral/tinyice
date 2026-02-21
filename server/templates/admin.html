@@ -69,7 +69,7 @@
         .bottom-stats-bar { position: fixed; bottom: 0; right: 0; left: 240px; background: rgba(22, 27, 44, 0.7); backdrop-filter: blur(16px); border-top: 1px solid var(--border); padding: 0.5rem 1.5rem; display: flex; align-items: center; justify-content: space-between; z-index: 900; transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); height: 40px; }
         .bottom-stats-bar.collapsed { transform: translateY(40px); }
         .stats-items { display: flex; gap: 1.5rem; align-items: center; overflow-x: auto; flex: 1; }
-        .stats-item { display: flex; align-items: center; gap: 0.4rem; font-size: 0.75rem; color: var(--text-dim); white-space: nowrap; }
+        .stats-item { display: flex; align-items: center; gap: 0.4rem; font-size: 0.75rem; color: var(--text-dim); white-space: nowrap; min-width: 100px; }
         .stats-item strong { color: var(--primary); font-weight: 700; }
         .stats-toggle-tongue { position: absolute; top: -24px; right: 2rem; background: rgba(22, 27, 44, 0.7); backdrop-filter: blur(16px); border: 1px solid var(--border); border-bottom: none; padding: 4px 12px; border-radius: 8px 8px 0 0; cursor: pointer; color: var(--text-dim); display: flex; align-items: center; justify-content: center; height: 24px; box-sizing: border-box; }
         .stats-toggle-tongue:hover { color: var(--text); background: var(--surface-hover); }
@@ -574,36 +574,36 @@
 
             <!-- Fixed Bottom Stats Bar -->
             <div class="bottom-stats-bar" id="bottom-stats-bar">
-                <div class="stats-toggle-tongue" onclick="toggleStatsBar()">
+                <div class="stats-toggle-tongue" onclick="toggleStatsBar()" title="Toggle Stats Bar">
                     <i data-lucide="chevron-down" id="stats-toggle-icon" style="width: 16px; height: 16px;"></i>
                 </div>
                 <div class="stats-items">
-                    <div class="stats-item">
-                        <i data-lucide="users" style="width: 14px; height: 14px;"></i>
+                    <div class="stats-item" style="min-width: 110px;">
+                        <i data-lucide="users" style="width: 14px; height: 14px;" title="Current Listeners"></i>
                         <span>Listeners: <strong id="global-listeners">0</strong></span>
                     </div>
-                    <div class="stats-item">
-                        <i data-lucide="tower-control" style="width: 14px; height: 14px;"></i>
+                    <div class="stats-item" style="min-width: 160px;">
+                        <i data-lucide="tower-control" style="width: 14px; height: 14px;" title="Active Broadcasting Sources"></i>
                         <span>Sources: <strong id="global-sources">0</strong></span>
                         <span style="font-size: 0.7rem; opacity: 0.7;">(<span id="stat-streamers" style="color: var(--success)">0</span> / <span id="stat-relays" style="color: var(--warning)">0</span>)</span>
                     </div>
-                    <div class="stats-item">
-                        <i data-lucide="arrow-down-circle" style="width: 14px; height: 14px; color: var(--success);"></i>
+                    <div class="stats-item" style="min-width: 100px;">
+                        <i data-lucide="arrow-down-circle" style="width: 14px; height: 14px; color: var(--success);" title="Total Data Received"></i>
                         <span>In: <strong id="global-mb-in">0.00</strong> MB</span>
                     </div>
-                    <div class="stats-item">
-                        <i data-lucide="arrow-up-circle" style="width: 14px; height: 14px; color: var(--primary);"></i>
+                    <div class="stats-item" style="min-width: 100px;">
+                        <i data-lucide="arrow-up-circle" style="width: 14px; height: 14px; color: var(--primary);" title="Total Data Sent"></i>
                         <span>Out: <strong id="global-mb-out">0.00</strong> MB</span>
                     </div>
 
                     <!-- Debug Stats (only visible in ?debug mode) -->
                     <div class="debug-items" id="debug-stats-bar" style="display: none;">
-                        <div class="stats-item" title="System RAM"><i data-lucide="cpu"></i> <span id="debug-ram">0 B</span></div>
-                        <div class="stats-item" title="Heap Alloc"><i data-lucide="database"></i> <span id="debug-heap">0 B</span></div>
-                        <div class="stats-item" title="Goroutines"><i data-lucide="layers"></i> <span id="debug-goroutines">0</span></div>
-                        <div class="stats-item" title="GC Cycles"><i data-lucide="refresh-cw"></i> <span id="debug-gc">0</span></div>
-                        <div class="stats-item" title="Total Dropped"><i data-lucide="trash"></i> <span id="debug-loss">0 B</span></div>
-                        <div class="stats-item" title="Uptime"><i data-lucide="clock"></i> <span id="debug-uptime">0s</span></div>
+                        <div class="stats-item" style="min-width: 80px;"><i data-lucide="cpu" title="System RAM Usage"></i> <span id="debug-ram">0 B</span></div>
+                        <div class="stats-item" style="min-width: 80px;"><i data-lucide="database" title="Heap Memory Allocation"></i> <span id="debug-heap">0 B</span></div>
+                        <div class="stats-item" style="min-width: 70px;"><i data-lucide="layers" title="Active Goroutines"></i> <span id="debug-goroutines">0</span></div>
+                        <div class="stats-item" style="min-width: 70px;"><i data-lucide="refresh-cw" title="Garbage Collection Cycles"></i> <span id="debug-gc">0</span></div>
+                        <div class="stats-item" style="min-width: 90px;"><i data-lucide="trash" title="Total Dropped Bytes"></i> <span id="debug-loss">0 B</span></div>
+                        <div class="stats-item" style="min-width: 80px;"><i data-lucide="clock" title="Server Uptime"></i> <span id="debug-uptime">0s</span></div>
                     </div>
                 </div>
             </div>
