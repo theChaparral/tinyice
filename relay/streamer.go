@@ -218,16 +218,23 @@ func (s *Streamer) fetchTitleAndCache(path string) {
 		title := filepath.Base(path)
 		
 		// Use id3v2 for extraction (Pure Go, no CGO/iconv)
-		if tag, err := id3v2.Open(path, id3v2.Options{Parse: true}); err == nil {
+		logrus.Debugf("fetchTitleAndCache: Opening %s for ID3v2 parsing...", path)
+		tag, err := id3v2.Open(path, id3v2.Options{Parse: true})
+		if err != nil {
+			logrus.WithError(err).Warnf("fetchTitleAndCache: Failed to open %s for id3v2 parsing", path)
+		} else {
 			defer tag.Close()
 			artist := strings.TrimSpace(tag.Artist())
 			song := strings.TrimSpace(tag.Title())
 			
+			logrus.Debugf("fetchTitleAndCache: Raw tags for %s: artist=[%s] title=[%s]", path, artist, song)
+
 			if artist != "" && song != "" {
 				title = fmt.Sprintf("%s - %s", artist, song)
 			} else if song != "" {
 				title = song
 			}
+			logrus.Debugf("fetchTitleAndCache: Final title for %s set to: %s", path, title)
 		}
 
 		s.mu.Lock()
