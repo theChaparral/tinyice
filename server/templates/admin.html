@@ -66,14 +66,15 @@
         .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); backdrop-filter: blur(4px); }
         .modal-content { background: var(--surface); margin: 5% auto; padding: 2rem; border: 1px solid var(--border); border-radius: 16px; width: 500px; max-width: 90%; }
         
-        .bottom-stats-bar { position: fixed; bottom: 0; right: 0; left: 240px; background: rgba(22, 27, 44, 0.7); backdrop-filter: blur(16px); border-top: 1px solid var(--border); padding: 0.5rem 1.5rem; display: flex; align-items: center; justify-content: space-between; z-index: 900; transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); height: 40px; }
+        .bottom-stats-bar { position: fixed; bottom: 0; right: 0; left: 240px; background: rgba(22, 27, 44, 0.7); backdrop-filter: blur(16px); border-top: 1px solid var(--border); padding: 0.5rem 1.5rem; display: flex; align-items: center; z-index: 900; transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); height: 40px; box-sizing: border-box; }
         .bottom-stats-bar.collapsed { transform: translateY(40px); }
-        .stats-items { display: flex; gap: 1.5rem; align-items: center; overflow-x: auto; flex: 1; }
+        .stats-items { display: flex; gap: 1.5rem; align-items: center; flex-shrink: 0; }
         .stats-item { display: flex; align-items: center; gap: 0.4rem; font-size: 0.75rem; color: var(--text-dim); white-space: nowrap; }
         .stats-item strong, .stats-item span[id^="debug-"] { font-family: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, monospace; color: var(--primary); font-weight: 700; display: inline-block; text-align: left; }
+        .stats-spacer { flex: 1; }
         .stats-toggle-tongue { position: absolute; top: -24px; right: 2rem; background: rgba(22, 27, 44, 0.7); backdrop-filter: blur(16px); border: 1px solid var(--border); border-bottom: none; padding: 4px 12px; border-radius: 8px 8px 0 0; cursor: pointer; color: var(--text-dim); display: flex; align-items: center; justify-content: center; height: 24px; box-sizing: border-box; }
         .stats-toggle-tongue:hover { color: var(--text); background: var(--surface-hover); }
-        .debug-items { display: flex; gap: 1rem; margin-left: 1.5rem; border-left: 1px solid var(--border); padding-left: 1.5rem; }
+        .debug-items { display: flex; gap: 1rem; margin-left: 1.5rem; border-left: 1px solid var(--border); padding-left: 1.5rem; align-items: center; }
     </style>
 </head>
 <body>
@@ -606,6 +607,7 @@
                         <div class="stats-item"><i data-lucide="clock" title="Server Uptime"></i> <span id="debug-uptime" style="width: 80px;">0s</span></div>
                     </div>
                 </div>
+                <div class="stats-spacer"></div>
             </div>
         </main>
     </div>
@@ -1126,7 +1128,7 @@
             var gMbIn = document.getElementById('global-mb-in'); var gMbOut = document.getElementById('global-mb-out');
             var gStreamers = document.getElementById('stat-streamers'); var gRelays = document.getElementById('stat-relays');
             var debugRam = document.getElementById('debug-ram'); var debugGoroutines = document.getElementById('debug-goroutines');
-            var debugHeap = document.getElementById('debug-heap'); var debugStack = document.getElementById('debug-stack');
+            var debugHeap = document.getElementById('debug-heap');
             var debugGC = document.getElementById('debug-gc'); var debugLoss = document.getElementById('debug-loss');
             var debugUptime = document.getElementById('debug-uptime');
             var isDebug = window.location.search.indexOf('debug') !== -1;
@@ -1164,7 +1166,6 @@
                                                 if (debugRam) {
                                                     debugRam.innerText = formatBytes(data.sys_ram);
                                                     debugHeap.innerText = formatBytes(data.heap_alloc);
-                                                    debugStack.innerText = formatBytes(data.stack_sys);
                                                     debugGC.innerText = data.num_gc;
                                                     debugGoroutines.innerText = data.goroutines;
                                                     debugLoss.innerText = formatBytes(data.total_dropped);
