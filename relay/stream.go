@@ -7,38 +7,78 @@ import (
 	"time"
 )
 
-// Stream represents a single mount point (e.g., /stream)
+// Stream represents a single mount point (e.g., /stream, /live, /radio).
+//
+// A Stream is the fundamental unit of audio distribution in TinyIce. Each stream:
+//   - Has its own circular buffer for audio data
+//   - Manages multiple concurrent listeners
+//   - Tracks statistics and metadata
+//   - Supports different audio formats (MP3, Ogg/Opus, etc.)
+//
+// Lifecycle:
+//   - Created when a source connects or via admin interface
+//   - Buffer accumulates audio data from the source
+//   - Listeners subscribe and receive data from the buffer
+//   - Destroyed when source disconnects (or manually removed)
+//
+// Thread Safety:
+//   - All fields are protected by the mu RWMutex
+//   - Atomic operations are used for performance-critical counters
+//   - Safe for concurrent access from multiple goroutines
+//
+// Performance Considerations:
+//   - Each stream has a 2MB circular buffer by default
+//   - Listener signal channels are buffered (size 1) to prevent blocking
+//   - Ogg page tracking enables proper synchronization for Opus streams
+//
+// Example Usage:
+//   stream := relay.GetOrCreateStream("/live")
+//   stream.Broadcast(audioData, relayInstance)
+//   offset, signal := stream.Subscribe("listener-id", 32*1024)
 type Stream struct {
-	MountName    string
-	ContentType  string
-	Description  string
-	Genre        string
-	URL          string
-	Name         string
-	Bitrate      string
-	Started      time.Time
-	SourceIP     string
-	Enabled      bool
-	BytesIn      int64
-	BytesOut     int64
-	BytesDropped int64 // Track total bytes dropped due to slow listeners
-	CurrentSong  string
-	Public       bool
-	Visible      bool
+	// Basic stream information
+	MountName   string    // Mount point path (e.g., "/stream", "/live")
+	ContentType string    // MIME type (e.g., "audio/mpeg", "audio/ogg")
+	Description string    // Stream description for directory listings
+	Genre       string    // Music genre
+	URL         string     // Associated website URL
+	Name        string     // Display name
+	Bitrate     string     // Bitrate in kbps (e.g., "128", "192")
+	
+	// Timing and source information
+	Started           time.Time // When the stream was created
+	SourceIP          string    // IP address of the source client
+	LastDataReceived  time.Time // Last time data was received from source
+	
+	// Stream state and visibility
+	Enabled      bool // Whether the stream is accepting connections
+	Public       bool // Whether to advertise in public directories
+	Visible      bool // Whether to show in admin UI
 	IsTranscoded bool // True if this stream is an output of a transcoder
-	IsOggStream  bool // Pre-calculated for speed
-
-	LastDataReceived time.Time
-
+	
+	// Format-specific optimizations
+	IsOggStream bool // Pre-calculated for speed (true for Ogg/Opus streams)
+	
+	// Audio data and listener management
+	CurrentSong string // Currently playing song title
+	
+	// Statistics (atomic for performance)
+	BytesIn      int64 // Total bytes received from source
+	BytesOut     int64 // Total bytes sent to listeners
+	BytesDropped int64 // Track total bytes dropped due to slow listeners
+	
+	// Ogg/Opus specific state for proper synchronization
+	// These fields enable new listeners to start at proper page boundaries
 	OggHead         []byte  // Store Ogg headers for Opus/Ogg streams
 	OggHeaderOffset int64   // Absolute buffer offset where headers end
 	LastPageOffset  int64   // Absolute offset of the last valid Ogg page start
 	PageOffsets     []int64 // Circular list of last ~100 page starts
-	PageIndex       int
-
-	Buffer    *CircularBuffer
-	listeners map[string]chan struct{} // Signal channel for new data
-	mu        sync.RWMutex
+	PageIndex       int     // Index for managing PageOffsets circular list
+	
+	// Core streaming infrastructure
+	Buffer    *CircularBuffer      // Audio data buffer (typically 2MB)
+	listeners map[string]chan struct{} // Signal channels for connected listeners
+	mu        sync.RWMutex          // Mutex protecting all fields
 }
 
 
