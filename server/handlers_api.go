@@ -41,18 +41,18 @@ type relayEventInfo struct {
 }
 
 type streamerEventInfo struct {
-	Name         string   `json:"name"`
-	Mount        string   `json:"mount"`
-	State        int      `json:"state"`
-	CurrentSong  string   `json:"song"`
-	StartTime    int64    `json:"start_time"`
-	Duration     float64  `json:"duration"`
-	PlaylistPos  int      `json:"playlist_pos"`
-	PlaylistLen  int      `json:"playlist_len"`
-	Shuffle      bool     `json:"shuffle"`
-	Loop         bool     `json:"loop"`
-	Queue        []relay.PlaylistItem `json:"queue"`
-	Playlist     []relay.PlaylistItem `json:"playlist"`
+	Name        string               `json:"name"`
+	Mount       string               `json:"mount"`
+	State       int                  `json:"state"`
+	CurrentSong string               `json:"song"`
+	StartTime   int64                `json:"start_time"`
+	Duration    float64              `json:"duration"`
+	PlaylistPos int                  `json:"playlist_pos"`
+	PlaylistLen int                  `json:"playlist_len"`
+	Shuffle     bool                 `json:"shuffle"`
+	Loop        bool                 `json:"loop"`
+	Queue       []relay.PlaylistItem `json:"queue"`
+	Playlist    []relay.PlaylistItem `json:"playlist"`
 }
 
 func (s *Server) collectStatsPayload(user *config.User) ([]byte, error) {

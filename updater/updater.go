@@ -19,8 +19,8 @@ type Swapper interface {
 }
 
 type Updater struct {
-	config  *config.Config
-	swapper Swapper
+	config   *config.Config
+	swapper  Swapper
 	lastHash string
 }
 

@@ -25,19 +25,43 @@ var templateFS embed.FS
 //go:embed all:assets
 var assetFS embed.FS
 
+// Server is the main HTTP server and application coordinator for TinyIce.
+//
+// The Server handles all HTTP requests, manages WebSocket connections, serves
+// the web interface, and coordinates between the various subsystems (relay,
+// transcoders, streamers, etc.).
+//
+// Key responsibilities:
+//   - HTTP request routing and handling
+//   - Web interface rendering (templates, assets)
+//   - WebSocket connections for real-time updates
+//   - Source client authentication and authorization
+//   - Listener connection management
+//   - Admin interface and API endpoints
+//
+// Lifecycle:
+//   - Created with NewServer()
+//   - Configured with routes and middleware
+//   - Started with Start()
+//   - Stopped gracefully with Stop()
+//
+// Thread Safety:
+// The Server is designed to be thread-safe. HTTP handlers are called from
+// multiple goroutines concurrently, so all handler methods must be safe
+// for concurrent access.
 type Server struct {
-	Config      *config.Config
-	Relay       *relay.Relay
-	RelayM      *relay.RelayManager
-	TranscoderM *relay.TranscoderManager
-	WebRTCM     *relay.WebRTCManager
-	StreamerM   *relay.StreamerManager
-	mpdServer   *relay.MPDServer
-	tmpl        *template.Template
-	Version     string
-	Commit      string
-	httpServers []*http.Server
-	startTime   time.Time
+	Config      *config.Config           // Application configuration
+	Relay       *relay.Relay             // Core relay/streaming engine
+	RelayM      *relay.RelayManager      // Relay stream management
+	TranscoderM *relay.TranscoderManager // Transcoding management
+	WebRTCM     *relay.WebRTCManager     // WebRTC connection management
+	StreamerM   *relay.StreamerManager   // AutoDJ/streamer management
+	mpdServer   *relay.MPDServer         // MPD protocol server (optional)
+	tmpl        *template.Template       // HTML template for web interface
+	Version     string                   // TinyIce version
+	Commit      string                   // Git commit hash
+	httpServers []*http.Server           // Active HTTP servers
+	startTime   time.Time                // Server start time
 	AuthLog     *logrus.Logger
 
 	sessions   map[string]*session

@@ -20,7 +20,7 @@ func (s *Server) validatePathInMusicDir(musicDir, targetPath string) (string, er
 	}
 
 	rel, err := filepath.Rel(absMusicDir, absTargetPath)
-	
+
 	logrus.Debugf("PATH_VALIDATION: absMusicDir=[%s] absTargetPath=[%s] rel=[%s]", absMusicDir, absTargetPath, rel)
 
 	if err != nil {
@@ -32,7 +32,7 @@ func (s *Server) validatePathInMusicDir(musicDir, targetPath string) (string, er
 		logrus.Warnf("PATH_VALIDATION_FAILED: Traversal detected. rel=[%s]", rel)
 		return "", fmt.Errorf("security: path traversal attempt detected: %s", targetPath)
 	}
-	
+
 	return absTargetPath, nil
 }
 
@@ -41,9 +41,9 @@ func (s *Server) safeJoin(base, rel string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	
+
 	joined := filepath.Join(absBase, rel)
-	
+
 	validatedPath, err := s.validatePathInMusicDir(absBase, joined)
 	if err != nil {
 		return "", err
