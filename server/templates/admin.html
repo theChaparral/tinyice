@@ -481,10 +481,9 @@
                                                                                                         </form>
                                                                                                     </div>
                                                                                                 </div>
-                                                                                                <div style="height: 4px; background: var(--bg); border-radius: 2px; overflow: hidden; position: relative;" class="adj-progress-box">
-                                                                                                    <div class="progress-bar-adj" data-start="{{.CurrentFileTime.Unix}}" data-duration="{{.CurrentFileDuration.Seconds}}" style="height: 100%; background: var(--primary); width: 0%; transition: width 1s linear;"></div>
-                                                                                                </div>
-                                                                                                <div style="display: flex; justify-content: space-between; margin-top: 0.4rem; font-size: 0.7rem; color: var(--text-dim); font-family: monospace;">
+                                                                                                                                        <div style="height: 4px; background: var(--bg); border-radius: 2px; overflow: hidden; position: relative;" class="adj-progress-box">
+                                                                                                                                            <div class="progress-bar-adj" data-start="{{.CurrentFileTime.Unix}}" data-duration="{{.CurrentFileDuration.Seconds}}" style="height: 100%; background: var(--primary); width: 0%; transition: none;"></div>
+                                                                                                                                        </div>                                                                                                <div style="display: flex; justify-content: space-between; margin-top: 0.4rem; font-size: 0.7rem; color: var(--text-dim); font-family: monospace;">
                                                                                                     <span class="progress-time-current">00:00</span>
                                                                                                     <div style="font-size: 0.7rem; color: var(--primary); font-family: monospace;">
                                                                                                         Playlist: <span class="adj-pos">{{.CurrentPos}}</span> / <span class="adj-len">{{len .Playlist}}</span>
@@ -1351,16 +1350,8 @@
                             if (adjDetails) adjDetails.style.display = 'block';
                             if (songTitle) songTitle.textContent = st.song || 'Preparing...';
                             if (progressBar) {
-                                if (progressBar.dataset.start != st.start_time) {
-                                    progressBar.style.transition = 'none';
-                                    progressBar.style.width = '0%';
-                                    progressBar.dataset.start = st.start_time;
-                                    progressBar.dataset.duration = st.duration;
-                                    progressBar.offsetHeight; // Force reflow
-                                    progressBar.style.transition = 'width 1s linear';
-                                } else {
-                                    progressBar.dataset.duration = st.duration;
-                                }
+                                progressBar.dataset.start = st.start_time;
+                                progressBar.dataset.duration = st.duration;
                             }
                         } else {
                             statusPill.classList.add('inactive');
