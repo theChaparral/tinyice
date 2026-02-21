@@ -132,7 +132,7 @@
             <a href="/admin#tab-streamer" class="studio-logo">
                 <i data-lucide="chevron-left" style="width: 20px; color: var(--text-dim);"></i>
                 <img src="/assets/logo.png" alt="TinyIce">
-                <span>STUDIO <span style="font-size: 0.6rem; color: var(--text-dim); margin-left: 0.2rem; font-weight: 400;">{{.Version}}</span></span>
+                <span>STUDIO <a href="https://github.com/DatanoiseTV/tinyice/{{if .Commit}}commit/{{.Commit}}{{else}}releases/latest{{end}}" target="_blank" style="font-size: 0.6rem; color: var(--text-dim); margin-left: 0.2rem; font-weight: 400; text-decoration: none;">{{.Version}}</a></span>
             </a>
             <div class="mount-badge">{{.Streamer.Mount}}</div>
         </div>

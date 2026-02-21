@@ -72,6 +72,7 @@ type Server struct {
 	mpdServer   *relay.MPDServer
 	tmpl        *template.Template
 	Version     string
+	Commit      string
 	httpServers []*http.Server
 	startTime   time.Time
 	AuthLog     *logrus.Logger
@@ -189,7 +190,7 @@ func (p *protocolSniffer) sniff() {
 	}
 }
 
-func NewServer(cfg *config.Config, authLog *logrus.Logger, version string) *Server {
+func NewServer(cfg *config.Config, authLog *logrus.Logger, version, commit string) *Server {
 	tmpl := template.New("base")
 	tmpl, err := tmpl.ParseFS(templateFS, "templates/*.html")
 	if err != nil {
@@ -211,6 +212,7 @@ func NewServer(cfg *config.Config, authLog *logrus.Logger, version string) *Serv
 		StreamerM:    relay.NewStreamerManager(r, cfg),
 		tmpl:         tmpl,
 		Version:      version,
+		Commit:       commit,
 		startTime:    time.Now(),
 		AuthLog:      authLog,
 		sessions:     make(map[string]*session),
@@ -1591,6 +1593,7 @@ func (s *Server) handleAdmin(w http.ResponseWriter, r *http.Request) {
 		"CSRFToken":      csrf,
 		"Streamers":      s.StreamerM.GetStreamers(),
 		"Version":        s.Version,
+		"Commit":         s.Commit,
 	}
 	if err := s.tmpl.ExecuteTemplate(w, "admin.html", data); err != nil {
 		if !strings.Contains(err.Error(), "broken pipe") {
@@ -2907,6 +2910,7 @@ func (s *Server) handleAutoDJStudio(w http.ResponseWriter, r *http.Request) {
 		"Config":    s.Config,
 		"User":      user,
 		"Version":   s.Version,
+		"Commit":    s.Commit,
 	}
 
 	w.Header().Set("Content-Type", "text/html")

@@ -23,6 +23,7 @@ import (
 
 var (
 	Version = "dev"
+	Commit  = "unknown"
 
 	configPath  = flag.String("config", "tinyice.json", "Path to configuration file")
 	bindHost    = flag.String("host", "0.0.0.0", "Network interface to bind to")
@@ -106,11 +107,15 @@ func main() {
 	}
 	flag.Parse()
 
-	// Try to get version from build info if not set via ldflags
-	if Version == "dev" {
-		if info, ok := debug.ReadBuildInfo(); ok {
-			if info.Main.Version != "" && info.Main.Version != "(devel)" {
-				Version = info.Main.Version
+	// Try to get version and commit from build info if not set via ldflags
+	if info, ok := debug.ReadBuildInfo(); ok {
+		if Version == "dev" && info.Main.Version != "" && info.Main.Version != "(devel)" {
+			Version = info.Main.Version
+		}
+		for _, setting := range info.Settings {
+			if setting.Key == "vcs.revision" {
+				Commit = setting.Value
+				break
 			}
 		}
 	}
@@ -162,7 +167,7 @@ func main() {
 		cfg.AutoUpdate = true
 	}
 
-	srv := server.NewServer(cfg, authLogger, Version)
+	srv := server.NewServer(cfg, authLogger, Version, Commit)
 
 	// Start Updater if enabled
 	if cfg.AutoUpdate {
