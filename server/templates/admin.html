@@ -66,13 +66,14 @@
         .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); backdrop-filter: blur(4px); }
         .modal-content { background: var(--surface); margin: 5% auto; padding: 2rem; border: 1px solid var(--border); border-radius: 16px; width: 500px; max-width: 90%; }
         
-        .bottom-stats-bar { position: fixed; bottom: 0; right: 0; left: 240px; background: rgba(22, 27, 44, 0.9); backdrop-filter: blur(12px); border-top: 1px solid var(--border); padding: 0.5rem 1.5rem; display: flex; align-items: center; justify-content: space-between; z-index: 900; transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); height: 40px; }
-        .bottom-stats-bar.collapsed { transform: translateY(32px); }
-        .stats-items { display: flex; gap: 2rem; align-items: center; }
-        .stats-item { display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; color: var(--text-dim); }
+        .bottom-stats-bar { position: fixed; bottom: 0; right: 0; left: 240px; background: rgba(22, 27, 44, 0.7); backdrop-filter: blur(16px); border-top: 1px solid var(--border); padding: 0.5rem 1.5rem; display: flex; align-items: center; justify-content: space-between; z-index: 900; transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); height: 40px; }
+        .bottom-stats-bar.collapsed { transform: translateY(40px); }
+        .stats-items { display: flex; gap: 1.5rem; align-items: center; overflow-x: auto; flex: 1; }
+        .stats-item { display: flex; align-items: center; gap: 0.4rem; font-size: 0.75rem; color: var(--text-dim); white-space: nowrap; }
         .stats-item strong { color: var(--primary); font-weight: 700; }
-        .stats-toggle { cursor: pointer; color: var(--text-dim); display: flex; align-items: center; padding: 4px; border-radius: 4px; }
-        .stats-toggle:hover { background: var(--surface-hover); color: var(--text); }
+        .stats-toggle-tongue { position: absolute; top: -24px; right: 2rem; background: rgba(22, 27, 44, 0.7); backdrop-filter: blur(16px); border: 1px solid var(--border); border-bottom: none; padding: 4px 12px; border-radius: 8px 8px 0 0; cursor: pointer; color: var(--text-dim); display: flex; align-items: center; justify-content: center; height: 24px; box-sizing: border-box; }
+        .stats-toggle-tongue:hover { color: var(--text); background: var(--surface-hover); }
+        .debug-items { display: flex; gap: 1rem; margin-left: 1.5rem; border-left: 1px solid var(--border); padding-left: 1.5rem; }
     </style>
 </head>
 <body>
@@ -573,6 +574,9 @@
 
             <!-- Fixed Bottom Stats Bar -->
             <div class="bottom-stats-bar" id="bottom-stats-bar">
+                <div class="stats-toggle-tongue" onclick="toggleStatsBar()">
+                    <i data-lucide="chevron-down" id="stats-toggle-icon" style="width: 16px; height: 16px;"></i>
+                </div>
                 <div class="stats-items">
                     <div class="stats-item">
                         <i data-lucide="users" style="width: 14px; height: 14px;"></i>
@@ -591,9 +595,16 @@
                         <i data-lucide="arrow-up-circle" style="width: 14px; height: 14px; color: var(--primary);"></i>
                         <span>Out: <strong id="global-mb-out">0.00</strong> MB</span>
                     </div>
-                </div>
-                <div class="stats-toggle" onclick="toggleStatsBar()">
-                    <i data-lucide="chevron-down" id="stats-toggle-icon" style="width: 16px; height: 16px;"></i>
+
+                    <!-- Debug Stats (only visible in ?debug mode) -->
+                    <div class="debug-items" id="debug-stats-bar" style="display: none;">
+                        <div class="stats-item" title="System RAM"><i data-lucide="cpu"></i> <span id="debug-ram">0 B</span></div>
+                        <div class="stats-item" title="Heap Alloc"><i data-lucide="database"></i> <span id="debug-heap">0 B</span></div>
+                        <div class="stats-item" title="Goroutines"><i data-lucide="layers"></i> <span id="debug-goroutines">0</span></div>
+                        <div class="stats-item" title="GC Cycles"><i data-lucide="refresh-cw"></i> <span id="debug-gc">0</span></div>
+                        <div class="stats-item" title="Total Dropped"><i data-lucide="trash"></i> <span id="debug-loss">0 B</span></div>
+                        <div class="stats-item" title="Uptime"><i data-lucide="clock"></i> <span id="debug-uptime">0s</span></div>
+                    </div>
                 </div>
             </div>
         </main>
@@ -1119,7 +1130,10 @@
             var debugGC = document.getElementById('debug-gc'); var debugLoss = document.getElementById('debug-loss');
             var debugUptime = document.getElementById('debug-uptime');
             var isDebug = window.location.search.indexOf('debug') !== -1;
-            if (isDebug) document.getElementById('debug-stats').style.display = 'block';
+            if (isDebug) {
+                const debugBar = document.getElementById('debug-stats-bar');
+                if (debugBar) debugBar.style.display = 'flex';
+            }
 
             function resize() { var rect = canvas.getBoundingClientRect(); canvas.width = rect.width * 2; canvas.height = rect.height * 2; ctx.scale(2, 2); }
             window.addEventListener('resize', resize); resize();
