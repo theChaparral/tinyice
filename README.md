@@ -65,19 +65,99 @@ Traditional streaming servers can be complex to configure and resource-heavy. Ti
 
 ## Getting Started
 
-### 1. Build
+### 1. Install (Pre-built Binary)
+
+You can download the latest pre-built binary for your system directly from GitHub releases.
+
+**a. Identify your System:**
+  - **OS:** `linux`, `darwin` (macOS), `freebsd`
+  - **Architecture:** `amd64`, `arm64`
+
+**b. Find the Latest Release URL:**
+  You can find the latest release information and download URLs using the GitHub API:
+  ```bash
+  curl -s https://api.github.com/repos/DatanoiseTV/tinyice/releases/latest | grep "browser_download_url"
+  ```
+  Look for a URL matching `tinyice-<your-os>-<your-arch>`.
+
+**c. Download the Binary and Checksums:**
+  Replace `<YOUR_OS>` and `<YOUR_ARCH>` with your system's details (e.g., `tinyice-linux-amd64`).
+  ```bash
+  # Download the binary
+  curl -LJO "https://github.com/DatanoiseTV/tinyice/releases/latest/download/tinyice-<YOUR_OS>-<YOUR_ARCH>"
+  # Download the checksums file
+  curl -LJO "https://github.com/DatanoiseTV/tinyice/releases/latest/download/checksums.txt"
+  ```
+  *Alternatively, you can use `wget`:*
+  ```bash
+  # Download the binary
+  wget "https://github.com/DatanoiseTV/tinyice/releases/latest/download/tinyice-<YOUR_OS>-<YOUR_ARCH>"
+  # Download the checksums file
+  wget "https://github.com/DatanoiseTV/tinyice/releases/latest/download/checksums.txt"
+  ```
+
+**d. Verify the Binary (Important!):**
+  Ensure the downloaded binary is authentic and untampered by verifying its SHA256 checksum.
+  ```bash
+  # For Linux/BSD
+  sha256sum tinyice-<YOUR_OS>-<YOUR_ARCH>
+  # For macOS
+  shasum -a 256 tinyice-<YOUR_OS>-<YOUR_ARCH>
+  ```
+  Compare the output with the corresponding entry in `checksums.txt`. If they don't match, **DO NOT RUN THE BINARY**.
+
+**e. Make Executable and Install (Optional):**
+  Move the binary to a location in your system's `PATH` and make it executable.
+  *For user-specific installation (recommended for most users, no sudo required):*
+  ```bash
+  mkdir -p ~/.local/bin
+  mv tinyice-<YOUR_OS>-<YOUR_ARCH> ~/.local/bin/tinyice
+  chmod +x ~/.local/bin/tinyice
+  # Ensure ~/.local/bin is in your PATH. Add the following to your shell's config (e.g., ~/.bashrc, ~/.zshrc):
+  # export PATH="$HOME/.local/bin:$PATH"
+  ```
+  *For system-wide installation (requires sudo):*
+  ```bash
+  sudo mv tinyice-<YOUR_OS>-<YOUR_ARCH> /usr/local/bin/tinyice
+  sudo chmod +x /usr/local/bin/tinyice
+  ```
+
+### 2. Build from Source (Optional)
+
 Requires Go 1.21 or later.
 ```bash
 go build -o tinyice
 ```
+After building, you can proceed to the "3. First Run & Password Generation" step.
 
-### 2. Run
+### 3. First Run & Password Generation
+
+On its **first run**, TinyIce will automatically generate a configuration file (`tinyice.json`) and unique, secure credentials (Admin, Source, Live Mount passwords).
+
+**It is CRITICAL that you save these passwords from your terminal output!**
+
 ```bash
+# If installed user-specific, assuming ~/.local/bin is in your PATH
+tinyice
+
+# If installed system-wide
+tinyice
+
+# If running from the current directory after 'go build'
 ./tinyice
 ```
-On the **first run**, TinyIce will generate `tinyice.json` with unique random passwords. **Save them from the terminal!**
+TinyIce will print messages like:
+```
+  FIRST RUN: SECURE CREDENTIALS GENERATED
+  Admin Password:  your_admin_password_here
+  Default Source Password: your_source_password_here
+  Live Mount Password:   your_livemount_password_here
+Note: To reset all credentials, run: rm tinyice.json && ./tinyice
+```
+**Make sure to copy and securely store these generated passwords.** The `tinyice.json` file will be created in the current working directory from where you run `tinyice`, or in the directory specified by the `-config` flag.
 
-### 3. Stream
+### 4. Stream
+
 Point your encoder (e.g., BUTT) to:
 -   **Server Type**: Icecast 2
 -   **Address**: your-server-ip
