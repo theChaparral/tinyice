@@ -656,6 +656,14 @@
                         <div class="stats-item"><i data-lucide="refresh-cw" title="Garbage Collection Cycles"></i> <span id="debug-gc" style="width: 40px;">0</span></div>
                         <div class="stats-item"><i data-lucide="trash" title="Total Dropped Bytes"></i> <span id="debug-loss" style="width: 80px;">0 B</span></div>
                         <div class="stats-item"><i data-lucide="clock" title="Server Uptime"></i> <span id="debug-uptime" style="width: 80px;">0s</span></div>
+                        <div class="stats-item" style="border-left: 1px solid var(--border); padding-left: 1rem; margin-left: 0.5rem;">
+                            <form action="/admin/hotswap" method="POST" onsubmit="if(confirm('Perform Hot Swap?')) return submitForm(event, false)" style="margin:0;">
+                                <input type="hidden" name="csrf" value="{{$.CSRFToken}}">
+                                <button type="submit" class="btn btn-outline btn-sm" style="padding: 2px 8px; border-color: var(--primary-glow); color: var(--primary);" title="Zero-Downtime Hot Swap">
+                                    <i data-lucide="refresh-cw" style="width: 12px; height: 12px; margin-right: 4px;"></i> HOT SWAP
+                                </button>
+                            </form>
+                        </div>
                     </div>
                 </div>
                 <div class="stats-spacer"></div>
