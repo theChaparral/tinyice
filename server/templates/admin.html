@@ -1319,8 +1319,16 @@
                             if (adjDetails) adjDetails.style.display = 'block';
                             if (songTitle) songTitle.textContent = st.song || 'Preparing...';
                             if (progressBar) {
-                                progressBar.dataset.start = st.start_time;
-                                progressBar.dataset.duration = st.duration;
+                                if (progressBar.dataset.start != st.start_time) {
+                                    progressBar.style.transition = 'none';
+                                    progressBar.style.width = '0%';
+                                    progressBar.dataset.start = st.start_time;
+                                    progressBar.dataset.duration = st.duration;
+                                    progressBar.offsetHeight; // Force reflow
+                                    progressBar.style.transition = 'width 1s linear';
+                                } else {
+                                    progressBar.dataset.duration = st.duration;
+                                }
                             }
                         } else {
                             statusPill.classList.add('inactive');

@@ -1,9 +1,7 @@
 [playlist]
-NumberOfEntries=3
+NumberOfEntries=2
 File1=/Users/syso/dev/tinyice/music/a_d.mp3
 Title1=a_d.mp3
-File2=/Users/syso/dev/tinyice/music/Lexyyysy42l.mp3
-Title2=Lexyyysy42l.mp3
-File3=/Users/syso/dev/tinyice/music/disco.mp3
-Title3=disco.mp3
+File2=/Users/syso/dev/tinyice/music/disco.mp3
+Title2=disco.mp3
 Version=2
