@@ -45,12 +45,19 @@ tinyice/
 ├── main.go                 # Entry point. Flags, config loading, and Updater initialization.
 ├── config/                 # JSON configuration struct and defaults.
 ├── relay/                  # AUDIO CORE.
-│   ├── relay.go            # CircularBuffer and Stream structs.
+│   ├── buffer.go           # CircularBuffer implementation for stream data.
+│   ├── stream.go           # Stream struct and core stream operations.
+│   ├── stats.go            # Stream statistics, health monitoring, and snapshots.
+│   ├── ogg.go              # Ogg/Opus specific functionality and synchronization.
+│   ├── io.go               # Reusable I/O components (StreamWriter, StreamReader).
+│   ├── interfaces.go       # Core interfaces for better abstraction and testability.
+│   ├── relay.go            # Core Relay management and stream coordination.
 │   ├── streamer.go         # AutoDJ logic (playlist, queue, playback loop).
 │   ├── transcode.go        # Native MP3/Opus encoding logic.
 │   ├── mpd.go              # Minimal implementation of MPD protocol.
 │   ├── webrtc.go           # WebRTC PeerConnection and Source management.
-│   └── client.go           # Logic for pulling external relay streams.
+│   ├── client.go           # Logic for pulling external relay streams.
+│   └── history.go          # Historical data and statistics tracking.
 ├── server/                 # HTTP/TCP LAYER.
 │   ├── server.go           # Routes, handlers, auth, middleware.
 │   ├── socket_*.go         # OS-specific socket syscalls (SO_REUSEPORT).
