@@ -301,20 +301,24 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/admin/add-webhook", s.handleAddWebhook)
 	mux.HandleFunc("/admin/delete-webhook", s.handleDeleteWebhook)
 	mux.HandleFunc("/admin/player/toggle", s.handlePlayerToggle)
+	mux.HandleFunc("/admin/player/restart", s.handlePlayerRestart)
 	mux.HandleFunc("/admin/player/scan", s.handlePlayerScan)
 	mux.HandleFunc("/admin/player/clear-playlist", s.handlePlayerClearPlaylist)
 	mux.HandleFunc("/admin/player/save-playlist", s.handlePlayerSavePlaylist)
+	mux.HandleFunc("/admin/player/playlist-info", s.handlePlayerPlaylistInfo)
 	mux.HandleFunc("/admin/player/load-playlist", s.handlePlayerLoadPlaylist)
 	mux.HandleFunc("/admin/player/reorder", s.handlePlayerReorder)
 	mux.HandleFunc("/admin/player/queue", s.handlePlayerQueue)
 	mux.HandleFunc("/admin/player/shuffle", s.handlePlayerShuffle)
 	mux.HandleFunc("/admin/player/loop", s.handlePlayerLoop)
+	mux.HandleFunc("/admin/player/metadata", s.handlePlayerMetadata)
 	mux.HandleFunc("/admin/player/next", s.handlePlayerNext)
 	mux.HandleFunc("/admin/player/files", s.handlePlayerFiles)
 	mux.HandleFunc("/admin/player/playlist-action", s.handlePlayerPlaylistAction)
 	mux.HandleFunc("/admin/autodj/add", s.handleAddAutoDJ)
 	mux.HandleFunc("/admin/autodj/delete", s.handleDeleteAutoDJ)
 	mux.HandleFunc("/admin/autodj/toggle", s.handleToggleAutoDJ)
+	mux.HandleFunc("/admin/autodj/studio", s.handleAutoDJStudio)
 	mux.HandleFunc("/admin/autodj/update", s.handleUpdateAutoDJ)
 	mux.HandleFunc("/admin/add-relay", s.handleAddRelay)
 	mux.HandleFunc("/admin/toggle-relay", s.handleToggleRelay)
@@ -590,8 +594,10 @@ func (s *Server) safeJoin(base, rel string) (string, error) {
 		return "", err
 	}
 	
+	logrus.Debugf("safeJoin: base=%s rel=%s joined=%s relPath=%s", absBase, rel, joined, relPath)
+
 	if strings.HasPrefix(relPath, "..") || strings.HasPrefix(relPath, "/") {
-		return "", fmt.Errorf("security: path traversal attempt detected")
+		return "", fmt.Errorf("security: path traversal attempt detected: %s", relPath)
 	}
 	
 	return joined, nil
@@ -2681,13 +2687,14 @@ func (s *Server) handlePlayerQueue(w http.ResponseWriter, r *http.Request) {
 		musicDir := streamer.GetMusicDir()
 		rel, err := filepath.Rel(musicDir, path)
 		if err != nil {
+			logrus.WithError(err).Warnf("Security: Blocked queue addition: filepath.Rel failed for base=%s path=%s", musicDir, path)
 			http.Error(w, "Forbidden", http.StatusForbidden)
 			return
 		}
 
 		fullPath, err := s.safeJoin(musicDir, rel)
 		if err != nil {
-			logrus.WithError(err).Warnf("Security: Blocked queue addition of %s for mount %s", path, mount)
+			logrus.WithError(err).Warnf("Security: Blocked queue addition of %s (relative to %s) for mount %s. Full path attempted: %s", rel, musicDir, mount, fullPath)
 			http.Error(w, "Forbidden", http.StatusForbidden)
 			return
 		}
@@ -2774,6 +2781,110 @@ func (s *Server) handlePlayerLoop(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+func (s *Server) handleAutoDJStudio(w http.ResponseWriter, r *http.Request) {
+	user, ok := s.checkAuth(r)
+	if !ok {
+		return
+	}
+
+	mount := r.URL.Query().Get("mount")
+	logrus.Infof("Studio: Requested mount: %s", mount)
+	
+	streamer := s.StreamerM.GetStreamer(mount)
+	if streamer == nil {
+		logrus.Warnf("Studio: Streamer not found for mount: %s", mount)
+		http.Redirect(w, r, "/admin#tab-streamer", http.StatusSeeOther)
+		return
+	}
+
+	s.sessionsMu.RLock()
+	sess := s.sessions[user.Username]
+	csrf := ""
+	if sess != nil {
+		csrf = sess.CSRFToken
+	}
+	s.sessionsMu.RUnlock()
+
+	data := map[string]interface{}{
+		"Streamer":  streamer.GetStats(),
+		"CSRFToken": csrf,
+		"Config":    s.Config,
+		"User":      user,
+	}
+
+	w.Header().Set("Content-Type", "text/html")
+	if err := s.tmpl.ExecuteTemplate(w, "autodj_studio.html", data); err != nil {
+		logrus.WithError(err).Error("Studio template error")
+	}
+}
+
+func (s *Server) handlePlayerPlaylistInfo(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.checkAuth(r); !ok {
+		return
+	}
+
+	mount := r.URL.Query().Get("mount")
+	streamer := s.StreamerM.GetStreamer(mount)
+	if streamer == nil {
+		http.Error(w, "Streamer not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(streamer.GetPlaylistInfo())
+}
+
+func (s *Server) handlePlayerMetadata(w http.ResponseWriter, r *http.Request) {
+	if !s.isCSRFSafe(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	if _, ok := s.checkAuth(r); !ok {
+		return
+	}
+
+	mount := r.FormValue("mount")
+	streamer := s.StreamerM.GetStreamer(mount)
+	if streamer == nil {
+		http.Error(w, "Streamer not found", http.StatusNotFound)
+		return
+	}
+
+	streamer.ToggleInjectMetadata()
+	metaState := streamer.GetStats().InjectMetadata
+
+	// Persist
+	for _, adj := range s.Config.AutoDJs {
+		if adj.Mount == mount {
+			adj.InjectMetadata = metaState
+			s.Config.SaveConfig()
+			break
+		}
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) handlePlayerRestart(w http.ResponseWriter, r *http.Request) {
+	if !s.isCSRFSafe(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	if _, ok := s.checkAuth(r); !ok {
+		return
+	}
+
+	mount := r.FormValue("mount")
+	streamer := s.StreamerM.GetStreamer(mount)
+	if streamer == nil {
+		http.Error(w, "Streamer not found", http.StatusNotFound)
+		return
+	}
+
+	streamer.Restart()
+	w.WriteHeader(http.StatusOK)
+}
+
 func (s *Server) handlePlayerNext(w http.ResponseWriter, r *http.Request) {
 	if !s.isCSRFSafe(r) {
 		http.Error(w, "Forbidden", http.StatusForbidden)
@@ -2809,7 +2920,9 @@ func (s *Server) handlePlayerFiles(w http.ResponseWriter, r *http.Request) {
 	}
 
 	musicDir := streamer.GetMusicDir()
-	fullPath, err := s.safeJoin(musicDir, subDir)
+	
+	// Ensure fullPath is a valid path within musicDir
+	fullPath, err := s.validatePathInMusicDir(musicDir, filepath.Join(musicDir, subDir))
 	if err != nil {
 		logrus.WithError(err).Warnf("Security: Blocked file browser access to %s for mount %s", subDir, mount)
 		http.Error(w, "Forbidden", http.StatusForbidden)
@@ -2913,10 +3026,11 @@ func (s *Server) handlePlayerPlaylistAction(w http.ResponseWriter, r *http.Reque
 
 		fullPath, err := s.safeJoin(musicDir, rel)
 		if err != nil {
-			logrus.WithError(err).Warnf("Security: Blocked playlist addition of %s for mount %s", relPath, mount)
+			logrus.WithError(err).Warnf("Security: Blocked playlist addition of %s (relative to %s) for mount %s. Full path attempted: %s", rel, musicDir, mount, fullPath)
 			http.Error(w, "Forbidden", http.StatusForbidden)
 			return
 		}
+
 
 		logrus.Infof("AutoDJ %s: Attempting to add %s", mount, fullPath)
 

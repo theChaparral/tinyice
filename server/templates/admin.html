@@ -427,6 +427,9 @@
                                                                                                         </div>                                                            </div>
                                                                                                 <div style="display: flex; gap: 0.5rem; align-items: center;">
                                                                                                     {{$stats := .GetStats}}
+                                                                                                    <a href="/admin/autodj/studio?mount={{urlquery .OutputMount}}" class="btn btn-primary btn-sm" style="padding: 0.3rem 0.8rem; font-weight: 800; letter-spacing: 0.5px;">
+                                                                                                        <i data-lucide="layout-template" style="width: 14px; height: 14px; margin-right: 4px;"></i> STUDIO
+                                                                                                    </a>
                                                                                                     <button type="button" class="btn btn-outline btn-sm" title="Edit AutoDJ" onclick='showEditAutoDJ({ "Name": "{{$stats.Name}}", "Mount": "{{$stats.Mount}}", "MusicDir": "{{$stats.MusicDir}}", "Format": "{{.Format}}", "Bitrate": {{.Bitrate}}, "Loop": {{$stats.Loop}}, "InjectMetadata": {{$stats.InjectMetadata}}, "Visible": {{$stats.Visible}}, "MPDEnabled": {{if $stats.MPDPort}}true{{else}}false{{end}}, "MPDPort": "{{$stats.MPDPort}}", "MPDPassword": "{{$stats.MPDPassword}}" })'>
                                                                                                         <i data-lucide="edit-3" style="width: 14px; height: 14px;"></i>
                                                                                                     </button>

@@ -108,12 +108,29 @@ func (s *Streamer) ToggleLoop() {
 	s.Loop = !s.Loop
 }
 
+func (s *Streamer) ToggleInjectMetadata() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.InjectMetadata = !s.InjectMetadata
+}
+
 func (s *Streamer) Stop() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.State = StateStopped
-	if s.cancel != nil {
-		s.cancel()
+	if s.fileCancel != nil {
+		s.fileCancel()
+	}
+}
+
+func (s *Streamer) Restart() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.CurrentPos > 0 {
+		s.CurrentPos--
+	}
+	if s.fileCancel != nil {
+		s.fileCancel()
 	}
 }
 
