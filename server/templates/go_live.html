@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Go Live - TinyIce</title>
+    <script src="/assets/js/lucide.min.js"></script>
+    <style>
+        :root {
+            --bg: #05070a; --surface: #0f1219; --surface-hover: #161b2c;
+            --primary: #38bdf8; --primary-glow: rgba(56, 189, 248, 0.3);
+            --secondary: #94a3b8; --text: #f8fafc; --text-dim: #64748b;
+            --border: #1f222c; --danger: #ef4444; --success: #10b981;
+        }
+        body { font-family: 'Inter', system-ui, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 0; min-height: 100vh; display: flex; flex-direction: column; }
+        
+        header { height: 60px; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 1.5rem; justify-content: space-between; }
+        .back-link { display: flex; align-items: center; gap: 0.5rem; text-decoration: none; color: var(--text-dim); font-size: 0.9rem; font-weight: 600; transition: color 0.2s; }
+        .back-link:hover { color: var(--text); }
+
+        main { flex: 1; padding: 2rem; max-width: 1200px; margin: 0 auto; width: 100%; box-sizing: border-box; display: grid; grid-template-columns: 1fr 350px; gap: 2rem; }
+
+        .broadcast-card { background: var(--surface); border: 1px solid var(--border); border-radius: 24px; padding: 2rem; display: flex; flex-direction: column; gap: 2rem; }
+        
+        /* Visualization */
+        .viz-container { background: #000; border-radius: 16px; height: 300px; position: relative; overflow: hidden; border: 1px solid var(--border); }
+        canvas#spectrum { width: 100%; height: 100%; display: block; }
+        
+        .meters { display: flex; gap: 1rem; height: 200px; }
+        .meter-strip { flex: 1; background: #000; border-radius: 8px; position: relative; overflow: hidden; border: 1px solid var(--border); }
+        .meter-fill { position: absolute; bottom: 0; left: 0; width: 100%; background: linear-gradient(to top, var(--success), var(--warning), var(--danger)); transition: height 0.1s ease-out; }
+
+        /* Controls */
+        .controls-panel { display: flex; flex-direction: column; gap: 1.5rem; }
+        .form-group { display: flex; flex-direction: column; gap: 0.5rem; }
+        label { font-size: 0.75rem; font-weight: 800; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; }
+        select, input { background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 0.75rem; border-radius: 12px; outline: none; }
+        select:focus { border-color: var(--primary); }
+
+        .live-btn { background: var(--primary); color: #000; border: none; padding: 1rem; border-radius: 100px; font-weight: 800; font-size: 1rem; cursor: pointer; transition: all 0.3s; display: flex; align-items: center; justify-content: center; gap: 0.75rem; box-shadow: 0 0 30px var(--primary-glow); }
+        .live-btn:hover { transform: translateY(-2px); background: #fff; }
+        .live-btn.active { background: var(--danger); color: #fff; box-shadow: 0 0 30px rgba(239, 68, 68, 0.4); }
+        .live-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+        .status-badge { display: inline-flex; align-items: center; gap: 0.5rem; background: rgba(255,255,255,0.05); padding: 0.4rem 0.8rem; border-radius: 100px; font-size: 0.7rem; font-weight: 700; color: var(--text-dim); }
+        .status-badge.streaming { background: rgba(16, 185, 129, 0.1); color: var(--success); }
+
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+        .recording-dot { width: 8px; height: 8px; background: var(--danger); border-radius: 50%; display: inline-block; }
+        .streaming .recording-dot { animation: pulse 1s infinite; }
+    </style>
+</head>
+<body>
+    <header>
+        <a href="/admin" class="back-link"><i data-lucide="chevron-left"></i> Dashboard</a>
+        <div class="status-badge" id="status-badge">
+            <div class="recording-dot"></div>
+            <span id="status-text">READY TO BROADCAST</span>
+        </div>
+        <div style="font-weight: 800; font-size: 0.9rem; color: var(--primary);">STUDIO LIVE</div>
+    </header>
+
+    <main>
+        <div class="broadcast-card">
+            <div class="viz-container">
+                <canvas id="spectrum"></canvas>
+            </div>
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem;">
+                <div class="form-group">
+                    <label>Audio Input Device</label>
+                    <select id="input-select">
+                        <option value="">Default System Input</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Mount Point</label>
+                    <input type="text" id="mount-path" placeholder="/live" value="/live">
+                </div>
+            </div>
+
+            <div style="display: flex; gap: 1rem; align-items: center;">
+                <div class="form-group" style="flex: 1;">
+                    <label>Streaming Mode</label>
+                    <select id="mode-select">
+                        <option value="webrtc">WebRTC (Ultra Low Latency)</option>
+                        <option value="http">HTTP Fallback (Compatible)</option>
+                    </select>
+                </div>
+                <button class="live-btn" id="live-btn" style="flex: 1;">
+                    <i data-lucide="radio"></i> GO LIVE
+                </button>
+            </div>
+        </div>
+
+        <div class="broadcast-card" style="padding: 1.5rem;">
+            <label style="margin-bottom: 1rem; display: block;">Levels (L/R)</label>
+            <div class="meters">
+                <div class="meter-strip"><div class="meter-fill" id="meter-l" style="height: 0%;"></div></div>
+                <div class="meter-strip"><div class="meter-fill" id="meter-r" style="height: 0%;"></div></div>
+            </div>
+            
+            <div style="margin-top: 2rem; font-size: 0.75rem; color: var(--text-dim); line-height: 1.6;">
+                <p><i data-lucide="info" style="width:12px; vertical-align:middle; margin-right:4px;"></i> <strong>WebRTC</strong> uses the Opus codec directly from your browser to the server.</p>
+                <p><i data-lucide="info" style="width:12px; vertical-align:middle; margin-right:4px;"></i> <strong>HTTP Fallback</strong> streams chunks of audio via POST requests. Latency will be higher.</p>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        lucide.createIcons();
+
+        let isLive = false;
+        let audioCtx, stream, source, analyser, pc;
+        let animationId;
+
+        const liveBtn = document.getElementById('live-btn');
+        const inputSelect = document.getElementById('input-select');
+        const statusBadge = document.getElementById('status-badge');
+        const statusText = document.getElementById('status-text');
+        const meterL = document.getElementById('meter-l');
+        const meterR = document.getElementById('meter-r');
+        const canvas = document.getElementById('spectrum');
+        const ctx = canvas.getContext('2d');
+
+        // Enumerate inputs
+        async function getInputs() {
+            try {
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                devices.filter(d => d.kind === 'audioinput').forEach(d => {
+                    const opt = document.createElement('option');
+                    opt.value = d.deviceId;
+                    opt.textContent = d.label || `Microphone ${inputSelect.length}`;
+                    inputSelect.appendChild(opt);
+                });
+            } catch (err) {
+                console.error("Error enumerating devices:", err);
+            }
+        }
+        getInputs();
+
+        async function initAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            
+            if (audioCtx.state === 'suspended') {
+                console.log("Go Live: Resuming AudioContext...");
+                await audioCtx.resume();
+            }
+
+            // If we have an existing stream, check if it's still active
+            if (stream && stream.getTracks().some(t => t.readyState === 'live')) {
+                console.log("Go Live: Using existing active stream");
+                return;
+            }
+
+            const constraints = {
+                audio: inputSelect.value ? { deviceId: { exact: inputSelect.value } } : {
+                    echoCancellation: false,
+                    noiseSuppression: false,
+                    autoGainControl: false
+                }
+            };
+
+            console.log("Go Live: Requesting audio with constraints:", constraints);
+
+            try {
+                stream = await navigator.mediaDevices.getUserMedia(constraints);
+                console.log("Go Live: Stream acquired:", stream.id);
+                
+                if (source) source.disconnect();
+                source = audioCtx.createMediaStreamSource(stream);
+                
+                if (!analyser) {
+                    analyser = audioCtx.createAnalyser();
+                    analyser.fftSize = 256;
+                }
+                source.connect(analyser);
+                
+                if (!animationId) {
+                    console.log("Go Live: Starting visualization loop");
+                    draw();
+                }
+            } catch (err) {
+                console.error("Go Live: getUserMedia error:", err);
+                alert("Could not access microphone: " + err.message);
+                throw err;
+            }
+        }
+
+        function draw() {
+            animationId = requestAnimationFrame(draw);
+            const bufferLength = analyser.frequencyBinCount;
+            const dataArray = new Uint8Array(bufferLength);
+            analyser.getByteFrequencyData(dataArray);
+
+            // Spectrum
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            const barWidth = (canvas.width / bufferLength) * 2.5;
+            let x = 0;
+            for (let i = 0; i < bufferLength; i++) {
+                const barHeight = (dataArray[i] / 255) * canvas.height;
+                ctx.fillStyle = `hsl(${200 + (i/bufferLength)*100}, 100%, 50%)`;
+                ctx.fillRect(x, canvas.height - barHeight, barWidth - 1, barHeight);
+                x += barWidth;
+            }
+
+            // Meter logic (simple RMS)
+            let sum = 0;
+            for (let i = 0; i < bufferLength; i++) sum += dataArray[i];
+            const avg = (sum / bufferLength) / 255;
+            const height = Math.min(100, avg * 150); // Scale for visibility
+            meterL.style.height = height + '%';
+            meterR.style.height = (height * 0.95) + '%'; // Slight offset for stereo look
+        }
+
+        canvas.width = canvas.offsetWidth;
+        canvas.height = canvas.offsetHeight;
+
+        liveBtn.onclick = async () => {
+            if (!isLive) {
+                try {
+                    await initAudio();
+                    const mode = document.getElementById('mode-select').value;
+                    const mount = document.getElementById('mount-path').value;
+
+                    if (mode === 'webrtc') {
+                        await startWebRTC(mount);
+                    } else {
+                        startHTTP(mount);
+                    }
+
+                    isLive = true;
+                    liveBtn.classList.add('active');
+                    liveBtn.innerHTML = '<i data-lucide="square"></i> STOP BROADCAST';
+                    statusBadge.classList.add('streaming');
+                    statusText.textContent = 'LIVE ON ' + mount.toUpperCase();
+                    lucide.createIcons();
+                } catch (err) {
+                    console.error(err);
+                }
+            } else {
+                stopBroadcast();
+            }
+        };
+
+        async function startWebRTC(mount) {
+            console.log("Go Live: Starting WebRTC for mount:", mount);
+            pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+            
+            pc.oniceconnectionstatechange = () => console.log("WebRTC: ICE State:", pc.iceConnectionState);
+            pc.onicegatheringstatechange = () => console.log("WebRTC: Gathering State:", pc.iceGatheringState);
+            pc.onconnectionstatechange = () => console.log("WebRTC: Connection State:", pc.connectionState);
+
+            stream.getTracks().forEach(track => {
+                console.log("WebRTC: Adding track:", track.kind, track.label);
+                pc.addTrack(track, stream);
+            });
+
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+
+            const response = await fetch(`/webrtc/source-offer?mount=${encodeURIComponent(mount)}`, {
+                method: 'POST',
+                body: JSON.stringify(pc.localDescription),
+                headers: { 'Content-Type': 'application/json' }
+            });
+
+            if (!response.ok) {
+                const errText = await response.text();
+                throw new Error("WebRTC Handshake failed: " + errText);
+            }
+            
+            const answer = await response.json();
+            console.log("WebRTC: Received answer, setting remote description");
+            await pc.setRemoteDescription(answer);
+        }
+
+        let httpInterval;
+        function startHTTP(mount) {
+            // Very simplified HTTP fallback: periodically POST chunks
+            // Real implementation would use a MediaRecorder and stream the Blobs
+            const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
+            recorder.ondataavailable = async (e) => {
+                if (e.data.size > 0) {
+                    // Send chunk to server
+                    // Note: Requires a dedicated endpoint that handles partial data
+                    fetch(`/admin/golive/chunk?mount=${encodeURIComponent(mount)}`, {
+                        method: 'POST',
+                        body: e.data
+                    });
+                }
+            };
+            recorder.start(1000); // 1s chunks
+            httpInterval = recorder;
+        }
+
+        function stopBroadcast() {
+            isLive = false;
+            if (pc) pc.close();
+            if (httpInterval) httpInterval.stop();
+            if (stream) stream.getTracks().forEach(t => t.stop());
+            
+            liveBtn.classList.remove('active');
+            liveBtn.innerHTML = '<i data-lucide="radio"></i> GO LIVE';
+            statusBadge.classList.remove('streaming');
+            statusText.textContent = 'READY TO BROADCAST';
+            lucide.createIcons();
+        }
+    </script>
+</body>
+</html>

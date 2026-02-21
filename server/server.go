@@ -287,6 +287,8 @@ func (s *Server) dispatchWebhook(event string, data map[string]interface{}) {
 func (s *Server) setupRoutes() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/admin", s.handleAdmin)
+	mux.HandleFunc("/admin/golive", s.handleGoLive)
+	mux.HandleFunc("/admin/golive/chunk", s.handleGoLiveChunk)
 	mux.HandleFunc("/admin/add-mount", s.handleAddMount)
 	mux.HandleFunc("/admin/toggle-latency", s.handleToggleLatency)
 	mux.HandleFunc("/admin/stats", s.handleStats)
@@ -344,6 +346,7 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/logout", s.handleLogout)
 	mux.HandleFunc("/explore", s.handleExplore)
 	mux.HandleFunc("/webrtc/offer", s.handleWebRTCOffer)
+	mux.HandleFunc("/webrtc/source-offer", s.handleWebRTCSourceOffer)
 	mux.HandleFunc("/player/", s.handlePlayer)
 	mux.HandleFunc("/player-webrtc/", s.handleWebRTCPlayer)
 	mux.HandleFunc("/embed/", s.handleEmbed)
@@ -3572,4 +3575,95 @@ func (s *Server) handleInsights(w http.ResponseWriter, r *http.Request) {
 	stats := s.Relay.History.GetAllHistoricalStats(24 * time.Hour)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(stats)
+}
+
+func (s *Server) handleGoLive(w http.ResponseWriter, r *http.Request) {
+	user, ok := s.checkAuth(r)
+	if !ok {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+
+	csrf := ""
+	if cookie, err := r.Cookie("sid"); err == nil {
+		s.sessionsMu.RLock()
+		if sess, ok := s.sessions[cookie.Value]; ok {
+			csrf = sess.CSRFToken
+		}
+		s.sessionsMu.RUnlock()
+	}
+
+	data := map[string]interface{}{
+		"Config":    s.Config,
+		"User":      user,
+		"Version":   s.Version,
+		"CSRFToken": csrf,
+	}
+
+	w.Header().Set("Content-Type", "text/html")
+	if err := s.tmpl.ExecuteTemplate(w, "go_live.html", data); err != nil {
+		logrus.WithError(err).Error("Go Live template error")
+	}
+}
+
+func (s *Server) handleGoLiveChunk(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	mount := r.URL.Query().Get("mount")
+	if mount == "" {
+		http.Error(w, "mount query param required", http.StatusBadRequest)
+		return
+	}
+
+	// We don't check CSRF here because it's a data stream endpoint
+	// but we SHOULD check the session sid
+	if _, ok := s.checkAuth(r); !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	stream := s.Relay.GetOrCreateStream(mount)
+	stream.SourceIP = "webaudio-http"
+	stream.Broadcast(body, s.Relay)
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) handleWebRTCSourceOffer(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	mount := r.URL.Query().Get("mount")
+	if mount == "" {
+		http.Error(w, "mount query param required", http.StatusBadRequest)
+		return
+	}
+
+	var offer webrtc.SessionDescription
+	if err := json.NewDecoder(r.Body).Decode(&offer); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	answer, err := s.WebRTCM.HandleSourceOffer(mount, offer)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(answer)
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/kazzmir/opus-go/ogg"
 	"github.com/pion/webrtc/v4"
 	"github.com/pion/webrtc/v4/pkg/media"
+	"github.com/pion/webrtc/v4/pkg/media/oggwriter"
 	"github.com/sirupsen/logrus"
 )
 
@@ -111,6 +112,93 @@ func (wm *WebRTCManager) HandleOffer(mount string, offer webrtc.SessionDescripti
 
 	// Start feeding the track
 	go wm.streamToTrack(peerConnection, audioTrack, stream)
+
+	return peerConnection.LocalDescription(), nil
+}
+
+type relayWriter struct {
+	relay  *Relay
+	stream *Stream
+}
+
+func (rw *relayWriter) Write(p []byte) (n int, err error) {
+	logrus.Debugf("relayWriter: Broadcasting %d bytes to %s", len(p), rw.stream.MountName)
+	rw.stream.Broadcast(p, rw.relay)
+	return len(p), nil
+}
+
+func (wm *WebRTCManager) HandleSourceOffer(mount string, offer webrtc.SessionDescription) (*webrtc.SessionDescription, error) {
+	peerConnection, err := wm.api.NewPeerConnection(webrtc.Configuration{
+		ICEServers: []webrtc.ICEServer{
+			{URLs: []string{"stun:stun.l.google.com:19302"}},
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	peerConnection.OnTrack(func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
+		logrus.Infof("WebRTC Source: Received track %s from %s", track.ID(), mount)
+		
+		stream := wm.relay.GetOrCreateStream(mount)
+		stream.mu.Lock()
+		stream.ContentType = "audio/ogg" 
+		stream.IsOggStream = true
+		stream.SourceIP = "webrtc-source"
+		// Reset page offsets so we don't sync to old pages from a previous session
+		stream.PageOffsets = make([]int64, 128)
+		stream.PageIndex = 0
+		stream.OggHeaderOffset = stream.Buffer.Head
+		stream.mu.Unlock()
+
+		// Capture headers written by oggwriter.NewWith
+		var headerBuf bytes.Buffer
+		multi := io.MultiWriter(&headerBuf, &relayWriter{wm.relay, stream})
+
+		writer, err := oggwriter.NewWith(multi, 48000, 2)
+		if err != nil {
+			logrus.WithError(err).Error("Failed to create Ogg writer for WebRTC source")
+			return
+		}
+		defer writer.Close()
+
+		// Save captured headers immediately
+		stream.mu.Lock()
+		h := make([]byte, headerBuf.Len())
+		copy(h, headerBuf.Bytes())
+		stream.OggHead = h
+		logrus.Infof("WebRTC Source: Captured %d bytes of Ogg/Opus headers at offset %d", len(h), stream.OggHeaderOffset)
+		stream.mu.Unlock()
+
+		for {
+			rtpPacket, _, err := track.ReadRTP()
+			if err != nil {
+				if err != io.EOF {
+					logrus.WithError(err).Error("Error reading RTP packet from source")
+				}
+				return
+			}
+			if err := writer.WriteRTP(rtpPacket); err != nil {
+				logrus.WithError(err).Error("Error writing RTP to Ogg muxer")
+				return
+			}
+		}
+	})
+
+	if err = peerConnection.SetRemoteDescription(offer); err != nil {
+		return nil, err
+	}
+
+	answer, err := peerConnection.CreateAnswer(nil)
+	if err != nil {
+		return nil, err
+	}
+
+	gatherComplete := webrtc.GatheringCompletePromise(peerConnection)
+	if err = peerConnection.SetLocalDescription(answer); err != nil {
+		return nil, err
+	}
+	<-gatherComplete
 
 	return peerConnection.LocalDescription(), nil
 }
