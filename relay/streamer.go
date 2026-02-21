@@ -40,6 +40,7 @@ type Streamer struct {
 	InjectMetadata bool
 	Visible        bool
 	MPDPassword    string
+	LastPlaylist   string
 
 	relay  *Relay
 	cancel context.CancelFunc
@@ -269,19 +270,25 @@ func (s *Streamer) LoadPlaylist(filename string) error {
 	path := filepath.Join("playlists", filename)
 	f, err := os.Open(path)
 	if err != nil {
-		if os.IsNotExist(err) && filename == s.Name+".pls" {
-			return s.SavePlaylist() // Create default empty
+		if os.IsNotExist(err) {
+			if filename == s.Name+".pls" {
+				return s.SavePlaylist() // Create default empty
+			}
+			return nil // Just ignore if custom playlist doesn't exist yet
 		}
 		return err
 	}
 	defer f.Close()
 
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.Playlist = []string{}
+	s.LastPlaylist = filename
+	s.mu.Unlock()
 
 	// Simple PLS parser
 	scanner := bufio.NewScanner(f)
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.HasPrefix(line, "File") {
@@ -348,42 +355,44 @@ type StreamerStats struct {
 	MPDPort        string
 	MPDPassword    string
 	MusicDir       string
-	Loop           bool
-	InjectMetadata bool
-	Visible        bool
-}
-
-func (s *Streamer) GetStats() StreamerStats {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	mpdPort := ""
-	mpdPassword := ""
-	if s.MPDServer != nil {
-		mpdPort = s.MPDServer.Port
-		mpdPassword = s.MPDPassword
+		Loop           bool
+		InjectMetadata bool
+		Visible        bool
+		LastPlaylist   string
+	}
+	
+	func (s *Streamer) GetStats() StreamerStats {
+		s.mu.RLock()
+		defer s.mu.RUnlock()
+		
+		mpdPort := ""
+		mpdPassword := ""
+		if s.MPDServer != nil {
+			mpdPort = s.MPDServer.Port
+			mpdPassword = s.MPDPassword
+		}
+	
+		return StreamerStats{
+			Name:           s.Name,
+			Mount:          s.OutputMount,
+			State:          s.State,
+			CurrentSong:    s.CurrentFile,
+			StartTime:      s.CurrentFileTime,
+			Duration:       s.CurrentFileDuration,
+			PlaylistPos:    s.CurrentPos,
+			PlaylistLen:    len(s.Playlist),
+			Shuffle:        s.Shuffle,
+			MPDPort:        mpdPort,
+			MPDPassword:    mpdPassword,
+			MusicDir:       s.MusicDir,
+			Loop:           s.Loop,
+			InjectMetadata: s.InjectMetadata,
+			Visible:        s.Visible,
+			LastPlaylist:   s.LastPlaylist,
+		}
 	}
 
-	return StreamerStats{
-		Name:           s.Name,
-		Mount:          s.OutputMount,
-		State:          s.State,
-		CurrentSong:    s.CurrentFile,
-		StartTime:      s.CurrentFileTime,
-		Duration:       s.CurrentFileDuration,
-		PlaylistPos:    s.CurrentPos,
-		PlaylistLen:    len(s.Playlist),
-		Shuffle:        s.Shuffle,
-		MPDPort:        mpdPort,
-		MPDPassword:    mpdPassword,
-		MusicDir:       s.MusicDir,
-		Loop:           s.Loop,
-		InjectMetadata: s.InjectMetadata,
-		Visible:        s.Visible,
-	}
-}
-
-func (sm *StreamerManager) StartStreamer(name, mount, musicDir string, loop bool, format string, bitrate int, injectMetadata bool, initialPlaylist []string, mpdEnabled bool, mpdPort, mpdPassword string, visible bool) (*Streamer, error) {
+func (sm *StreamerManager) StartStreamer(name, mount, musicDir string, loop bool, format string, bitrate int, injectMetadata bool, initialPlaylist []string, mpdEnabled bool, mpdPort, mpdPassword string, visible bool, lastPlaylist string) (*Streamer, error) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
@@ -405,6 +414,7 @@ func (sm *StreamerManager) StartStreamer(name, mount, musicDir string, loop bool
 		InjectMetadata: injectMetadata,
 		Visible:        visible,
 		MPDPassword:    mpdPassword,
+		LastPlaylist:   lastPlaylist,
 		relay:          sm.relay,
 		cancel:         cancel,
 		titleCache:     make(map[string]string),

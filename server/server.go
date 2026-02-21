@@ -438,11 +438,14 @@ func (s *Server) Start() error {
 	for _, adj := range s.Config.AutoDJs {
 		if adj.Enabled {
 			absMusicDir, _ := filepath.Abs(adj.MusicDir)
-			streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, absMusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, adj.Playlist, adj.MPDEnabled, adj.MPDPort, adj.MPDPassword, adj.Visible)
+			streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, absMusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, adj.Playlist, adj.MPDEnabled, adj.MPDPort, adj.MPDPassword, adj.Visible, adj.LastPlaylist)
 			if err != nil {
 				logrus.WithError(err).Errorf("Failed to start AutoDJ %s", adj.Name)
 			} else {
 				logrus.Infof("AutoDJ %s started on %s", adj.Name, adj.Mount)
+				if adj.LastPlaylist != "" {
+					streamer.LoadPlaylist(adj.LastPlaylist)
+				}
 				if adj.InjectMetadata {
 					if st, ok := s.Relay.GetStream(adj.Mount); ok {
 						st.SetVisible(adj.Visible)
@@ -2415,7 +2418,7 @@ func (s *Server) handleAddAutoDJ(w http.ResponseWriter, r *http.Request) {
 	s.Config.SaveConfig()
 
 	// Start it immediately
-	streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, nil, adj.MPDEnabled, adj.MPDPort, adj.MPDPassword, adj.Visible)
+	streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, nil, adj.MPDEnabled, adj.MPDPort, adj.MPDPassword, adj.Visible, "")
 	if err == nil {
 		if adj.InjectMetadata {
 			if st, ok := s.Relay.GetStream(adj.Mount); ok {
@@ -2479,7 +2482,7 @@ func (s *Server) handleToggleAutoDJ(w http.ResponseWriter, r *http.Request) {
 			if adj.Enabled {
 				if existing == nil {
 					absMusicDir, _ := filepath.Abs(adj.MusicDir)
-					streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, absMusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, adj.Playlist, adj.MPDEnabled, adj.MPDPort, adj.MPDPassword, adj.Visible)
+					streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, absMusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, adj.Playlist, adj.MPDEnabled, adj.MPDPort, adj.MPDPassword, adj.Visible, adj.LastPlaylist)
 					if err == nil {
 						if adj.InjectMetadata {
 							if st, ok := s.Relay.GetStream(adj.Mount); ok {
@@ -2539,6 +2542,7 @@ func (s *Server) handlePlayerLoadPlaylist(w http.ResponseWriter, r *http.Request
 	for _, adj := range s.Config.AutoDJs {
 		if adj.Mount == mount {
 			adj.Playlist = playlistCopy
+			adj.LastPlaylist = filename
 			s.Config.SaveConfig()
 			break
 		}
@@ -2821,6 +2825,7 @@ func (s *Server) handlePlayerPlaylistAction(w http.ResponseWriter, r *http.Reque
 		streamer.RemoveFromPlaylist(idx)
 	}
 	playlistCopy := streamer.GetPlaylist()
+	streamer.SavePlaylist()
 
 	// Persist
 	for _, adj := range s.Config.AutoDJs {
@@ -2831,7 +2836,7 @@ func (s *Server) handlePlayerPlaylistAction(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
-	http.Redirect(w, r, "/admin#tab-streamer", http.StatusSeeOther)
+	w.WriteHeader(http.StatusOK)
 }
 
 func (s *Server) handleUpdateAutoDJ(w http.ResponseWriter, r *http.Request) {
@@ -2887,7 +2892,7 @@ func (s *Server) handleUpdateAutoDJ(w http.ResponseWriter, r *http.Request) {
 			// Restart streamer
 			s.StreamerM.StopStreamer(oldMount)
 			if adj.Enabled {
-				streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, adj.Playlist, adj.MPDEnabled, adj.MPDPort, adj.MPDPassword, adj.Visible)
+				streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, adj.Playlist, adj.MPDEnabled, adj.MPDPort, adj.MPDPassword, adj.Visible, adj.LastPlaylist)
 				if err == nil {
 					if adj.InjectMetadata {
 						if st, ok := s.Relay.GetStream(adj.Mount); ok {

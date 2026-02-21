@@ -56,6 +56,7 @@ type AutoDJConfig struct {
 	Loop           bool     `json:"loop"`
 	InjectMetadata bool     `json:"inject_metadata"`
 	Playlist       []string `json:"playlist"`
+	LastPlaylist   string   `json:"last_playlist"`
 	MPDEnabled     bool     `json:"mpd_enabled"`
 	MPDPort        string   `json:"mpd_port"`
 	MPDPassword    string   `json:"mpd_password"`
