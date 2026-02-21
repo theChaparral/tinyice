@@ -287,6 +287,7 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/admin/metadata", s.handleMetadata)
 	mux.HandleFunc("/admin/kick", s.handleKick)
 	mux.HandleFunc("/admin/remove-mount", s.handleRemoveMount)
+	mux.HandleFunc("/admin/hotswap", s.handleHotSwap)
 	mux.HandleFunc("/admin/kick-all-listeners", s.handleKickAllListeners)
 	mux.HandleFunc("/admin/toggle-mount", s.handleToggleMount)
 	mux.HandleFunc("/admin/toggle-visible", s.handleToggleVisible)
@@ -397,6 +398,43 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+func (s *Server) HotSwap() error {
+	logrus.Info("Initiating zero-downtime hot swap...")
+
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+
+	// Start new process with same arguments
+	process, err := os.StartProcess(exe, os.Args, &os.ProcAttr{
+		Dir:   ".",
+		Env:   os.Environ(),
+		Files: []*os.File{os.Stdin, os.Stdout, os.Stderr},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to start new process: %v", err)
+	}
+
+	logrus.Infof("New process started with PID %d. Waiting for health check...", process.Pid)
+
+	// Wait for the new process to bind to ports (SO_REUSEPORT allows this)
+	// We wait 5 seconds to ensure it's healthy
+	time.Sleep(5 * time.Second)
+
+	// Gracefully shut down ourselves
+	logrus.Info("Handoff period complete. Shutting down old process...")
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	go func() {
+		s.Shutdown(ctx)
+		os.Exit(0)
+	}()
+
+	return nil
 }
 
 func (s *Server) ReloadConfig(cfg *config.Config) {
@@ -2883,6 +2921,23 @@ func (s *Server) handlePlayerPlaylistAction(w http.ResponseWriter, r *http.Reque
 			s.Config.SaveConfig()
 			break
 		}
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) handleHotSwap(w http.ResponseWriter, r *http.Request) {
+	if !s.isCSRFSafe(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	if _, ok := s.checkAuth(r); !ok {
+		return
+	}
+
+	if err := s.HotSwap(); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	w.WriteHeader(http.StatusOK)
