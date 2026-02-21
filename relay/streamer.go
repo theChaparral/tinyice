@@ -102,6 +102,12 @@ func (s *Streamer) ToggleShuffle() {
 	s.Shuffle = !s.Shuffle
 }
 
+func (s *Streamer) ToggleLoop() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Loop = !s.Loop
+}
+
 func (s *Streamer) Stop() {
 	s.mu.Lock()
 	defer s.mu.Unlock()

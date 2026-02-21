@@ -1,0 +1,192 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e2]:
+  - complementary [ref=e3]:
+    - link "TinyIce" [ref=e4] [cursor=pointer]:
+      - /url: /
+      - img "TinyIce" [ref=e5]
+    - generic [ref=e6]:
+      - button "Dashboard" [ref=e7] [cursor=pointer]:
+        - img [ref=e8]
+        - text: Dashboard
+      - generic [ref=e13]: Broadcasting
+      - button "Your Stations" [ref=e14] [cursor=pointer]:
+        - img [ref=e15]
+        - text: Your Stations
+      - button "AutoDJ" [ref=e19] [cursor=pointer]:
+        - img [ref=e20]
+        - text: AutoDJ
+      - button "Edge Relays" [ref=e23] [cursor=pointer]:
+        - img [ref=e24]
+        - text: Edge Relays
+      - button "Transcoding" [ref=e29] [cursor=pointer]:
+        - img [ref=e30]
+        - text: Transcoding
+      - generic [ref=e36]: Observability
+      - button "Play History" [ref=e37] [cursor=pointer]:
+        - img [ref=e38]
+        - text: Play History
+      - button "Insights" [ref=e42] [cursor=pointer]:
+        - img [ref=e43]
+        - text: Insights
+      - generic [ref=e46]: Administration
+      - button "User Management" [ref=e47] [cursor=pointer]:
+        - img [ref=e48]
+        - text: User Management
+      - button "Webhooks" [ref=e53] [cursor=pointer]:
+        - img [ref=e54]
+        - text: Webhooks
+      - button "Security & Bans" [ref=e58] [cursor=pointer]:
+        - img [ref=e59]
+        - text: Security & Bans
+      - link "Sign Out" [ref=e62] [cursor=pointer]:
+        - /url: /logout
+        - img [ref=e63]
+        - text: Sign Out
+    - generic [ref=e66]:
+      - generic [ref=e67]:
+        - text: "User:"
+        - strong [ref=e68]: admin
+        - text: superadmin
+      - generic [ref=e69]:
+        - text: Powered by TinyIce
+        - text: "Host: localhost"
+  - main [ref=e70]:
+    - generic [ref=e71]:
+      - heading "AutoDJ" [level=1] [ref=e72]:
+        - img [ref=e73]
+        - text: AutoDJ
+      - generic [ref=e76]:
+        - generic [ref=e77]:
+          - heading "Provision AutoDJ" [level=2] [ref=e78]
+          - generic [ref=e80]:
+            - generic [ref=e81]:
+              - generic [ref=e82]: Instance Name
+              - textbox "24/7 Chill" [ref=e83]
+            - generic [ref=e84]:
+              - generic [ref=e85]: Mount Path
+              - textbox "/autodj" [ref=e86]
+            - generic [ref=e87]:
+              - generic [ref=e88]: Music Directory
+              - textbox "/var/music/chill" [ref=e89]
+            - generic [ref=e90]:
+              - generic [ref=e91]:
+                - generic [ref=e92]: Format
+                - combobox [ref=e93]:
+                  - option "MP3" [selected]
+                  - option "Opus"
+              - generic [ref=e94]:
+                - generic [ref=e95]: Bitrate (kbps)
+                - spinbutton [ref=e96]: "128"
+            - generic [ref=e97]:
+              - checkbox "Loop Playlist" [checked] [ref=e98]
+              - generic [ref=e99]: Loop Playlist
+            - generic [ref=e100]:
+              - checkbox "Inject Metadata (ICY)" [checked] [ref=e101]
+              - generic [ref=e102]: Inject Metadata (ICY)
+            - generic [ref=e103]:
+              - checkbox "Visible on Explore Page" [checked] [ref=e104]
+              - generic [ref=e105]: Visible on Explore Page
+            - generic [ref=e106]:
+              - generic [ref=e107]:
+                - checkbox "Expose MPD" [ref=e108]
+                - generic [ref=e109]: Expose MPD
+              - textbox "Port (e.g. 6600)" [ref=e111]
+              - textbox "Password (Optional)" [ref=e113]
+            - button "Create AutoDJ" [ref=e114] [cursor=pointer]
+        - generic [ref=e115]:
+          - heading "Active AutoDJs" [level=2] [ref=e116]
+          - generic [ref=e118]:
+            - generic [ref=e119]:
+              - generic [ref=e120]:
+                - heading "foo LIVE" [level=3] [ref=e121]:
+                  - text: foo
+                  - generic [ref=e124]: LIVE
+                - generic [ref=e125]: "Mount: /dj | Format: mp3 128K | Dir: /Users/syso/dev/tinyice/music"
+              - generic [ref=e126]:
+                - button "Edit AutoDJ" [ref=e127] [cursor=pointer]:
+                  - img [ref=e128]
+                - generic [ref=e130]:
+                  - button "Save current playlist to .pls file" [ref=e132] [cursor=pointer]:
+                    - img [ref=e133]
+                  - button "Toggle Shuffle" [ref=e138] [cursor=pointer]:
+                    - img [ref=e139]
+                  - button "Skip to Next" [ref=e146] [cursor=pointer]:
+                    - img [ref=e147]
+                - link "MONITOR" [ref=e149] [cursor=pointer]:
+                  - /url: /player/dj
+                  - img [ref=e150]
+                  - text: MONITOR
+                - button "STOP" [ref=e153] [cursor=pointer]
+                - button "DELETE" [ref=e155] [cursor=pointer]
+            - generic [ref=e157]:
+              - generic [ref=e158]:
+                - generic [ref=e159]:
+                  - generic [ref=e160]: NOW PLAYING
+                  - generic [ref=e161]: a_d.mp3
+                - button "Pause/Stop Streamer" [ref=e164] [cursor=pointer]:
+                  - img [ref=e165]
+              - generic [ref=e169]:
+                - generic [ref=e170]: 00:16
+                - generic [ref=e171]: "Playlist: 1 / 2"
+                - generic [ref=e172]: 00:28
+            - generic [ref=e173]:
+              - generic [ref=e174]:
+                - generic [ref=e175]: PLAYLIST (DRAG TO REORDER)
+                - button "CLEAR" [ref=e177] [cursor=pointer]
+              - generic [ref=e178]:
+                - generic [ref=e179]:
+                  - generic [ref=e180]:
+                    - img [ref=e181]
+                    - generic "/Users/syso/dev/tinyice/music/a_d.mp3" [ref=e188]: a_d.mp3
+                  - generic [ref=e189]:
+                    - button "Add to Queue" [ref=e191] [cursor=pointer]:
+                      - img [ref=e192]
+                    - button "Remove from Playlist" [ref=e194] [cursor=pointer]:
+                      - img [ref=e195]
+                - generic [ref=e198]:
+                  - generic [ref=e199]:
+                    - img [ref=e200]
+                    - generic "/Users/syso/dev/tinyice/music/disco.mp3" [ref=e207]: disco.mp3
+                  - generic [ref=e208]:
+                    - button "Add to Queue" [ref=e210] [cursor=pointer]:
+                      - img [ref=e211]
+                    - button "Remove from Playlist" [ref=e213] [cursor=pointer]:
+                      - img [ref=e214]
+            - generic [ref=e218]:
+              - generic [ref=e219]: LIBRARY (MUSIC DIRECTORY)
+              - button "BROWSE FILES" [ref=e220] [cursor=pointer]
+            - generic [ref=e221]:
+              - button "RESCAN DIRECTORY" [ref=e223] [cursor=pointer]:
+                - img [ref=e224]
+                - text: RESCAN DIRECTORY
+              - button "PAUSE" [ref=e230] [cursor=pointer]
+    - generic [ref=e231]:
+      - generic "Toggle Stats Bar" [ref=e232] [cursor=pointer]:
+        - img [ref=e233]
+      - generic [ref=e235]:
+        - generic [ref=e236]:
+          - img "Current Listeners" [ref=e237]
+          - generic [ref=e242]:
+            - text: "Listeners:"
+            - strong [ref=e243]: "0"
+        - generic [ref=e244]:
+          - img "Active Broadcasting Sources" [ref=e245]
+          - generic [ref=e249]:
+            - text: "Sources:"
+            - strong [ref=e250]: "0"
+          - generic [ref=e251]: (0 / 0)
+        - generic [ref=e252]:
+          - img "Total Data Received" [ref=e253]
+          - generic [ref=e256]:
+            - text: "In:"
+            - strong [ref=e257]: "0.00"
+            - text: MB
+        - generic [ref=e258]:
+          - img "Total Data Sent" [ref=e259]
+          - generic [ref=e262]:
+            - text: "Out:"
+            - strong [ref=e263]: "0.00"
+            - text: MB
+```

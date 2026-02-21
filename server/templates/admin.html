@@ -425,8 +425,15 @@
                                                                                                         <form action="/admin/player/shuffle" method="POST" onsubmit="return submitForm(event, false)" style="margin:0;">
                                                                                                             <input type="hidden" name="csrf" value="{{$.CSRFToken}}">
                                                                                                             <input type="hidden" name="mount" value="{{.OutputMount}}">
-                                                                                                            <button type="submit" class="btn {{if .Shuffle}}btn-primary{{else}}btn-outline{{end}} btn-sm" style="border:none; background:transparent;" title="Toggle Shuffle">
+                                                                                                            <button type="submit" class="btn {{if .Shuffle}}btn-primary{{else}}btn-outline{{end}} btn-sm adj-shuffle-btn" style="border:none; {{if not .Shuffle}}background:transparent;{{end}}" title="Toggle Shuffle">
                                                                                                                 <i data-lucide="shuffle" style="width: 14px; height: 14px;"></i>
+                                                                                                            </button>
+                                                                                                        </form>
+                                                                                                        <form action="/admin/player/loop" method="POST" onsubmit="return submitForm(event, false)" style="margin:0;">
+                                                                                                            <input type="hidden" name="csrf" value="{{$.CSRFToken}}">
+                                                                                                            <input type="hidden" name="mount" value="{{.OutputMount}}">
+                                                                                                            <button type="submit" class="btn {{if .Loop}}btn-primary{{else}}btn-outline{{end}} btn-sm adj-loop-btn" style="border:none; {{if not .Loop}}background:transparent;{{end}}" title="Toggle Loop Playlist">
+                                                                                                                <i data-lucide="repeat" style="width: 14px; height: 14px;"></i>
                                                                                                             </button>
                                                                                                         </form>
                                                                                                         {{if eq .State 1}}
@@ -758,8 +765,8 @@
                     
                     setTimeout(() => {
                         overlay.style.display = 'none';
-                        if (onSuccess) onSuccess();
-                        if (reload) window.location.reload();
+                        if (typeof onSuccess === 'function') onSuccess();
+                        if (reload === true || reload === 'true') window.location.reload();
                     }, 800);
                 } else {
                     r.text().then(txt => {
@@ -915,7 +922,7 @@
                                     <input type="hidden" name="path" value="${e.abs_path}">
                                     <button type="submit" class="btn btn-outline btn-sm" style="padding:0.1rem 0.3rem; font-size:0.7rem;" title="Queue Next">QUEUE</button>
                                 </form>` : ''}
-                                <form action="${actionURL}" method="POST" onsubmit="${confirmMsg ? `if(confirm('${confirmMsg}')) ` : ''}return submitForm(event, e.is_dir, true)" style="margin:0;">
+                                <form action="${actionURL}" method="POST" onsubmit="${confirmMsg ? `if(confirm('${confirmMsg}')) ` : ''}return submitForm(event, true)" style="margin:0;">
                                     <input type="hidden" name="csrf" value="${csrfToken}">
                                     <input type="hidden" name="mount" value="${mount}">
                                     <input type="hidden" name="action" value="add">
@@ -1312,6 +1319,31 @@
                         const adjDetails = card.querySelector('.adj-details');
                         const queueContainer = card.querySelector('.adj-queue-container');
                         const queueList = card.querySelector('.adj-queue-list');
+                        const shuffleBtn = card.querySelector('.adj-shuffle-btn');
+                        const loopBtn = card.querySelector('.adj-loop-btn');
+
+                        if (shuffleBtn) {
+                            if (st.shuffle) {
+                                shuffleBtn.classList.add('btn-primary');
+                                shuffleBtn.classList.remove('btn-outline');
+                                shuffleBtn.style.background = '';
+                            } else {
+                                shuffleBtn.classList.remove('btn-primary');
+                                shuffleBtn.classList.add('btn-outline');
+                                shuffleBtn.style.background = 'transparent';
+                            }
+                        }
+                        if (loopBtn) {
+                            if (st.loop) {
+                                loopBtn.classList.add('btn-primary');
+                                loopBtn.classList.remove('btn-outline');
+                                loopBtn.style.background = '';
+                            } else {
+                                loopBtn.classList.remove('btn-primary');
+                                loopBtn.classList.add('btn-outline');
+                                loopBtn.style.background = 'transparent';
+                            }
+                        }
 
                         if (st.state === 1) { // Playing
                             statusPill.classList.remove('inactive');

@@ -307,6 +307,7 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/admin/player/reorder", s.handlePlayerReorder)
 	mux.HandleFunc("/admin/player/queue", s.handlePlayerQueue)
 	mux.HandleFunc("/admin/player/shuffle", s.handlePlayerShuffle)
+	mux.HandleFunc("/admin/player/loop", s.handlePlayerLoop)
 	mux.HandleFunc("/admin/player/next", s.handlePlayerNext)
 	mux.HandleFunc("/admin/player/files", s.handlePlayerFiles)
 	mux.HandleFunc("/admin/player/playlist-action", s.handlePlayerPlaylistAction)
@@ -2037,6 +2038,7 @@ type streamerEventInfo struct {
 	PlaylistPos  int      `json:"playlist_pos"`
 	PlaylistLen  int      `json:"playlist_len"`
 	Shuffle      bool     `json:"shuffle"`
+	Loop         bool     `json:"loop"`
 	Queue        []relay.PlaylistItem `json:"queue"`
 }
 
@@ -2092,9 +2094,9 @@ func (s *Server) collectStatsPayload(user *config.User) ([]byte, error) {
 				CurrentSong: stats.CurrentSong,
 				StartTime:   stats.StartTime.Unix(),
 				Duration:    stats.Duration.Seconds(),
-				PlaylistPos: stats.PlaylistPos,
 				PlaylistLen: stats.PlaylistLen,
 				Shuffle:     stats.Shuffle,
+				Loop:        stats.Loop,
 				Queue:       st.GetQueueInfo(),
 			})
 		}
@@ -2664,6 +2666,37 @@ func (s *Server) handlePlayerClearPlaylist(w http.ResponseWriter, r *http.Reques
 	}
 
 	streamer.ClearPlaylist()
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) handlePlayerLoop(w http.ResponseWriter, r *http.Request) {
+	if !s.isCSRFSafe(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	if _, ok := s.checkAuth(r); !ok {
+		return
+	}
+
+	mount := r.FormValue("mount")
+	streamer := s.StreamerM.GetStreamer(mount)
+	if streamer == nil {
+		http.Error(w, "Streamer not found", http.StatusNotFound)
+		return
+	}
+
+	streamer.ToggleLoop()
+	loopState := streamer.GetStats().Loop
+
+	// Persist
+	for _, adj := range s.Config.AutoDJs {
+		if adj.Mount == mount {
+			adj.Loop = loopState
+			s.Config.SaveConfig()
+			break
+		}
+	}
+
 	w.WriteHeader(http.StatusOK)
 }
 
