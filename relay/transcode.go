@@ -135,13 +135,7 @@ func (tm *TranscoderManager) performTranscode(ctx context.Context, inst *Transco
 	offset, signal := input.Subscribe(id, 32*1024)
 	defer input.Unsubscribe(id)
 
-	reader := &StreamReader{
-		Stream: input,
-		Offset: offset,
-		Signal: signal,
-		Ctx:    ctx,
-		ID:     id,
-	}
+	reader := NewStreamReader(input.Buffer, offset, signal, ctx, id).WithOggSync(input)
 
 	// 3. Decode
 	decoder, err := mp3.NewDecoder(reader)

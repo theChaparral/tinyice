@@ -327,7 +327,7 @@ func (s *Server) serveStreamData(w http.ResponseWriter, r *http.Request, stream 
 
 				n, next, skipped := stream.Buffer.ReadAt(offset, buf[:readLimit])
 				if skipped && stream.IsOggStream {
-					offset = stream.Buffer.FindNextPageBoundary(next)
+					offset = relay.FindNextPageBoundary(stream.Buffer.Data, stream.Buffer.Size, stream.Buffer.Head, next)
 					continue
 				}
 				if n == 0 {

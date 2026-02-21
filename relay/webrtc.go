@@ -248,17 +248,11 @@ func (wm *WebRTCManager) streamToTrack(pc *webrtc.PeerConnection, track *webrtc.
 	}
 
 	if !foundSync {
-		logrus.Errorf("WebRTC: Could not find Ogg sync in first 512KB for %s. Is it an Opus stream?", stream.MountName)
+		logrus.WithField("mount", stream.MountName).Error("WebRTC: Could not find Ogg sync in first 512KB. Is it an Opus stream?")
 		return
 	}
 
-	reader := &StreamReader{
-		Stream: stream,
-		Offset: offset,
-		Signal: signal,
-		Ctx:    ctx,
-		ID:     id,
-	}
+	reader := NewStreamReader(stream.Buffer, offset, signal, ctx, id).WithOggSync(stream)
 
 	// We wrap the reader to prepend the OggHead if available.
 	// This ensures NewOpusReader always sees the ID/Tag headers.
