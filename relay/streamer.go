@@ -213,15 +213,28 @@ func (s *Streamer) GetQueueNames() []string {
 
 func (s *Streamer) ScanMusicDir() error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if s.MusicDir == "" {
+		s.mu.Unlock()
 		return fmt.Errorf("music directory not configured")
 	}
 
-	// We don't automatically populate s.Playlist anymore
-	// Just clear cache if we rescanned
+	// Clear cache
 	s.titleCache = make(map[string]string)
+	
+	// Copy playlist to process outside of lock
+	currentPlaylist := make([]string, len(s.Playlist))
+	copy(currentPlaylist, s.Playlist)
+	s.mu.Unlock()
+
+	// Re-verify files and update cache in background
+	go func() {
+		for _, path := range currentPlaylist {
+			if _, err := os.Stat(path); err == nil {
+				s.fetchTitleAndCache(path)
+			}
+		}
+	}()
+
 	return nil
 }
 
@@ -313,6 +326,13 @@ func (s *Streamer) RemoveFromPlaylist(idx int) {
 	if idx >= 0 && idx < len(s.Playlist) {
 		s.Playlist = append(s.Playlist[:idx], s.Playlist[idx+1:]...)
 	}
+}
+
+func (s *Streamer) ClearPlaylist() {
+	s.mu.Lock()
+	s.Playlist = []string{}
+	s.mu.Unlock()
+	s.SavePlaylist()
 }
 
 type StreamerStats struct {
