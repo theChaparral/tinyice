@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"math/rand"
@@ -218,33 +219,66 @@ func (s *Streamer) ScanMusicDir() error {
 		return fmt.Errorf("music directory not configured")
 	}
 
+	// We don't automatically populate s.Playlist anymore
+	// Just clear cache if we rescanned
 	s.titleCache = make(map[string]string)
-	s.Playlist = []string{}
-	err := filepath.Walk(s.MusicDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if !info.IsDir() {
-			ext := strings.ToLower(filepath.Ext(path))
-			if ext == ".mp3" {
-				absPath, _ := filepath.Abs(path)
-				s.Playlist = append(s.Playlist, absPath)
-			}
-		}
-		return nil
-	})
+	return nil
+}
 
-	if err == nil {
-		// Populate cache in background
-		playlistCopy := make([]string, len(s.Playlist))
-		copy(playlistCopy, s.Playlist)
-		go func() {
-			for _, p := range playlistCopy {
-				s.fetchTitleAndCache(p)
-			}
-		}()
+func (s *Streamer) SavePlaylist() error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if err := os.MkdirAll("playlists", 0755); err != nil {
+		return err
 	}
-	return err
+
+	path := filepath.Join("playlists", s.Name+".pls")
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	fmt.Fprintf(f, "[playlist]\nNumberOfEntries=%d\n", len(s.Playlist))
+	for i, p := range s.Playlist {
+		fmt.Fprintf(f, "File%d=%s\n", i+1, p)
+		fmt.Fprintf(f, "Title%d=%s\n", i+1, s.GetSongTitle(p))
+	}
+	fmt.Fprintf(f, "Version=2\n")
+	return nil
+}
+
+func (s *Streamer) LoadPlaylist() error {
+	path := filepath.Join("playlists", s.Name+".pls")
+	f, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return s.SavePlaylist() // Create empty
+		}
+		return err
+	}
+	defer f.Close()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Playlist = []string{}
+
+	var entries int
+	fmt.Fscanf(f, "[playlist]\nNumberOfEntries=%d\n", &entries)
+
+	// Simple PLS parser
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "File") {
+			parts := strings.SplitN(line, "=", 2)
+			if len(parts) == 2 {
+				s.Playlist = append(s.Playlist, parts[1])
+			}
+		}
+	}
+	return nil
 }
 
 func (s *Streamer) GetMusicDir() string {
@@ -376,6 +410,7 @@ func (sm *StreamerManager) StartStreamer(name, mount, musicDir string, loop bool
 	}
 
 	sm.instances[mount] = s
+	s.LoadPlaylist()
 
 	go sm.runStreamerLoop(ctx, s)
 	return s, nil

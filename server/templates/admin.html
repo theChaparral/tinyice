@@ -66,6 +66,13 @@
         .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); backdrop-filter: blur(4px); }
         .modal-content { background: var(--surface); margin: 5% auto; padding: 2rem; border: 1px solid var(--border); border-radius: 16px; width: 500px; max-width: 90%; }
         
+        .action-overlay { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(22, 27, 44, 0.8); backdrop-filter: blur(12px); border: 1px solid var(--border); padding: 2rem; border-radius: 24px; display: none; flex-direction: column; align-items: center; gap: 1rem; z-index: 2000; box-shadow: 0 20px 50px rgba(0,0,0,0.5); min-width: 150px; }
+        .action-overlay i { width: 48px; height: 48px; }
+        .action-overlay .spinner { animation: rotate 2s linear infinite; color: var(--primary); }
+        .action-overlay .success { color: var(--success); }
+        .action-overlay .error { color: var(--danger); }
+        @keyframes rotate { 100% { transform: rotate(360deg); } }
+
         .bottom-stats-bar { position: fixed; bottom: 0; right: 0; left: 240px; background: rgba(22, 27, 44, 0.7); backdrop-filter: blur(16px); border-top: 1px solid var(--border); padding: 0.5rem 1.5rem; display: flex; align-items: center; z-index: 900; transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); height: 40px; box-sizing: border-box; }
         .bottom-stats-bar.collapsed { transform: translateY(40px); }
         .stats-items { display: flex; gap: 1.5rem; align-items: center; flex-shrink: 0; }
@@ -75,6 +82,9 @@
         .stats-toggle-tongue { position: absolute; top: -24px; right: 2rem; background: rgba(22, 27, 44, 0.7); backdrop-filter: blur(16px); border: 1px solid var(--border); border-bottom: none; padding: 4px 12px; border-radius: 8px 8px 0 0; cursor: pointer; color: var(--text-dim); display: flex; align-items: center; justify-content: center; height: 24px; box-sizing: border-box; }
         .stats-toggle-tongue:hover { color: var(--text); background: var(--surface-hover); }
         .debug-items { display: flex; gap: 1rem; margin-left: 1.5rem; border-left: 1px solid var(--border); padding-left: 1.5rem; align-items: center; }
+        
+        .page-title { font-size: 1.5rem; font-weight: 800; margin-bottom: 2rem; color: var(--text); display: flex; align-items: center; gap: 0.75rem; border-bottom: 1px solid var(--border); padding-bottom: 1rem; }
+        .page-title i { color: var(--primary); width: 1.75rem; height: 1.75rem; }
     </style>
 </head>
 <body>
@@ -115,6 +125,7 @@
         </aside>
         <main>
             <div id="tab-overview" class="tab-content active">
+                <h1 class="page-title"><i data-lucide="layout-dashboard"></i> Dashboard</h1>
                 <section>
                     <h2>Live Traffic</h2>
                     <div class="card" style="padding: 1.5rem;"><canvas id="trafficChart" style="width: 100%; height: 180px;"></canvas><div style="display: flex; gap: 2rem; justify-content: center; margin-top: 0.5rem; font-size: 0.85rem;"><span>Out: <strong id="outRate" style="color: #38bdf8">0</strong> KB/s</span><span>In: <strong id="inRate" style="color: #10b981">0</strong> KB/s</span></div></div>
@@ -130,6 +141,7 @@
                 </section>
             </div>
             <div id="tab-stations" class="tab-content">
+                <h1 class="page-title"><i data-lucide="tower-control"></i> Your Stations</h1>
                 <div style="display: grid; grid-template-columns: 1fr 1.2fr; gap: 2rem;">
                     <section><h2>Provision Station</h2><div class="card"><form action="/admin/add-mount" method="POST" onsubmit="return submitForm(event, true)"><input type="hidden" name="csrf" value="{{$.CSRFToken}}"><div class="form-group"><label>Mount Path</label><input type="text" id="add-mount-path" name="mount" placeholder="/live" required></div><div class="form-group"><label>Source Password</label><div style="display: flex; gap: 0.5rem;"><input type="text" name="password" id="new-mount-pw" required><button type="button" id="gen-pw" class="btn btn-outline btn-sm">GENERATE</button></div></div><button type="submit" class="btn btn-primary" style="width: 100%;">Save Station</button></form></div></section>
                     <section><h2>Managed Stations</h2><div class="card" style="padding: 0;"><table><thead><tr><th style="width:25%">Mount</th><th style="width:25%">Fallback</th><th style="width:50%">Actions</th></tr></thead><tbody>
@@ -139,6 +151,7 @@
                 </div>
             </div>
             <div id="tab-history" class="tab-content">
+                <h1 class="page-title"><i data-lucide="file-audio"></i> Play History</h1>
                 <section>
                     <h2>Playback History</h2>
                     <div class="card" style="padding: 0; display: grid; grid-template-columns: 250px 1fr; min-height: 500px;">
@@ -168,6 +181,7 @@
             </div>
             {{if eq .User.Role "superadmin"}}
                         <div id="tab-insights" class="tab-content">
+                <h1 class="page-title"><i data-lucide="trending-up"></i> Insights</h1>
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
                     <h2>Historical Insights & Trends</h2>
                     <div id="insights-legend" style="display: flex; gap: 1rem; flex-wrap: wrap;"></div>
@@ -218,14 +232,17 @@
                 </div>
             </div>
             <div id="tab-users" class="tab-content">
+            <h1 class="page-title"><i data-lucide="users"></i> User Management</h1>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem;"><section><h2>Create Admin</h2><div class="card"><form action="/admin/add-user" method="POST" onsubmit="return submitForm(event, true)"><input type="hidden" name="csrf" value="{{$.CSRFToken}}"><div class="form-group"><label>Username</label><input type="text" name="username" required></div><div class="form-group"><label>Password</label><input type="password" name="password" required></div><button type="submit" class="btn btn-primary">Add User</button></form></div></section><section><h2>System Users</h2><div class="card" style="padding: 0;"><table><thead><tr><th style="width:40%">User</th><th style="width:30%">Role</th><th style="width:30%">Action</th></tr></thead><tbody>{{range .Config.Users}}<tr><td>{{.Username}}</td><td>{{.Role}}</td><td>{{if ne .Role "superadmin"}}<form action="/admin/remove-user" method="POST" onsubmit="return submitForm(event, false)"><input type="hidden" name="csrf" value="{{$.CSRFToken}}"><input type="hidden" name="username" value="{{.Username}}"><button type="submit" class="btn btn-danger btn-sm">DELETE</button></form>{{end}}</td></tr>{{end}}</tbody></table></div></section></div></div>
             <div id="tab-relays" class="tab-content">
+                <h1 class="page-title"><i data-lucide="refresh-ccw"></i> Edge Relays</h1>
                 <div style="display: grid; grid-template-columns: 1fr 1.5fr; gap: 2rem;">
                     <section><h2>Configure Relay</h2><div class="card"><form action="/admin/add-relay" method="POST" onsubmit="return submitForm(event, true)"><input type="hidden" name="csrf" value="{{$.CSRFToken}}"><div class="form-group"><label>Source URL</label><input type="text" id="add-relay-url" name="url" placeholder="http://master:8000/live" required></div><div class="form-group"><label>Local Mount</label><input type="text" id="add-relay-mount" name="mount" placeholder="/relay" required></div><div class="form-group"><label>Password</label><input type="password" id="add-relay-password" name="password"></div><div class="form-group"><label>Burst Size</label><input type="number" id="add-relay-burst" name="burst_size" value="20"></div><button type="submit" class="btn btn-primary">Start Relay</button></form></div></section>
                     <section><h2>Active Edge Relays</h2><div class="card" style="padding: 0;"><table><thead><tr><th style="width:10%">Status</th><th style="width:25%">Target</th><th style="width:15%">Local Mount</th><th style="width:50%">Action</th></tr></thead><tbody id="relaysBody"></tbody></table></div></section>
                 </div>
             </div>
                         <div id="tab-transcoding" class="tab-content">
+                            <h1 class="page-title"><i data-lucide="scissors"></i> Transcoding</h1>
                             <div style="display: grid; grid-template-columns: 1fr 1.5fr; gap: 2rem;">
                                 <section>
                                     <h2>New Transcoder</h2>
@@ -267,6 +284,7 @@
                             </div>
                         </div>
                         <div id="tab-webhooks" class="tab-content">
+                            <h1 class="page-title"><i data-lucide="webhook"></i> Webhooks</h1>
                             <div style="display: grid; grid-template-columns: 1fr 1.5fr; gap: 2rem;">
                                 <section>
                                     <h2>Configure Webhook</h2>
@@ -325,6 +343,7 @@
                             </div>
                         </div>
                         <div id="tab-streamer" class="tab-content">
+                <h1 class="page-title"><i data-lucide="play-circle"></i> AutoDJ</h1>
                 <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 2rem;">
                     <section>
                         <h2>Provision AutoDJ</h2>
@@ -396,6 +415,13 @@
                                                                                                         <i data-lucide="edit-3" style="width: 14px; height: 14px;"></i>
                                                                                                     </button>
                                                                                                     <div class="btn-group" style="display: flex; background: rgba(0,0,0,0.2); border-radius: 8px; padding: 2px;">
+                                                                                                        <form action="/admin/player/save-playlist" method="POST" onsubmit="return submitForm(event, false)" style="margin:0;">
+                                                                                                            <input type="hidden" name="csrf" value="{{$.CSRFToken}}">
+                                                                                                            <input type="hidden" name="mount" value="{{.OutputMount}}">
+                                                                                                            <button type="submit" class="btn btn-outline btn-sm" style="border:none; background:transparent;" title="Save current playlist to .pls file">
+                                                                                                                <i data-lucide="save" style="width: 14px; height: 14px;"></i>
+                                                                                                            </button>
+                                                                                                        </form>
                                                                                                         <form action="/admin/player/shuffle" method="POST" onsubmit="return submitForm(event, false)" style="margin:0;">
                                                                                                             <input type="hidden" name="csrf" value="{{$.CSRFToken}}">
                                                                                                             <input type="hidden" name="mount" value="{{.OutputMount}}">
@@ -522,12 +548,13 @@
                                                                                                         </div>
                                                                                                     </div>
                                                                     
-                                                                                                    <div style="margin-top: 1rem; display: flex; gap: 1rem;">                                                            <form action="/admin/player/scan" method="POST" onsubmit="return submitForm(event, true)" style="flex: 1;">
-                                                                <input type="hidden" name="csrf" value="{{$.CSRFToken}}">
-                                                                <input type="hidden" name="mount" value="{{.OutputMount}}">
-                                                                <button type="submit" class="btn btn-outline btn-sm" style="width: 100%;"><i data-lucide="refresh-cw" style="width: 12px; height: 12px; margin-right: 4px;"></i> RESCAN DIRECTORY</button>
-                                                            </form>
-                                                            <form action="/admin/player/toggle" method="POST" onsubmit="return submitForm(event, false)" style="flex: 1;">
+                                                                                                                                    <div style="margin-top: 1rem; display: flex; gap: 1rem;">
+                                                                                                                                        <form action="/admin/player/scan" method="POST" onsubmit="return submitForm(event, false)" style="flex: 1;">
+                                                                                                                                            <input type="hidden" name="csrf" value="{{$.CSRFToken}}">
+                                                                                                                                            <input type="hidden" name="mount" value="{{.OutputMount}}">
+                                                                                                                                            <button type="submit" class="btn btn-outline btn-sm" style="width: 100%;"><i data-lucide="refresh-cw" style="width: 12px; height: 12px; margin-right: 4px;"></i> RESCAN DIRECTORY</button>
+                                                                                                                                        </form>
+                                                                                                                                        <form action="/admin/player/toggle" method="POST" onsubmit="return submitForm(event, false)" style="flex: 1;">
                                                                 <input type="hidden" name="csrf" value="{{$.CSRFToken}}">
                                                                 <input type="hidden" name="mount" value="{{.OutputMount}}">
                                                                 <button type="submit" class="btn btn-outline btn-sm" style="width: 100%;">
@@ -548,6 +575,7 @@
                 </div>
             </div>
             <div id="tab-security" class="tab-content">
+            <h1 class="page-title"><i data-lucide="shield-check"></i> Security & Bans</h1>
             <div style="grid-template-columns: 1fr 1fr; display: grid; gap: 2rem;"><section><h2>Ban Address or Range</h2><div class="card"><form action="/admin/add-banned-ip" method="POST" onsubmit="return submitForm(event, false)"><input type="hidden" name="csrf" value="{{$.CSRFToken}}"><div class="form-group"><label>IP Address or CIDR Range</label><input type="text" name="ip" placeholder="e.g. 1.2.3.4 or 192.168.1.0/24" required></div><button type="submit" class="btn btn-danger">Ban Address</button></form></div></section><section><h2>Access Control List</h2><div class="card" style="padding: 0;"><table><thead><tr><th style="width:70%">Banned IP / Range</th><th style="width:30%">Action</th></tr></thead><tbody>{{range .Config.BannedIPs}}<tr><td>{{.}}</td><td><form action="/admin/remove-banned-ip" method="POST" onsubmit="return submitForm(event, false)"><input type="hidden" name="csrf" value="{{$.CSRFToken}}"><input type="hidden" name="ip" value="{{.}}"><button type="submit" class="btn btn-outline btn-sm">Unban</button></form></td></tr>{{else}}<tr><td colspan="2" style="text-align:center; padding:2rem">No active bans.</td></tr>{{end}}</tbody></table></div></section></div>
             
             <div style="grid-template-columns: 1fr 1fr; display: grid; gap: 2rem; margin-top: 3rem;">
@@ -610,6 +638,14 @@
                 <div class="stats-spacer"></div>
             </div>
         </main>
+    </div>
+
+    <!-- Action Feedback Overlay -->
+    <div id="action-overlay" class="action-overlay">
+        <div id="action-icon-container">
+            <i data-lucide="loader-2" class="spinner" id="action-spinner"></i>
+        </div>
+        <div id="action-text" style="font-size: 0.9rem; font-weight: 600; color: var(--text-dim);">Processing...</div>
     </div>
 
     <!-- Edit AutoDJ Modal -->
@@ -688,16 +724,44 @@
             const form = event.target;
             const formData = new FormData(form);
             
+            const overlay = document.getElementById('action-overlay');
+            const iconContainer = document.getElementById('action-icon-container');
+            const text = document.getElementById('action-text');
+            
+            overlay.style.display = 'flex';
+            iconContainer.innerHTML = '<i data-lucide="loader-2" class="spinner"></i>';
+            text.textContent = 'Processing...';
+            lucide.createIcons();
+
             fetch(form.action, {
                 method: 'POST',
                 body: formData
             }).then(r => {
                 if (r.ok) {
-                    if (onSuccess) onSuccess();
-                    if (reload) window.location.reload();
+                    iconContainer.innerHTML = '<i data-lucide="check-circle-2" class="success"></i>';
+                    text.textContent = 'Success';
+                    lucide.createIcons();
+                    
+                    setTimeout(() => {
+                        overlay.style.display = 'none';
+                        if (onSuccess) onSuccess();
+                        if (reload) window.location.reload();
+                    }, 800);
                 } else {
-                    r.text().then(txt => alert('Action failed: ' + txt));
+                    r.text().then(txt => {
+                        iconContainer.innerHTML = '<i data-lucide="x-circle" class="error"></i>';
+                        text.textContent = 'Failed';
+                        lucide.createIcons();
+                        alert('Action failed: ' + txt);
+                        setTimeout(() => { overlay.style.display = 'none'; }, 1000);
+                    });
                 }
+            }).catch(err => {
+                iconContainer.innerHTML = '<i data-lucide="alert-triangle" class="error"></i>';
+                text.textContent = 'Error';
+                lucide.createIcons();
+                alert('Request error: ' + err);
+                setTimeout(() => { overlay.style.display = 'none'; }, 1000);
             });
             return false;
         }
@@ -869,16 +933,30 @@
                         formData.append('from', from);
                         formData.append('to', to);
                         
+                        const overlay = document.getElementById('action-overlay');
+                        const iconContainer = document.getElementById('action-icon-container');
+                        const text = document.getElementById('action-text');
+                        overlay.style.display = 'flex';
+                        iconContainer.innerHTML = '<i data-lucide="loader-2" class="spinner"></i>';
+                        text.textContent = 'Reordering...';
+                        lucide.createIcons();
+
                         fetch('/admin/player/reorder', {
                             method: 'POST',
                             body: formData
                         }).then(r => {
-                            if (!r.ok) alert('Failed to reorder playlist');
-                            // We don't reload here to avoid losing scroll position, 
-                            // but ideally we should refresh the data-index attributes
-                            // if we want multiple moves without a reload.
-                            // For simplicity, let's just reload for now to keep indices in sync.
-                            window.location.reload();
+                            if (r.ok) {
+                                iconContainer.innerHTML = '<i data-lucide="check-circle-2" class="success"></i>';
+                                text.textContent = 'Reordered';
+                                lucide.createIcons();
+                                setTimeout(() => {
+                                    overlay.style.display = 'none';
+                                    window.location.reload();
+                                }, 600);
+                            } else {
+                                alert('Failed to reorder playlist');
+                                overlay.style.display = 'none';
+                            }
                         });
                     }
                 });

@@ -301,6 +301,7 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/admin/delete-webhook", s.handleDeleteWebhook)
 	mux.HandleFunc("/admin/player/toggle", s.handlePlayerToggle)
 	mux.HandleFunc("/admin/player/scan", s.handlePlayerScan)
+	mux.HandleFunc("/admin/player/save-playlist", s.handlePlayerSavePlaylist)
 	mux.HandleFunc("/admin/player/reorder", s.handlePlayerReorder)
 	mux.HandleFunc("/admin/player/queue", s.handlePlayerQueue)
 	mux.HandleFunc("/admin/player/shuffle", s.handlePlayerShuffle)
@@ -2324,17 +2325,31 @@ func (s *Server) handlePlayerScan(w http.ResponseWriter, r *http.Request) {
 		logrus.WithError(err).Error("Failed to scan music directory")
 	}
 
-	// Persist
-	playlistCopy := streamer.GetPlaylist()
-	for _, adj := range s.Config.AutoDJs {
-		if adj.Mount == mount {
-			adj.Playlist = playlistCopy
-			s.Config.SaveConfig()
-			break
-		}
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) handlePlayerSavePlaylist(w http.ResponseWriter, r *http.Request) {
+	if !s.isCSRFSafe(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	if _, ok := s.checkAuth(r); !ok {
+		return
 	}
 
-	http.Redirect(w, r, "/admin#tab-streamer", http.StatusSeeOther)
+	mount := r.FormValue("mount")
+	streamer := s.StreamerM.GetStreamer(mount)
+	if streamer == nil {
+		http.Error(w, "Streamer not found", http.StatusNotFound)
+		return
+	}
+
+	if err := streamer.SavePlaylist(); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
 }
 
 func (s *Server) handleAddAutoDJ(w http.ResponseWriter, r *http.Request) {
