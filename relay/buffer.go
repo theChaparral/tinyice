@@ -1,6 +1,8 @@
 // Package relay provides the core audio streaming and relay functionality for TinyIce.
-// It includes circular buffers, stream management, transcoding, and various protocol
-// handlers for creating a complete internet radio streaming server.
+//
+// The relay package implements the fundamental components needed for internet radio
+// streaming including circular buffers for audio data, stream management for multiple
+// mount points, listener connection handling, and various audio format support.
 package relay
 
 import (
@@ -9,13 +11,14 @@ import (
 
 // CircularBuffer is a thread-safe fixed-size ring buffer for stream data.
 //
-// This buffer implementation is optimized for audio streaming scenarios where:
-//   - Multiple listeners may connect at different times
-//   - New listeners need instant access to recent audio data
-//   - Old data can be safely overwritten when the buffer is full
+// This buffer implementation is optimized for audio streaming scenarios where
+// multiple listeners may connect at different times and need instant access
+// to recent audio data. Old data can be safely overwritten when the buffer
+// is full.
 //
-// The buffer uses absolute positioning (Head) to track write positions, allowing
-// listeners to subscribe at different offsets and catch up to the live stream.
+// The buffer uses absolute positioning (Head) to track write positions,
+// allowing listeners to subscribe at different offsets and catch up to
+// the live stream.
 //
 // Performance Characteristics:
 //   - O(1) write operations (amortized)
@@ -24,28 +27,22 @@ import (
 //   - Fixed memory footprint (no dynamic allocations during operation)
 //
 // Typical Usage:
-//   - Create with NewCircularBuffer(size) where size is the maximum buffer size in bytes
-//   - Write audio data with Write() method
-//   - Read from specific positions with ReadAt() method
-//   - Find Ogg page boundaries with FindNextPageBoundary() (in ogg.go)
+//   buffer := NewCircularBuffer(512 * 1024) // 512KB buffer
+//   buffer.Write(audioData)
+//   bytesRead, newOffset, skipped := buffer.ReadAt(offset, readBuffer)
 type CircularBuffer struct {
-	Data []byte      // The actual buffer storage
-	Size int64       // Maximum size of the buffer in bytes
-	Head int64       // Current write position (absolute, monotonically increasing)
+	Data []byte       // The actual buffer storage
+	Size int64        // Maximum size of the buffer in bytes
+	Head int64        // Current write position (absolute, monotonically increasing)
 	mu   sync.RWMutex // Mutex for thread-safe operations
 }
 
 // NewCircularBuffer creates a new CircularBuffer with the specified size.
 //
-// Parameters:
-//   size - The size of the buffer in bytes. Typical values range from 64KB to 2MB
-//     depending on the expected listener latency requirements.
-//
-// Returns:
-//   A pointer to the initialized CircularBuffer ready for use.
-//
-// Example:
-//   buffer := NewCircularBuffer(512 * 1024) // 512KB buffer
+// The size parameter determines the maximum amount of audio data that can be
+// buffered. Typical values range from 64KB to 2MB depending on the expected
+// listener latency requirements. Larger buffers allow listeners to rewind further
+// but consume more memory.
 func NewCircularBuffer(size int) *CircularBuffer {
 	return &CircularBuffer{
 		Data: make([]byte, size),
@@ -55,19 +52,14 @@ func NewCircularBuffer(size int) *CircularBuffer {
 
 // Write appends data to the circular buffer.
 //
-// This method is thread-safe and can be called concurrently from multiple goroutines.
-// The data is written in chunks, handling buffer wrap-around automatically.
+// Write is thread-safe and can be called concurrently from multiple goroutines.
+// The data is written in chunks, automatically handling buffer wrap-around.
+// The method locks the buffer for the entire duration of the write operation.
 //
-// Parameters:
-//   p - The byte slice containing data to write to the buffer
-//
-// Performance:
-//   - Locks the buffer during the entire write operation
-//   - Handles partial writes when data spans the buffer boundary
+// Performance characteristics:
 //   - O(1) complexity for typical writes
-//
-// Example:
-//   buffer.Write(audioChunk)
+//   - Locks the buffer during the entire operation
+//   - Handles partial writes when data spans buffer boundaries
 func (cb *CircularBuffer) Write(p []byte) {
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
@@ -75,7 +67,7 @@ func (cb *CircularBuffer) Write(p []byte) {
 	// Write data in chunks, handling buffer wrap-around
 	// This loop continues until all data is written
 	for len(p) > 0 {
-		pos := cb.Head % cb.Size   // Calculate position within buffer bounds
+		pos := cb.Head % cb.Size    // Calculate position within buffer bounds
 		n := copy(cb.Data[pos:], p) // Copy as much as fits in current segment
 		cb.Head += int64(n)         // Advance write position
 		p = p[n:]                   // Advance source pointer
@@ -84,27 +76,17 @@ func (cb *CircularBuffer) Write(p []byte) {
 
 // ReadAt reads data from the buffer starting at the absolute offset 'start'.
 //
-// This method is designed for audio streaming scenarios where listeners may connect
-// at different times and need to catch up to the live stream.
+// ReadAt is designed for audio streaming scenarios where listeners may connect
+// at different times and need to catch up to the live stream. It handles
+// buffer wrap-around automatically and limits reads to available data.
 //
-// Parameters:
-//   start - The absolute offset to start reading from
-//   p     - The byte slice to read data into
+// If the requested position is ahead of the current write position, ReadAt
+// returns (0, start, false) indicating no data is available. If the listener
+// is too far behind (> buffer size), it skips to the oldest available data
+// and returns the skipped flag as true.
 //
-// Returns:
-//   int   - The number of bytes actually read
-//   int64 - The new absolute offset after this read
-//   bool  - True if the reader was skipped forward due to buffer wrap-around
-//
-// Behavior:
-//   - Returns (0, start, false) if start >= current head (no data available)
-//   - Automatically handles buffer wrap-around
-//   - Limits reads to available data
-//   - Skips to oldest available data if listener is too far behind
-//
-// Thread Safety:
-//   - Uses RLock for read operations, allowing concurrent reads
-//   - Safe to call from multiple goroutines simultaneously
+// ReadAt uses RLock for read operations, allowing concurrent reads from
+// multiple goroutines. This makes it safe to call from any goroutine.
 //
 // Example:
 //   bytesRead, newOffset, wasSkipped := buffer.ReadAt(currentOffset, audioBuffer)
