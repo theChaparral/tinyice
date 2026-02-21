@@ -738,7 +738,6 @@
             text.textContent = 'Processing...';
             lucide.createIcons();
 
-            // For actions that take longer than 2 seconds, update the text
             const longActionTimeout = setTimeout(() => {
                 if (form.dataset.submitting === 'true') {
                     text.textContent = 'Still working...';
@@ -797,10 +796,10 @@
 
         function updateAutoDJProgress() {
             const bars = document.querySelectorAll('.progress-bar-adj');
-            const now = Math.floor(Date.now() / 1000);
+            const now = Date.now() / 1000;
             
             bars.forEach(bar => {
-                const startTime = parseInt(bar.dataset.start);
+                const startTime = parseFloat(bar.dataset.start);
                 const duration = parseFloat(bar.dataset.duration);
                 const card = bar.closest('.card');
                 
@@ -816,7 +815,6 @@
                 if (progressBox) progressBox.style.opacity = '1';
                 
                 const elapsed = Math.max(0, now - startTime);
-                // Cap at 100% to prevent the 5:23/3:00 issue before SSE syncs
                 const progress = Math.min(100, (elapsed / duration) * 100);
                 bar.style.width = progress + '%';
                 
@@ -824,7 +822,7 @@
                 const totalEl = card.querySelector('.progress-time-total');
                 
                 if (currentEl) {
-                    const displayElapsed = Math.min(elapsed, Math.floor(duration));
+                    const displayElapsed = Math.max(0, Math.min(elapsed, duration));
                     const m = Math.floor(displayElapsed / 60).toString().padStart(2, '0');
                     const s = Math.floor(displayElapsed % 60).toString().padStart(2, '0');
                     currentEl.textContent = `${m}:${s}`;
@@ -836,7 +834,7 @@
                 }
             });
         }
-        setInterval(updateAutoDJProgress, 1000);
+        setInterval(updateAutoDJProgress, 50);
 
         function showEditAutoDJ(data) {
             document.getElementById('edit-old-mount').value = data.Mount;
@@ -917,7 +915,7 @@
                                     <input type="hidden" name="path" value="${e.abs_path}">
                                     <button type="submit" class="btn btn-outline btn-sm" style="padding:0.1rem 0.3rem; font-size:0.7rem;" title="Queue Next">QUEUE</button>
                                 </form>` : ''}
-                                <form action="${actionURL}" method="POST" onsubmit="${confirmMsg ? `if(confirm('${confirmMsg}')) ` : ''}return submitForm(event, true)" style="margin:0;">
+                                <form action="${actionURL}" method="POST" onsubmit="${confirmMsg ? `if(confirm('${confirmMsg}')) ` : ''}return submitForm(event, e.is_dir, true)" style="margin:0;">
                                     <input type="hidden" name="csrf" value="${csrfToken}">
                                     <input type="hidden" name="mount" value="${mount}">
                                     <input type="hidden" name="action" value="add">
