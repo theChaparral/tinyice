@@ -14,6 +14,7 @@ import (
 	"github.com/DatanoiseTV/tinyice/config"
 	"github.com/dhowden/tag"
 	"github.com/hajimehoshi/go-mp3"
+	"github.com/mikkyang/id3-go"
 	"github.com/sirupsen/logrus"
 )
 
@@ -48,6 +49,7 @@ type Streamer struct {
 
 	fileCancel context.CancelFunc
 	titleCache map[string]string
+	titleFetchWg sync.WaitGroup
 
 	// Stats
 	BytesStreamed       int64
@@ -114,6 +116,12 @@ func (s *Streamer) ToggleInjectMetadata() {
 	s.InjectMetadata = !s.InjectMetadata
 }
 
+func (s *Streamer) ClearQueue() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Queue = []string{}
+}
+
 func (s *Streamer) Stop() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -149,8 +157,18 @@ func (s *Streamer) RemoveFromQueue(index int) {
 	s.Queue = append(s.Queue[:index], s.Queue[index+1:]...)
 }
 
-type PlaylistItem struct {
-	Title string
+func (s *Streamer) MoveQueueItem(from, to int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if from < 0 || from >= len(s.Queue) || to < 0 || to >= len(s.Queue) {
+		return
+	}
+	item := s.Queue[from]
+	s.Queue = append(s.Queue[:from], s.Queue[from+1:]...)
+	s.Queue = append(s.Queue[:to], append([]string{item}, s.Queue[to:]...)...)
+}
+
+type PlaylistItem struct {	Title string
 	Path  string
 }
 
@@ -172,31 +190,50 @@ func (s *Streamer) GetPlaylistInfo() []PlaylistItem {
 
 func (s *Streamer) GetSongTitle(path string) string {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
 	if title, ok := s.titleCache[path]; ok {
+		s.mu.RUnlock()
 		return title
 	}
+	s.mu.RUnlock()
+
+	// Trigger background fetch if not already in progress
+	go s.fetchTitleAndCache(path)
+
+	// Fallback to filename if no title found (yet)
 	return filepath.Base(path)
 }
 
-func (s *Streamer) fetchTitleAndCache(path string) string {
-	title := filepath.Base(path)
-	f, err := os.Open(path)
-	if err == nil {
-		if m, err := tag.ReadFrom(f); err == nil {
-			if m.Artist() != "" && m.Title() != "" {
-				title = fmt.Sprintf("%s - %s", m.Artist(), m.Title())
-			} else if m.Title() != "" {
-				title = m.Title()
+func (s *Streamer) fetchTitleAndCache(path string) {
+	s.titleFetchWg.Add(1)
+	go func() {
+		defer s.titleFetchWg.Done()
+		
+		s.mu.Lock()
+		if _, ok := s.titleCache[path]; ok {
+			s.mu.Unlock()
+			return // Already fetched by another concurrent call
+		}
+		s.mu.Unlock()
+
+		title := filepath.Base(path)
+		
+		// Use id3-go for extraction
+		if file, err := id3.Open(path); err == nil {
+			defer file.Close()
+			artist := strings.TrimSpace(file.Artist())
+			song := strings.TrimSpace(file.Title())
+			
+			if artist != "" && song != "" {
+				title = fmt.Sprintf("%s - %s", artist, song)
+			} else if song != "" {
+				title = song
 			}
 		}
-		f.Close()
-	}
 
-	s.mu.Lock()
-	s.titleCache[path] = title
-	s.mu.Unlock()
-	return title
+		s.mu.Lock()
+		s.titleCache[path] = title
+		s.mu.Unlock()
+	}()
 }
 
 func (s *Streamer) GetQueueInfo() []PlaylistItem {

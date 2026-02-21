@@ -11,6 +11,7 @@ require (
 require (
 	github.com/braheezy/shine-mp3 v0.1.0 // indirect
 	github.com/dhowden/tag v0.0.0-20240417053706-3d75831295e8 // indirect
+	github.com/djimenez/iconv-go v0.0.0-20160305225143-8960e66bd3da // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/go-audio/audio v1.0.0 // indirect
 	github.com/go-audio/riff v1.0.0 // indirect
@@ -20,6 +21,7 @@ require (
 	github.com/hajimehoshi/go-mp3 v0.3.4 // indirect
 	github.com/kazzmir/opus-go v1.2.1 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
+	github.com/mikkyang/id3-go v0.0.0-20191012064224-2c6ab3bb1fbd // indirect
 	github.com/pion/datachannel v1.6.0 // indirect
 	github.com/pion/dtls/v3 v3.1.2 // indirect
 	github.com/pion/ice/v4 v4.2.1 // indirect

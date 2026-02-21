@@ -85,6 +85,8 @@ type Server struct {
 
 	scanAttempts   map[string]*scanAttempt // IP -> 404 count
 	scanAttemptsMu sync.Mutex
+
+	done chan struct{}
 }
 
 type scanAttempt struct {
@@ -212,6 +214,7 @@ func NewServer(cfg *config.Config, authLog *logrus.Logger) *Server {
 		sessions:     make(map[string]*session),
 		authAttempts: make(map[string]*authAttempt),
 		scanAttempts: make(map[string]*scanAttempt),
+		done:         make(chan struct{}),
 	}
 }
 
@@ -304,6 +307,7 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/admin/player/restart", s.handlePlayerRestart)
 	mux.HandleFunc("/admin/player/scan", s.handlePlayerScan)
 	mux.HandleFunc("/admin/player/clear-playlist", s.handlePlayerClearPlaylist)
+	mux.HandleFunc("/admin/player/clear-queue", s.handlePlayerClearQueue)
 	mux.HandleFunc("/admin/player/save-playlist", s.handlePlayerSavePlaylist)
 	mux.HandleFunc("/admin/player/playlist-info", s.handlePlayerPlaylistInfo)
 	mux.HandleFunc("/admin/player/load-playlist", s.handlePlayerLoadPlaylist)
@@ -371,33 +375,44 @@ func (s *Server) listenWithReuse(network, address string) (net.Listener, error) 
 func (s *Server) Shutdown(ctx context.Context) error {
 	logrus.Info("Server shutting down gracefully...")
 
-	// Stop relays and transcoders immediately to prevent dual-pulling if a new instance starts
+	// 1. Signal all long-running handlers and background tasks to stop
+	close(s.done)
+
+	// 2. Disconnect all audio stream listeners immediately
+	s.Relay.DisconnectAllListeners()
+
+	// 3. Stop background pullers/encoders
 	s.RelayM.StopAll()
 	s.TranscoderM.StopAll()
 
-	// Force signal all listeners to stop reading
-
-	s.Relay.DisconnectAllListeners()
+	// Stop AutoDJs
+	for _, st := range s.StreamerM.GetStreamers() {
+		s.StreamerM.StopStreamer(st.OutputMount)
+	}
 
 	var wg sync.WaitGroup
 	for _, srv := range s.httpServers {
 		wg.Add(1)
 		go func(srv *http.Server) {
 			defer wg.Done()
-			if err := srv.Shutdown(ctx); err != nil {
+			// Use a shorter timeout per-server to avoid total timeout
+			shCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if err := srv.Shutdown(shCtx); err != nil {
 				logrus.Errorf("Error during HTTP server shutdown: %v", err)
 			}
 		}(srv)
 	}
 
-	done := make(chan struct{})
+	waitDone := make(chan struct{})
 	go func() {
 		wg.Wait()
-		close(done)
+		close(waitDone)
 	}()
 
 	select {
-	case <-done:
+	case <-waitDone:
+		logrus.Info("All servers shut down successfully")
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
@@ -439,6 +454,57 @@ func (s *Server) HotSwap() error {
 	}()
 
 	return nil
+}
+
+// validatePathInMusicDir checks if targetPath (absolute) is safely within musicDir (absolute)
+func (s *Server) validatePathInMusicDir(musicDir, targetPath string) (string, error) {
+	absMusicDir, err := filepath.Abs(musicDir)
+	if err != nil {
+		return "", fmt.Errorf("invalid music directory: %w", err)
+	}
+
+	absTargetPath, err := filepath.Abs(targetPath)
+	if err != nil {
+		return "", fmt.Errorf("invalid target path: %w", err)
+	}
+
+	rel, err := filepath.Rel(absMusicDir, absTargetPath)
+	
+	logrus.Debugf("PATH_VALIDATION: absMusicDir=[%s] absTargetPath=[%s] rel=[%s]", absMusicDir, absTargetPath, rel)
+
+	if err != nil {
+		logrus.Debugf("validatePathInMusicDir: filepath.Rel error: %v", err)
+		return "", fmt.Errorf("path not within music directory: %w", err)
+	}
+
+	// Check for path traversal attempts like "../"
+	if strings.HasPrefix(rel, "..") || rel == ".." {
+		logrus.Warnf("PATH_VALIDATION_FAILED: Traversal detected. rel=[%s]", rel)
+		return "", fmt.Errorf("security: path traversal attempt detected: %s", targetPath)
+	}
+	
+	// If rel is ".", it means targetPath is exactly musicDir. This is valid.
+	return absTargetPath, nil
+}
+
+// safeJoin securely joins a base (absolute) and a relative path segment, preventing traversal.
+// This is primarily for constructing paths for internal use (e.g., browsing subdirectories).
+func (s *Server) safeJoin(base, rel string) (string, error) {
+	absBase, err := filepath.Abs(base)
+	if err != nil {
+		return "", err
+	}
+	
+	joined := filepath.Join(absBase, rel)
+	
+	// Ensure the joined path is still within the base directory
+	// This also sanitizes the path (e.g., removes redundant slashes)
+	validatedPath, err := s.validatePathInMusicDir(absBase, joined)
+	if err != nil {
+		return "", err
+	}
+
+	return validatedPath, nil
 }
 
 func (s *Server) ReloadConfig(cfg *config.Config) {
@@ -577,30 +643,6 @@ func (s *Server) buildListeners(port string) ([]net.Listener, error) {
 		return nil, fmt.Errorf("failed to bind on any address for port %s", port)
 	}
 	return listeners, nil
-}
-
-func (s *Server) safeJoin(base, rel string) (string, error) {
-	absBase, err := filepath.Abs(base)
-	if err != nil {
-		return "", err
-	}
-	
-	// Join and clean the path
-	joined := filepath.Join(absBase, rel)
-	
-	// Ensure the result is still within the base directory
-	relPath, err := filepath.Rel(absBase, joined)
-	if err != nil {
-		return "", err
-	}
-	
-	logrus.Debugf("safeJoin: base=%s rel=%s joined=%s relPath=%s", absBase, rel, joined, relPath)
-
-	if strings.HasPrefix(relPath, "..") || strings.HasPrefix(relPath, "/") {
-		return "", fmt.Errorf("security: path traversal attempt detected: %s", relPath)
-	}
-	
-	return joined, nil
 }
 
 // multiListener fans in Accept() calls from multiple net.Listeners into one.
@@ -950,7 +992,13 @@ func (s *Server) isCSRFSafe(r *http.Request) bool {
 		return true
 	}
 
-	return r.FormValue("csrf") == sess.CSRFToken
+	providedToken := r.FormValue("csrf")
+	if providedToken != sess.CSRFToken {
+		logrus.Warnf("CSRF Mismatch: provided=[%s] expected=[%s] remote=%s path=%s", providedToken, sess.CSRFToken, r.RemoteAddr, r.URL.Path)
+		return false
+	}
+
+	return true
 }
 
 func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
@@ -1219,6 +1267,12 @@ func (s *Server) handleListener(w http.ResponseWriter, r *http.Request) {
 	defer recoveryTicker.Stop()
 
 	for {
+		select {
+		case <-s.done:
+			return
+		default:
+		}
+
 		if mount != originalMount {
 			if _, ok := s.Relay.GetStream(originalMount); ok {
 				logrus.WithField("mount", originalMount).Info("Primary stream returned, recovering from fallback")
@@ -1296,6 +1350,8 @@ func (s *Server) serveStreamData(w http.ResponseWriter, r *http.Request, stream 
 
 	for {
 		select {
+		case <-s.done:
+			return false
 		case <-r.Context().Done():
 			return false
 		case <-recoveryTicker.C:
@@ -1992,6 +2048,8 @@ func (s *Server) handlePublicEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	for {
 		select {
+		case <-s.done:
+			return
 		case <-r.Context().Done():
 			return
 		case <-ticker.C:
@@ -2015,11 +2073,16 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 func (s *Server) directoryReportingTask() {
 	ticker := time.NewTicker(3 * time.Minute)
 	defer ticker.Stop()
-	for range ticker.C {
-		streams := s.Relay.Snapshot()
-		for _, st := range streams {
-			if st.Public {
-				s.reportToDirectory(st)
+	for {
+		select {
+		case <-s.done:
+			return
+		case <-ticker.C:
+			streams := s.Relay.Snapshot()
+			for _, st := range streams {
+				if st.Public {
+					s.reportToDirectory(st)
+				}
 			}
 		}
 	}
@@ -2028,13 +2091,18 @@ func (s *Server) directoryReportingTask() {
 func (s *Server) statsRecordingTask() {
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
-	for range ticker.C {
-		if s.Relay.History == nil {
-			continue
-		}
-		streams := s.Relay.Snapshot()
-		for _, st := range streams {
-			s.Relay.History.RecordStats(st.MountName, st.ListenersCount, st.BytesIn, st.BytesOut)
+	for {
+		select {
+		case <-s.done:
+			return
+		case <-ticker.C:
+			if s.Relay.History == nil {
+				continue
+			}
+			streams := s.Relay.Snapshot()
+			for _, st := range streams {
+				s.Relay.History.RecordStats(st.MountName, st.ListenersCount, st.BytesIn, st.BytesOut)
+			}
 		}
 	}
 }
@@ -2106,6 +2174,7 @@ type streamerEventInfo struct {
 	Shuffle      bool     `json:"shuffle"`
 	Loop         bool     `json:"loop"`
 	Queue        []relay.PlaylistItem `json:"queue"`
+	Playlist     []relay.PlaylistItem `json:"playlist"`
 }
 
 func (s *Server) collectStatsPayload(user *config.User) ([]byte, error) {
@@ -2164,6 +2233,7 @@ func (s *Server) collectStatsPayload(user *config.User) ([]byte, error) {
 				Shuffle:     stats.Shuffle,
 				Loop:        stats.Loop,
 				Queue:       st.GetQueueInfo(),
+				Playlist:    st.GetPlaylistInfo(),
 			})
 		}
 	}
@@ -2226,6 +2296,8 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	for {
 		select {
+		case <-s.done:
+			return
 		case <-r.Context().Done():
 			return
 		case <-ticker.C:
@@ -2361,6 +2433,26 @@ func (s *Server) handleDeleteWebhook(w http.ResponseWriter, r *http.Request) {
 	s.Config.SaveConfig()
 
 	http.Redirect(w, r, "/admin#tab-webhooks", http.StatusSeeOther)
+}
+
+func (s *Server) handlePlayerClearQueue(w http.ResponseWriter, r *http.Request) {
+	if !s.isCSRFSafe(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	if _, ok := s.checkAuth(r); !ok {
+		return
+	}
+
+	mount := r.FormValue("mount")
+	streamer := s.StreamerM.GetStreamer(mount)
+	if streamer == nil {
+		http.Error(w, "Streamer not found", http.StatusNotFound)
+		return
+	}
+
+	streamer.ClearQueue()
+	w.WriteHeader(http.StatusOK)
 }
 
 func (s *Server) handlePlayerToggle(w http.ResponseWriter, r *http.Request) {
@@ -2676,6 +2768,8 @@ func (s *Server) handlePlayerQueue(w http.ResponseWriter, r *http.Request) {
 	mount := r.FormValue("mount")
 	path := r.FormValue("path")
 	action := r.FormValue("action") // "add" or "remove"
+	
+	logrus.Debugf("handlePlayerQueue: mount=%s action=%s path=%s", mount, action, path)
 
 	streamer := s.StreamerM.GetStreamer(mount)
 	if streamer == nil {
@@ -2685,16 +2779,9 @@ func (s *Server) handlePlayerQueue(w http.ResponseWriter, r *http.Request) {
 
 	if action == "add" {
 		musicDir := streamer.GetMusicDir()
-		rel, err := filepath.Rel(musicDir, path)
+		fullPath, err := s.validatePathInMusicDir(musicDir, path)
 		if err != nil {
-			logrus.WithError(err).Warnf("Security: Blocked queue addition: filepath.Rel failed for base=%s path=%s", musicDir, path)
-			http.Error(w, "Forbidden", http.StatusForbidden)
-			return
-		}
-
-		fullPath, err := s.safeJoin(musicDir, rel)
-		if err != nil {
-			logrus.WithError(err).Warnf("Security: Blocked queue addition of %s (relative to %s) for mount %s. Full path attempted: %s", rel, musicDir, mount, fullPath)
+			logrus.WithError(err).Warnf("Security: Blocked queue addition of %s for mount %s", path, mount)
 			http.Error(w, "Forbidden", http.StatusForbidden)
 			return
 		}
@@ -2705,6 +2792,11 @@ func (s *Server) handlePlayerQueue(w http.ResponseWriter, r *http.Request) {
 		var index int
 		fmt.Sscanf(r.FormValue("index"), "%d", &index)
 		streamer.RemoveFromQueue(index)
+	} else if action == "reorder" {
+		var from, to int
+		fmt.Sscanf(r.FormValue("from"), "%d", &from)
+		fmt.Sscanf(r.FormValue("to"), "%d", &to)
+		streamer.MoveQueueItem(from, to)
 	}
 
 	w.WriteHeader(http.StatusOK)
@@ -2797,13 +2889,14 @@ func (s *Server) handleAutoDJStudio(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.sessionsMu.RLock()
-	sess := s.sessions[user.Username]
 	csrf := ""
-	if sess != nil {
-		csrf = sess.CSRFToken
+	if cookie, err := r.Cookie("sid"); err == nil {
+		s.sessionsMu.RLock()
+		if sess, ok := s.sessions[cookie.Value]; ok {
+			csrf = sess.CSRFToken
+		}
+		s.sessionsMu.RUnlock()
 	}
-	s.sessionsMu.RUnlock()
 
 	data := map[string]interface{}{
 		"Streamer":  streamer.GetStats(),
@@ -3008,6 +3101,8 @@ func (s *Server) handlePlayerPlaylistAction(w http.ResponseWriter, r *http.Reque
 	mount := r.FormValue("mount")
 	action := r.FormValue("action")
 	relPath := r.FormValue("file")
+	
+	logrus.Debugf("handlePlayerPlaylistAction: mount=%s action=%s file=%s", mount, action, relPath)
 
 	streamer := s.StreamerM.GetStreamer(mount)
 	if streamer == nil {
@@ -3018,15 +3113,9 @@ func (s *Server) handlePlayerPlaylistAction(w http.ResponseWriter, r *http.Reque
 	if action == "add" {
 		musicDir := streamer.GetMusicDir()
 		// Frontend sends absolute path, we convert to relative to validate via safeJoin
-		rel, err := filepath.Rel(musicDir, relPath)
+		fullPath, err := s.validatePathInMusicDir(musicDir, relPath)
 		if err != nil {
-			http.Error(w, "Forbidden", http.StatusForbidden)
-			return
-		}
-
-		fullPath, err := s.safeJoin(musicDir, rel)
-		if err != nil {
-			logrus.WithError(err).Warnf("Security: Blocked playlist addition of %s (relative to %s) for mount %s. Full path attempted: %s", rel, musicDir, mount, fullPath)
+			logrus.WithError(err).Warnf("Security: Blocked playlist addition of %s for mount %s", relPath, mount)
 			http.Error(w, "Forbidden", http.StatusForbidden)
 			return
 		}
