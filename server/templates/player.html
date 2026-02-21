@@ -128,6 +128,7 @@
         let audioCtx, analyser, source, animationId, pc;
         let smoothedAvg = 0;
         let reconnectAttempts = 0;
+        let isReconnecting = false;
 
         if (useWebRTC) {
             modePill.classList.add('webrtc');
@@ -257,15 +258,21 @@
         };
 
         function reconnect() {
-            if (isPlaying && !useWebRTC) {
+            if (isPlaying && !useWebRTC && !isReconnecting) {
+                isReconnecting = true;
                 // Reconnect rate: ~1 second + tiny bit of random (0-200ms)
                 const delay = 1000 + (Math.random() * 200);
                 setTimeout(() => {
-                    if (!isPlaying) return;
+                    if (!isPlaying) {
+                        isReconnecting = false;
+                        return;
+                    }
                     audio.src = mount + '?t=' + new Date().getTime();
                     audio.play().then(() => {
                         reconnectAttempts = 0;
+                        isReconnecting = false;
                     }).catch(() => {
+                        isReconnecting = false;
                         reconnect();
                     });
                 }, delay);
