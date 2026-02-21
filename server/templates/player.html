@@ -258,12 +258,16 @@
 
         function reconnect() {
             if (isPlaying && !useWebRTC) {
-                reconnectAttempts++;
-                const delay = Math.min(1000 * Math.pow(1.5, reconnectAttempts), 10000);
+                // Reconnect rate: ~1 second + tiny bit of random (0-200ms)
+                const delay = 1000 + (Math.random() * 200);
                 setTimeout(() => {
                     if (!isPlaying) return;
                     audio.src = mount + '?t=' + new Date().getTime();
-                    audio.play().then(() => reconnectAttempts = 0).catch(reconnect);
+                    audio.play().then(() => {
+                        reconnectAttempts = 0;
+                    }).catch(() => {
+                        reconnect();
+                    });
                 }, delay);
             }
         }
