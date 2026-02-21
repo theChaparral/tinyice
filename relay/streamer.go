@@ -13,8 +13,8 @@ import (
 
 	"github.com/DatanoiseTV/tinyice/config"
 	"github.com/dhowden/tag"
+	"github.com/bogem/id3v2/v2"
 	"github.com/hajimehoshi/go-mp3"
-	"github.com/mikkyang/id3-go"
 	"github.com/sirupsen/logrus"
 )
 
@@ -217,11 +217,11 @@ func (s *Streamer) fetchTitleAndCache(path string) {
 
 		title := filepath.Base(path)
 		
-		// Use id3-go for extraction
-		if file, err := id3.Open(path); err == nil {
-			defer file.Close()
-			artist := strings.TrimSpace(file.Artist())
-			song := strings.TrimSpace(file.Title())
+		// Use id3v2 for extraction (Pure Go, no CGO/iconv)
+		if tag, err := id3v2.Open(path, id3v2.Options{Parse: true}); err == nil {
+			defer tag.Close()
+			artist := strings.TrimSpace(tag.Artist())
+			song := strings.TrimSpace(tag.Title())
 			
 			if artist != "" && song != "" {
 				title = fmt.Sprintf("%s - %s", artist, song)

@@ -3,25 +3,23 @@ module github.com/DatanoiseTV/tinyice
 go 1.25.1
 
 require (
+	github.com/bogem/id3v2/v2 v2.1.4
+	github.com/braheezy/shine-mp3 v0.1.0
+	github.com/dhowden/tag v0.0.0-20240417053706-3d75831295e8
 	github.com/glebarez/go-sqlite v1.22.0
+	github.com/gomarkdown/markdown v0.0.0-20260217112301-37c66b85d6ab
+	github.com/hajimehoshi/go-mp3 v0.3.4
+	github.com/kazzmir/opus-go v1.2.1
+	github.com/pion/webrtc/v4 v4.2.8
 	github.com/sirupsen/logrus v1.9.4
 	golang.org/x/crypto v0.48.0
+	golang.org/x/sys v0.41.0
 )
 
 require (
-	github.com/braheezy/shine-mp3 v0.1.0 // indirect
-	github.com/dhowden/tag v0.0.0-20240417053706-3d75831295e8 // indirect
-	github.com/djimenez/iconv-go v0.0.0-20160305225143-8960e66bd3da // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
-	github.com/go-audio/audio v1.0.0 // indirect
-	github.com/go-audio/riff v1.0.0 // indirect
-	github.com/go-audio/wav v1.1.0 // indirect
-	github.com/gomarkdown/markdown v0.0.0-20260217112301-37c66b85d6ab // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/hajimehoshi/go-mp3 v0.3.4 // indirect
-	github.com/kazzmir/opus-go v1.2.1 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
-	github.com/mikkyang/id3-go v0.0.0-20191012064224-2c6ab3bb1fbd // indirect
 	github.com/pion/datachannel v1.6.0 // indirect
 	github.com/pion/dtls/v3 v3.1.2 // indirect
 	github.com/pion/ice/v4 v4.2.1 // indirect
@@ -37,11 +35,9 @@ require (
 	github.com/pion/stun/v3 v3.1.1 // indirect
 	github.com/pion/transport/v4 v4.0.1 // indirect
 	github.com/pion/turn/v4 v4.1.4 // indirect
-	github.com/pion/webrtc/v4 v4.2.8 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/wlynxg/anet v0.0.5 // indirect
 	golang.org/x/net v0.50.0 // indirect
-	golang.org/x/sys v0.41.0 // indirect
 	golang.org/x/text v0.34.0 // indirect
 	golang.org/x/time v0.10.0 // indirect
 	modernc.org/libc v1.37.6 // indirect

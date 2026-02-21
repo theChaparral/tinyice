@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"runtime/debug"
 	"strings"
 	"syscall"
 	"time"
@@ -104,6 +105,15 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  dump-config           Pretty-print the current configuration\n")
 	}
 	flag.Parse()
+
+	// Try to get version from build info if not set via ldflags
+	if Version == "dev" {
+		if info, ok := debug.ReadBuildInfo(); ok {
+			if info.Main.Version != "" && info.Main.Version != "(devel)" {
+				Version = info.Main.Version
+			}
+		}
+	}
 
 	authLogger := initLogging()
 	handleDaemonMode()
