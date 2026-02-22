@@ -2,8 +2,9 @@ package config
 
 import (
 	"encoding/json"
-	"golang.org/x/crypto/bcrypt"
 	"os"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 const (
@@ -75,6 +76,7 @@ type Config struct {
 	Transcoders    []*TranscoderConfig       `json:"transcoders"`
 	Webhooks       []*WebhookConfig          `json:"webhooks"`
 	BannedIPs      []string                  `json:"banned_ips"`
+	WhitelistedIPs []string                  `json:"whitelisted_ips"`
 
 	AdminPassword  string            `json:"admin_password"`
 	AdminUser      string            `json:"admin_user"`
@@ -218,6 +220,9 @@ func (config *Config) initMapsAndArrays() {
 	}
 	if config.BannedIPs == nil {
 		config.BannedIPs = make([]string, 0)
+	}
+	if config.WhitelistedIPs == nil {
+		config.WhitelistedIPs = make([]string, 0)
 	}
 	if config.AutoDJs == nil {
 		config.AutoDJs = make([]*AutoDJConfig, 0)
