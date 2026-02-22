@@ -74,7 +74,7 @@ jobs:
       - name: Run TinyIce startup test
         run: |
           GOARCH="${{ steps.arch_detect.outputs.GOARCH }}"
-          BINARY_PATH="artifacts_to_test/tinyice-linux-${GOARCH}/tinyice-linux-${GOARCH}"
+          BINARY_PATH="artifacts_to_test/tinyice-linux-${GOARCH}"
           
           echo "Starting TinyIce in background for 5 seconds to check for startup errors..."
           # Use a non-default port and tmp config to avoid conflicts
