@@ -78,30 +78,21 @@ jobs:
           
           echo "Starting TinyIce in background for 5 seconds to check for startup errors..."
           chmod +x "$BINARY_PATH" # Add execute permissions
-          # Use a non-default port and tmp config to avoid conflicts
-          timeout 5s sh -c "$BINARY_PATH -port 8080 -config /tmp/tinyice-test-linux-${GOARCH}.json" &
-          PID=$!
           
-          # Wait for the process to finish for up to 6 seconds (slightly more than timeout)
-          if ! wait $PID; then
-            EXIT_CODE=$?
-            if [ $EXIT_CODE -eq 124 ]; then
-              echo "TinyIce ran for more than 5 seconds or was killed by timeout. This is considered a pass (successful startup)."
-              exit 0 # Treat timeout as success (program didn't crash immediately)
-            else
-              echo "TinyIce exited with an unexpected error code: $EXIT_CODE within 5 seconds. This indicates a startup failure."
-              exit 1 # Treat any other non-zero exit code as failure
-            fi
+          # Run TinyIce with timeout. We want to pass if it exits 0 (graceful stop) or 124 (timeout).
+          # We fail if it exits with any other non-zero code.
+          timeout 5s sh -c "$BINARY_PATH -port 8080 -config /tmp/tinyice-test-linux-${GOARCH}.json"
+          TIMEOUT_EXIT_CODE=$?
+          
+          if [ $TIMEOUT_EXIT_CODE -eq 0 ]; then
+            echo "TinyIce exited gracefully within 5 seconds. Test passed."
+            exit 0 # Pass
+          elif [ $TIMEOUT_EXIT_CODE -eq 124 ]; then
+            echo "TinyIce ran for more than 5 seconds or was killed by timeout. Test passed (successful startup)."
+            exit 0 # Pass
           else
-            # Process exited naturally within 5 seconds
-            EXIT_CODE=$?
-            if [ $EXIT_CODE -eq 0 ]; then
-              echo "TinyIce exited gracefully within 5 seconds. This is considered a pass (successful short-lived execution)."
-              exit 0 # Treat graceful exit as success
-            else
-              echo "TinyIce exited with an error code: $EXIT_CODE within 5 seconds. This indicates a startup failure."
-              exit 1 # Treat non-zero exit code as failure
-            fi
+            echo "TinyIce exited with an unexpected error code: $TIMEOUT_EXIT_CODE within 5 seconds. This indicates a startup failure."
+            exit 1 # Fail
           fi
 
   release:
