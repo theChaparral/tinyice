@@ -2,7 +2,6 @@ package relay
 
 import (
 	"bufio"
-	"fmt"
 	"net"
 	"path/filepath"
 	"strings"
@@ -61,8 +60,10 @@ func (m *MPDServer) handleConnection(conn net.Conn) {
 	writer := bufio.NewWriter(conn)
 	reader := bufio.NewReader(conn)
 
+	resp := NewMPDResponse(writer)
+
 	// Greeting
-	writer.WriteString("OK MPD 0.23.5\n")
+	resp.Greeting("0.23.5")
 	writer.Flush()
 
 	authenticated := m.Password == ""
@@ -81,7 +82,7 @@ func (m *MPDServer) handleConnection(conn net.Conn) {
 		args := strings.TrimPrefix(line, cmd+" ")
 
 		if !authenticated && cmd != "password" && cmd != "close" {
-			writer.WriteString("ACK [5@0] {} permission denied\n")
+			resp.ACK(5, 0, "", "permission denied")
 			writer.Flush()
 			continue
 		}
@@ -90,56 +91,62 @@ func (m *MPDServer) handleConnection(conn net.Conn) {
 		case "password":
 			if args == m.Password {
 				authenticated = true
-				writer.WriteString("OK\n")
+				resp.OK()
 			} else {
-				writer.WriteString("ACK [3@0] {password} incorrect password\n")
+				resp.ACK(3, 0, "password", "incorrect password")
 			}
 		case "status":
-			m.handleStatus(writer)
+			m.handleStatus(resp)
 		case "currentsong":
-			m.handleCurrentSong(writer)
+			m.handleCurrentSong(resp)
 		case "play":
 			m.streamer.Play()
-			writer.WriteString("OK\n")
+			resp.OK()
 		case "stop":
 			m.streamer.Stop()
-			writer.WriteString("OK\n")
+			resp.OK()
 		case "pause":
 			m.streamer.TogglePlay()
-			writer.WriteString("OK\n")
+			resp.OK()
 		case "next":
 			m.streamer.Next()
-			writer.WriteString("OK\n")
+			resp.OK()
 		case "previous":
 			// We don't have previous yet, but let's be polite
-			writer.WriteString("OK\n")
+			resp.OK()
 		case "ping":
-			writer.WriteString("OK\n")
+			resp.OK()
 		case "close":
 			return
 		case "listall", "listallinfo":
-			m.handleListAll(writer)
+			m.handleListAll(resp)
 		case "listplaylists":
-			writer.WriteString("OK\n")
+			resp.OK()
 		case "lsinfo":
-			m.handleListAll(writer)
+			m.handleListAll(resp)
 		case "outputs":
-			fmt.Fprintf(writer, "outputid: 0\noutputname: %s\noutputenabled: 1\n", m.streamer.OutputMount)
-			writer.WriteString("OK\n")
+			resp.Field("outputid", 0)
+			resp.Field("outputname", m.streamer.OutputMount)
+			resp.Field("outputenabled", 1)
+			resp.OK()
 		case "config":
-			writer.WriteString("OK\n")
+			resp.OK()
 		case "stats":
-			fmt.Fprintf(writer, "uptime: 0\nplaytime: 0\nartists: 0\nalbums: 0\nsongs: %d\n", len(m.streamer.Playlist))
-			writer.WriteString("OK\n")
+			resp.Field("uptime", 0)
+			resp.Field("playtime", 0)
+			resp.Field("artists", 0)
+			resp.Field("albums", 0)
+			resp.Field("songs", len(m.streamer.Playlist))
+			resp.OK()
 		default:
 			logrus.Debugf("MPD: Unknown command: %s", cmd)
-			writer.WriteString("OK\n") // Be lenient for now
+			resp.OK() // Be lenient for now
 		}
 		writer.Flush()
 	}
 }
 
-func (m *MPDServer) handleStatus(w *bufio.Writer) {
+func (m *MPDServer) handleStatus(resp *MPDResponse) {
 	state := "stop"
 	if m.streamer.State == StatePlaying {
 		state = "play"
@@ -147,31 +154,31 @@ func (m *MPDServer) handleStatus(w *bufio.Writer) {
 		state = "pause"
 	}
 
-	fmt.Fprintf(w, "state: %s\n", state)
-	fmt.Fprintf(w, "volume: 100\n")
-	fmt.Fprintf(w, "repeat: 0\n")
-	fmt.Fprintf(w, "random: 0\n")
-	fmt.Fprintf(w, "single: 0\n")
-	fmt.Fprintf(w, "consume: 0\n")
-	fmt.Fprintf(w, "playlist: 1\n")
-	fmt.Fprintf(w, "playlistlength: %d\n", len(m.streamer.Playlist))
-	w.WriteString("OK\n")
+	resp.Field("state", state)
+	resp.Field("volume", 100)
+	resp.Field("repeat", 0)
+	resp.Field("random", 0)
+	resp.Field("single", 0)
+	resp.Field("consume", 0)
+	resp.Field("playlist", 1)
+	resp.Field("playlistlength", len(m.streamer.Playlist))
+	resp.OK()
 }
 
-func (m *MPDServer) handleCurrentSong(w *bufio.Writer) {
+func (m *MPDServer) handleCurrentSong(resp *MPDResponse) {
 	m.streamer.mu.RLock()
 	defer m.streamer.mu.RUnlock()
-	fmt.Fprintf(w, "file: %s\n", m.streamer.CurrentFile)
-	fmt.Fprintf(w, "Title: %s\n", m.streamer.CurrentFile)
-	fmt.Fprintf(w, "Pos: %d\n", m.streamer.CurrentPos)
-	fmt.Fprintf(w, "Id: %d\n", m.streamer.CurrentPos)
-	w.WriteString("OK\n")
+	resp.Field("file", m.streamer.CurrentFile)
+	resp.Field("Title", m.streamer.CurrentFile)
+	resp.Field("Pos", m.streamer.CurrentPos)
+	resp.Field("Id", m.streamer.CurrentPos)
+	resp.OK()
 }
 
-func (m *MPDServer) handleListAll(w *bufio.Writer) {
+func (m *MPDServer) handleListAll(resp *MPDResponse) {
 	// Dummy for now, just list what's in the music dir or playlist
 	for _, f := range m.streamer.Playlist {
-		fmt.Fprintf(w, "file: %s\n", filepath.Base(f))
+		resp.Field("file", filepath.Base(f))
 	}
-	w.WriteString("OK\n")
+	resp.OK()
 }
