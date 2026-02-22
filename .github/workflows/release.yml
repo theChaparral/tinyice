@@ -77,6 +77,7 @@ jobs:
           BINARY_PATH="artifacts_to_test/tinyice-linux-${GOARCH}"
           
           echo "Starting TinyIce in background for 5 seconds to check for startup errors..."
+          chmod +x "$BINARY_PATH" # Add execute permissions
           # Use a non-default port and tmp config to avoid conflicts
           timeout 5s sh -c "$BINARY_PATH -port 8080 -config /tmp/tinyice-test-linux-${GOARCH}.json" &
           PID=$!
