@@ -79,10 +79,14 @@ jobs:
           echo "Starting TinyIce in background for 5 seconds to check for startup errors..."
           chmod +x "$BINARY_PATH" # Add execute permissions
           
-          # Run TinyIce with timeout. We want to pass if it exits 0 (graceful stop) or 124 (timeout).
+          # Run TinyIce, preventing set -e from failing the script immediately if timeout returns 124.
+          # We want to pass if it exits 0 (graceful stop) or 124 (timeout).
           # We fail if it exits with any other non-zero code.
-          timeout 5s sh -c "$BINARY_PATH -port 8080 -config /tmp/tinyice-test-linux-${GOARCH}.json"
-          TIMEOUT_EXIT_CODE=$?
+          if timeout 5s sh -c "$BINARY_PATH -port 8080 -config /tmp/tinyice-test-linux-${GOARCH}.json"; then
+            TIMEOUT_EXIT_CODE=0 # timeout succeeded, meaning inner command exited 0
+          else
+            TIMEOUT_EXIT_CODE=$? # timeout failed (either non-zero from inner command or 124 for timeout)
+          fi
           
           if [ $TIMEOUT_EXIT_CODE -eq 0 ]; then
             echo "TinyIce exited gracefully within 5 seconds. Test passed."
