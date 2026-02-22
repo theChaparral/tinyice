@@ -336,35 +336,72 @@ func (s *Server) handleRemoveBannedIP(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleAddWhitelistedIP(w http.ResponseWriter, r *http.Request) {
 	if !s.isCSRFSafe(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 	user, ok := s.checkAuth(r)
-	if ok && user.Role == config.RoleSuperAdmin {
-		ip := r.FormValue("ip")
-		if ip != "" {
-			s.Config.WhitelistedIPs = append(s.Config.WhitelistedIPs, ip)
-			s.Config.SaveConfig()
+	if !ok || user.Role != config.RoleSuperAdmin {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	ip := r.FormValue("ip")
+	if ip == "" {
+		http.Error(w, "IP address cannot be empty", http.StatusBadRequest)
+		return
+	}
+
+	// Check for duplicates
+	for _, existingIP := range s.Config.WhitelistedIPs {
+		if existingIP == ip {
+			http.Error(w, "IP address already in the whitelist", http.StatusConflict)
+			return
 		}
 	}
-	http.Redirect(w, r, "/admin", http.StatusSeeOther)
+
+	s.Config.WhitelistedIPs = append(s.Config.WhitelistedIPs, ip)
+	// For consistency, sort the list after adding
+	sort.Strings(s.Config.WhitelistedIPs)
+	s.Config.SaveConfig()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"ip": ip, "status": "added"})
 }
 
 func (s *Server) handleRemoveWhitelistedIP(w http.ResponseWriter, r *http.Request) {
 	if !s.isCSRFSafe(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 	user, ok := s.checkAuth(r)
-	if ok && user.Role == config.RoleSuperAdmin {
-		ip := r.FormValue("ip")
-		for i, b := range s.Config.WhitelistedIPs {
-			if b == ip {
-				s.Config.WhitelistedIPs = append(s.Config.WhitelistedIPs[:i], s.Config.WhitelistedIPs[i+1:]...)
-				s.Config.SaveConfig()
-				break
-			}
+	if !ok || user.Role != config.RoleSuperAdmin {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	ip := r.FormValue("ip")
+	if ip == "" {
+		http.Error(w, "IP address cannot be empty", http.StatusBadRequest)
+		return
+	}
+
+	found := false
+	for i, b := range s.Config.WhitelistedIPs {
+		if b == ip {
+			s.Config.WhitelistedIPs = append(s.Config.WhitelistedIPs[:i], s.Config.WhitelistedIPs[i+1:]...)
+			s.Config.SaveConfig()
+			found = true
+			break
 		}
 	}
-	http.Redirect(w, r, "/admin", http.StatusSeeOther)
+
+	if !found {
+		http.Error(w, "IP not found in whitelist", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"ip": ip, "status": "removed"})
 }
 
 func (s *Server) handleClearAuthLockout(w http.ResponseWriter, r *http.Request) {

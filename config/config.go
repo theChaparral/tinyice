@@ -121,6 +121,54 @@ type Config struct {
 	Users map[string]*User `json:"users"`
 }
 
+func (c *Config) IsWhitelisted(ip string) bool {
+	for _, existingIP := range c.WhitelistedIPs {
+		if existingIP == ip {
+			return true
+		}
+	}
+	return false
+}
+
+func (c *Config) AddWhitelistedIP(ip string) {
+	if !c.IsWhitelisted(ip) {
+		c.WhitelistedIPs = append(c.WhitelistedIPs, ip)
+	}
+}
+
+func (c *Config) RemoveWhitelistedIP(ip string) {
+	for i, existingIP := range c.WhitelistedIPs {
+		if existingIP == ip {
+			c.WhitelistedIPs = append(c.WhitelistedIPs[:i], c.WhitelistedIPs[i+1:]...)
+			return
+		}
+	}
+}
+
+func (c *Config) IsBanned(ip string) bool {
+	for _, existingIP := range c.BannedIPs {
+		if existingIP == ip {
+			return true
+		}
+	}
+	return false
+}
+
+func (c *Config) AddBannedIP(ip string) {
+	if !c.IsBanned(ip) {
+		c.BannedIPs = append(c.BannedIPs, ip)
+	}
+}
+
+func (c *Config) RemoveBannedIP(ip string) {
+	for i, existingIP := range c.BannedIPs {
+		if existingIP == ip {
+			c.BannedIPs = append(c.BannedIPs[:i], c.BannedIPs[i+1:]...)
+			return
+		}
+	}
+}
+
 func HashPassword(p string) (string, error) {
 	bytes, err := bcrypt.GenerateFromPassword([]byte(p), 12)
 	return string(bytes), err

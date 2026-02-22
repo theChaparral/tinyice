@@ -1506,7 +1506,7 @@
                         <h2>Ban Address or Range</h2>
                         <div class="card">
                             <form action="/admin/add-banned-ip" method="POST"
-                                onsubmit="return submitForm(event, false)">
+                                onsubmit="return submitForm(event, true)">
                                 <input type="hidden" name="csrf" value="{{$.CSRFToken}}">
                                 <div class="form-group">
                                     <label>IP Address or CIDR Range</label>
@@ -1554,8 +1554,7 @@
                     <section>
                         <h2>Whitelist Address or Range</h2>
                         <div class="card">
-                            <form action="/admin/add-whitelisted-ip" method="POST"
-                                onsubmit="return submitForm(event, false)">
+                            <form action="/admin/add-whitelisted-ip" method="POST">
                                 <input type="hidden" name="csrf" value="{{$.CSRFToken}}">
                                 <div class="form-group">
                                     <label>IP Address or CIDR Range</label>
@@ -1575,13 +1574,12 @@
                                         <th style="width:30%">Action</th>
                                     </tr>
                                 </thead>
-                                <tbody>
+                                <tbody id="whitelist-tbody">
                                     {{range .Config.WhitelistedIPs}}
                                     <tr>
                                         <td>{{.}}</td>
                                         <td>
-                                            <form action="/admin/remove-whitelisted-ip" method="POST"
-                                                onsubmit="return submitForm(event, false)">
+                                            <form action="/admin/remove-whitelisted-ip" method="POST" class="remove-whitelist-form">
                                                 <input type="hidden" name="csrf" value="{{$.CSRFToken}}">
                                                 <input type="hidden" name="ip" value="{{.}}">
                                                 <button type="submit" class="btn btn-outline btn-sm">Remove</button>
@@ -1589,7 +1587,7 @@
                                         </td>
                                     </tr>
                                     {{else}}
-                                    <tr>
+                                    <tr id="no-whitelist-ips-row">
                                         <td colspan="2" style="text-align:center; padding:2rem">No IPs whitelisted.</td>
                                     </tr>
                                     {{end}}
@@ -2564,6 +2562,110 @@
             initSortable();
             if (window.location.hash) { var it = window.location.hash.substring(1); if (document.getElementById(it)) { showTab(it, false); } }
         })();
+    </script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const addWhitelistForm = document.querySelector('form[action="/admin/add-whitelisted-ip"]');
+            const whitelistTbody = document.getElementById('whitelist-tbody');
+
+            // --- Handle ADDING a whitelisted IP ---
+            if (addWhitelistForm) {
+                addWhitelistForm.addEventListener('submit', function(event) {
+                    event.preventDefault();
+                    const form = event.target;
+                    const ipInput = form.querySelector('input[name="ip"]');
+                    const ip = ipInput.value.trim();
+
+                    if (!ip) {
+                        alert('IP address cannot be empty.');
+                        return;
+                    }
+
+                    // Client-side duplicate check
+                    const existingIPs = Array.from(whitelistTbody.querySelectorAll('tr td:first-child')).map(td => td.textContent.trim());
+                    if (existingIPs.includes(ip)) {
+                        alert('This IP address is already in the whitelist.');
+                        return;
+                    }
+
+                    const formData = new FormData(form);
+                    
+                    fetch(form.action, {
+                        method: 'POST',
+                        body: formData
+                    })
+                    .then(response => {
+                        if (response.ok) {
+                            return response.json();
+                        }
+                        return response.text().then(text => { throw new Error(text || 'An unknown error occurred.') });
+                    })
+                    .then(data => {
+                        if (data.status === 'added') {
+                            const noIpRow = document.getElementById('no-whitelist-ips-row');
+                            if (noIpRow) {
+                                noIpRow.remove();
+                            }
+
+                            const newRow = document.createElement('tr');
+                            newRow.innerHTML = `
+                                <td>${data.ip}</td>
+                                <td>
+                                    <form action="/admin/remove-whitelisted-ip" method="POST" class="remove-whitelist-form">
+                                        <input type="hidden" name="csrf" value="${csrfToken}">
+                                        <input type="hidden" name="ip" value="${data.ip}">
+                                        <button type="submit" class="btn btn-outline btn-sm">Remove</button>
+                                    </form>
+                                </td>
+                            `;
+                            whitelistTbody.appendChild(newRow);
+                            newRow.querySelector('.remove-whitelist-form').addEventListener('submit', handleRemoveSubmit);
+                            ipInput.value = '';
+                        }
+                    })
+                    .catch(error => {
+                        alert('Failed to add IP: ' + error.message);
+                    });
+                });
+            }
+
+            // --- Handle REMOVING a whitelisted IP ---
+            const handleRemoveSubmit = function(event) {
+                event.preventDefault();
+                const form = event.target;
+                const row = form.closest('tr');
+                const formData = new FormData(form);
+
+                fetch(form.action, {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => {
+                    if (response.ok) {
+                        return response.json();
+                    }
+                    return response.text().then(text => { throw new Error(text || 'An unknown error occurred.') });
+                })
+                .then(data => {
+                    if (data.status === 'removed') {
+                        row.remove();
+                        if (whitelistTbody.childElementCount === 0) {
+                            const noIpRow = document.createElement('tr');
+                            noIpRow.id = 'no-whitelist-ips-row';
+                            noIpRow.innerHTML = '<td colspan="2" style="text-align:center; padding:2rem">No IPs whitelisted.</td>';
+                            whitelistTbody.appendChild(noIpRow);
+                        }
+                    }
+                })
+                .catch(error => {
+                    alert('Failed to remove IP: ' + error.message);
+                });
+            };
+
+            document.querySelectorAll('.remove-whitelist-form').forEach(form => {
+                form.addEventListener('submit', handleRemoveSubmit);
+            });
+        });
     </script>
 </body>
 
