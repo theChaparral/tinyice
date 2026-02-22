@@ -271,6 +271,8 @@ func (m *MPDServer) dispatchCommand(cmd, args string, resp *MPDResponse) bool {
 	case "urlhandlers":
 		resp.Field("handler", "http")
 		resp.Field("handler", "https")
+	case "search":
+		m.handleSearch(args, resp)
 	default:
 		logger.L.Debugf("MPD: Unknown command: %s", cmd)
 		resp.ACK(5, 0, cmd, "unknown command")
@@ -288,6 +290,39 @@ func (m *MPDServer) handleIdle(resp *MPDResponse) {
 	case <-time.After(30 * time.Second):
 		resp.OK()
 	}
+}
+
+func (m *MPDServer) handleSearch(args string, resp *MPDResponse) {
+	// search <type> <query>
+	parts := strings.SplitN(args, " ", 2)
+	if len(parts) < 2 {
+		resp.OK()
+		return
+	}
+	// type := strings.ToLower(parts[0])
+	query := strings.Trim(parts[1], "\"")
+	queryLower := strings.ToLower(query)
+
+	m.streamer.mu.RLock()
+	musicDir := m.streamer.MusicDir
+	m.streamer.mu.RUnlock()
+
+	filepath.Walk(musicDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if info.IsDir() {
+			return nil
+		}
+		// Basic title/filename search
+		rel, _ := filepath.Rel(musicDir, path)
+		if strings.Contains(strings.ToLower(rel), queryLower) {
+			m.writeSongInfo(resp, rel, 0, 0) // Pos/Id 0 for search results usually
+		}
+		return nil
+	})
+
+	resp.OK()
 }
 
 func (m *MPDServer) handlePlaylistChanges(args string, resp *MPDResponse) {
