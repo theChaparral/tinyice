@@ -38,6 +38,38 @@ jobs:
           fi
           GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -ldflags="-s -w" -o dist/tinyice-${{ matrix.goos }}-${{ matrix.goarch }}${EXT} main.go
 
+      - name: Test TinyIce startup on Linux
+        if: ${{ runner.os == 'Linux' && matrix.goos == 'linux' }}
+        run: |
+          BINARY_PATH="dist/tinyice-${{ matrix.goos }}-${{ matrix.goarch }}"
+          
+          echo "Starting TinyIce in background for 5 seconds to check for startup errors..."
+          # Use a non-default port and tmp config to avoid conflicts
+          timeout 5s $BINARY_PATH -port 8080 -config /tmp/tinyice-test-${{ matrix.goos }}-${{ matrix.goarch }}.json &
+          PID=$!
+          
+          # Wait for the process to finish for up to 6 seconds (slightly more than timeout)
+          if ! wait $PID; then
+            EXIT_CODE=$?
+            if [ $EXIT_CODE -eq 124 ]; then
+              echo "TinyIce ran for more than 5 seconds or was killed by timeout. This is considered a pass (successful startup)."
+              exit 0 # Treat timeout as success (program didn't crash immediately)
+            else
+              echo "TinyIce exited with an unexpected error code: $EXIT_CODE within 5 seconds. This indicates a startup failure."
+              exit 1 # Treat any other non-zero exit code as failure
+            fi
+          else
+            # Process exited naturally within 5 seconds
+            EXIT_CODE=$?
+            if [ $EXIT_CODE -eq 0 ]; then
+              echo "TinyIce exited gracefully within 5 seconds. This is considered a pass (successful short-lived execution)."
+              exit 0 # Treat graceful exit as success
+            else
+              echo "TinyIce exited with an error code: $EXIT_CODE within 5 seconds. This indicates a startup failure."
+              exit 1 # Treat non-zero exit as failure
+            fi
+          fi
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
