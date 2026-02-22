@@ -23,12 +23,27 @@ The **Streamer** is an internal audio source that behaves like an external sourc
 *   **Decoding:** Uses `hajimehoshi/go-mp3` for decoding.
 *   **Encoding:** Uses a custom native implementation (`relay/transcode.go`) to re-encode audio into chunks suitable for streaming (MP3/Opus).
 *   **Pacing:** Crucial. The streamer must manually pace itself (sleep) to match the playback duration of the audio frames, otherwise, it would flood the buffer.
-*   **Metadata:** ID3 tags are extracted using `bogem/id3v2` (pure Go) in a non-blocking background goroutine (`fetchTitleAndCache`) to prevent UI stalls.
+*   **Metadata:** ID3 tags are extracted using `bogem/id3v2` (pure Go).
 
-### C. Networking & Security (`server/socket_*.go`)
+### C. Database & Persistence (`relay/history.go`)
+Since v0.9.3-exp, TinyIce uses **GORM** with a non-CGO SQLite driver (`github.com/glebarez/sqlite`) for data persistence.
+*   **Decoupled Driver:** The non-CGO driver ensures "single binary" portability without requiring a GCC toolchain.
+*   **Schema Migration:** Automated via GORM's `AutoMigrate`.
+*   **History Tracking:** All track plays and listener statistics are archived in `history.db`.
+
+### D. Observability & Monitoring (`server/handlers_api.go`)
+TinyIce exposes a secured **Prometheus** exporter at `/metrics`.
+*   **Basic Auth:** The exporter is secured using the primary admin credentials.
+*   **Metrics:** Provides real-time gauges for memory usage, goroutines, GC cycles, and per-stream bandwidth/health.
+*   **Infrastructure:** Native support for Grafana via bundled dashboard templates in the `monitoring/` directory.
+
+### E. Networking & Security (`server/`)
 *   **Dual Stack:** Binds to both IPv4 and IPv6.
 *   **Hot Swap (`SO_REUSEPORT`):** Allows a new process to bind to the *same* port while the old one is still running. The old process hands off duties and shuts down gracefully (`server/server.go` -> `HotSwap()`).
-*   **TCP Banning:** We implement a `BannedListener` wrapper that drops connections from banned IPs at the `Accept()` level, before any TLS or HTTP overhead is incurred.
+*   **IP Access Control:**
+    *   **Banning:** Dropping connections from known malicious IPs at the `Accept()` level.
+    *   **Whitelisting:** Bypassing security checks for trusted IPs (e.g., local admin, monitoring nodes).
+    *   **404 Scanning Protection:** Automatic temporary lockout for IPs performing path scanning.
 
 ### D. Web Interface (`server/templates/`)
 *   **Technology:** Server-Side Rendered (SSR) Go templates + Vanilla JS.
@@ -44,6 +59,7 @@ The **Streamer** is an internal audio source that behaves like an external sourc
 tinyice/
 ├── main.go                 # Entry point. Flags, config loading, and Updater initialization.
 ├── config/                 # JSON configuration struct and defaults.
+├── monitoring/             # Observability assets (Grafana dashboards, Prometheus configs).
 ├── relay/                  # AUDIO CORE.
 │   ├── buffer.go           # CircularBuffer implementation for stream data.
 │   ├── stream.go           # Stream struct and core stream operations.
@@ -57,9 +73,13 @@ tinyice/
 │   ├── mpd.go              # Minimal implementation of MPD protocol.
 │   ├── webrtc.go           # WebRTC PeerConnection and Source management.
 │   ├── client.go           # Logic for pulling external relay streams.
-│   └── history.go          # Historical data and statistics tracking.
+│   └── history.go          # GORM Models and database logic.
 ├── server/                 # HTTP/TCP LAYER.
-│   ├── server.go           # Routes, handlers, auth, middleware.
+│   ├── server.go           # Server initialization and routing logic.
+│   ├── auth.go             # Authentication, sessions, and IP security.
+│   ├── listener.go         # Streaming listener lifecycle management.
+│   ├── handlers_*.go       # Domain-specific HTTP handlers (admin, api, player, etc).
+│   ├── tasks.go            # Background tasks (reporting, stats recording).
 │   ├── socket_*.go         # OS-specific socket syscalls (SO_REUSEPORT).
 │   └── templates/          # HTML/CSS/JS assets.
 └── updater/                # Self-update mechanism (GitHub Releases).
