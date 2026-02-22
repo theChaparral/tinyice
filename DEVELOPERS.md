@@ -1,4 +1,4 @@
-# Developer Guide ❄️
+# Developer Guide
 
 Welcome to the TinyIce codebase! This document provides an architectural overview and technical deep-dive to help you understand how TinyIce works and how to contribute effectively.
 

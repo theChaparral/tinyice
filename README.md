@@ -1,4 +1,4 @@
-# TinyIce ❄️
+# TinyIce
 
 ![TinyIce Logo](https://raw.githubusercontent.com/DatanoiseTV/tinyice/main/assets/logo.png?v=2)
 
@@ -311,8 +311,8 @@ TinyIce provides built-in support for real-time monitoring via Prometheus.
 
 ### Grafana Dashboard & Prometheus Config
 Example monitoring configurations are available in the repository:
-- 📊 **[monitoring/grafana-dashboard.json](monitoring/grafana-dashboard.json)**
-- ⚙️ **[monitoring/prometheus.yml](monitoring/prometheus.yml)**
+- [monitoring/grafana-dashboard.json](monitoring/grafana-dashboard.json)
+- [monitoring/prometheus.yml](monitoring/prometheus.yml)
 
 To use them:
 1.  Add the contents of `prometheus.yml` to your Prometheus configuration (update targets and auth).
