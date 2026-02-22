@@ -1,0 +1,15 @@
+# Example Prometheus configuration for TinyIce
+# To use this:
+# 1. Update the 'targets' with your TinyIce server address
+# 2. Update 'username' and 'password' with your TinyIce admin credentials
+# 3. Add this scrape_config to your existing prometheus.yml
+
+scrape_configs:
+  - job_name: 'tinyice'
+    scrape_interval: 5s
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['127.0.0.1:8002']
+    basic_auth:
+      username: 'admin'
+      password: 'password' # Use the password generated on first run or set in tinyice.json

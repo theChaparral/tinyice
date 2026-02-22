@@ -307,13 +307,14 @@ TinyIce provides built-in support for real-time monitoring via Prometheus.
   - **Throughput**: Bytes in/out and dropped packets (health ratio).
   - **System**: Memory usage, goroutine counts, GC statistics, and server uptime.
 
-### Grafana Dashboard
-A pre-configured Grafana dashboard is available in the repository:
-👉 **[monitoring/grafana-dashboard.json](monitoring/grafana-dashboard.json)**
+### Grafana Dashboard & Prometheus Config
+Example monitoring configurations are available in the repository:
+- 📊 **[monitoring/grafana-dashboard.json](monitoring/grafana-dashboard.json)**
+- ⚙️ **[monitoring/prometheus.yml](monitoring/prometheus.yml)**
 
-To use it:
-1.  Ensure Prometheus is scraping your TinyIce instance.
-2.  Import the JSON file into your Grafana instance.
+To use them:
+1.  Add the contents of `prometheus.yml` to your Prometheus configuration (update targets and auth).
+2.  Import the Grafana JSON file into your Grafana instance.
 3.  Select your Prometheus data source.
 
 ## Command Line Usage
