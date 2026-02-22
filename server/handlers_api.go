@@ -333,7 +333,7 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	}
 	fmt.Fprintf(w, "\n# HELP tinyice_stream_health_ratio Current health ratio of the stream (0.0 to 1.0)\n# TYPE tinyice_stream_health_ratio gauge\n")
 	for _, st := range allStreams {
-		fmt.Fprintf(w, "tinyice_stream_health_ratio{mount=\"%s\",name=\"%s\"} %f\n", st.MountName, st.Name, st.Health)
+		fmt.Fprintf(w, "tinyice_stream_health_ratio{mount=\"%s\",name=\"%s\"} %f\n", st.MountName, st.Name, st.Health/100.0)
 	}
 	fmt.Fprintf(w, "\n# HELP tinyice_stream_is_transcoded Whether the stream is being transcoded (1 for yes, 0 for no)\n# TYPE tinyice_stream_is_transcoded gauge\n")
 	for _, st := range allStreams {
