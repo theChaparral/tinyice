@@ -297,6 +297,25 @@ bantime = 3600
 > **Note**: Once the certificate is successfully obtained and stored in the `certs/` directory, you can revert TinyIce to custom ports (like 8000/8443) if needed.
  However, you will need to switch back to ports 80/443 for automatic renewals (typically every 60-90 days).
 
+## Monitoring & Observability
+
+TinyIce provides built-in support for real-time monitoring via Prometheus.
+
+- **Metrics Endpoint**: `/metrics` (Requires Basic Auth)
+- **Included Metrics**: 
+  - **Listeners**: Total and per-mount counts.
+  - **Throughput**: Bytes in/out and dropped packets (health ratio).
+  - **System**: Memory usage, goroutine counts, GC statistics, and server uptime.
+
+### Grafana Dashboard
+A pre-configured Grafana dashboard is available in the repository:
+👉 **[monitoring/grafana-dashboard.json](monitoring/grafana-dashboard.json)**
+
+To use it:
+1.  Ensure Prometheus is scraping your TinyIce instance.
+2.  Import the JSON file into your Grafana instance.
+3.  Select your Prometheus data source.
+
 ## Command Line Usage
 
 By default, TinyIce will look for `tinyice.json` in the current directory and bind to all interfaces:
