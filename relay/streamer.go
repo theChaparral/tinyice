@@ -32,7 +32,7 @@ type Streamer struct {
 	MusicDir       string
 	Format         string
 	Bitrate        int
-	Playlist       []string
+	Playlist       []PlaylistSong
 	Queue          []string
 	CurrentPos     int
 	State          StreamerState
@@ -57,7 +57,6 @@ type Streamer struct {
 	CurrentArtist       string
 	CurrentTitle        string
 	CurrentAlbum        string
-	CurrentID           int
 	CurrentPlayingPos   int
 	CurrentPlayingID    int
 	CurrentSampleRate   int
@@ -179,22 +178,29 @@ func (s *Streamer) MoveQueueItem(from, to int) {
 	s.Queue = append(s.Queue[:to], append([]string{item}, s.Queue[to:]...)...)
 }
 
+type PlaylistSong struct {
+	Path string
+	ID   int
+}
+
 type PlaylistItem struct {
 	Title string
 	Path  string
+	ID    int
 }
 
 func (s *Streamer) GetPlaylistInfo() []PlaylistItem {
 	s.mu.RLock()
-	playlist := make([]string, len(s.Playlist))
+	playlist := make([]PlaylistSong, len(s.Playlist))
 	copy(playlist, s.Playlist)
 	s.mu.RUnlock()
 
 	res := make([]PlaylistItem, len(playlist))
 	for i, p := range playlist {
 		res[i] = PlaylistItem{
-			Title: s.GetSongTitle(p),
-			Path:  p,
+			Title: s.GetSongTitle(p.Path),
+			Path:  p.Path,
+			ID:    p.ID,
 		}
 	}
 	return res
@@ -276,7 +282,7 @@ func (s *Streamer) GetPlaylistNames() []string {
 	defer s.mu.RUnlock()
 	res := make([]string, len(s.Playlist))
 	for i, p := range s.Playlist {
-		res[i] = filepath.Base(p)
+		res[i] = filepath.Base(p.Path)
 	}
 	return res
 }
@@ -302,15 +308,15 @@ func (s *Streamer) ScanMusicDir() error {
 	s.titleCache = make(map[string]string)
 
 	// Copy playlist to process outside of lock
-	currentPlaylist := make([]string, len(s.Playlist))
+	currentPlaylist := make([]PlaylistSong, len(s.Playlist))
 	copy(currentPlaylist, s.Playlist)
 	s.mu.Unlock()
 
 	// Re-verify files and update cache in background
 	go func() {
-		for _, path := range currentPlaylist {
-			if _, err := os.Stat(path); err == nil {
-				s.fetchTitleAndCache(path)
+		for _, ps := range currentPlaylist {
+			if _, err := os.Stat(ps.Path); err == nil {
+				s.fetchTitleAndCache(ps.Path)
 			}
 		}
 	}()
@@ -335,8 +341,8 @@ func (s *Streamer) SavePlaylist() error {
 
 	fmt.Fprintf(f, "[playlist]\nNumberOfEntries=%d\n", len(s.Playlist))
 	for i, p := range s.Playlist {
-		fmt.Fprintf(f, "File%d=%s\n", i+1, p)
-		fmt.Fprintf(f, "Title%d=%s\n", i+1, s.GetSongTitle(p))
+		fmt.Fprintf(f, "File%d=%s\n", i+1, p.Path)
+		fmt.Fprintf(f, "Title%d=%s\n", i+1, s.GetSongTitle(p.Path))
 	}
 	fmt.Fprintf(f, "Version=2\n")
 	return nil
@@ -365,7 +371,7 @@ func (s *Streamer) LoadPlaylist(filename string) error {
 	}
 	defer f.Close()
 
-	var newPlaylist []string
+	var newPlaylistPaths []string
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -375,14 +381,18 @@ func (s *Streamer) LoadPlaylist(filename string) error {
 		if strings.HasPrefix(strings.ToLower(line), "file") {
 			parts := strings.SplitN(line, "=", 2)
 			if len(parts) == 2 {
-				newPlaylist = append(newPlaylist, strings.TrimSpace(parts[1]))
+				newPlaylistPaths = append(newPlaylistPaths, strings.TrimSpace(parts[1]))
 			}
 		}
 	}
 
-	if len(newPlaylist) > 0 {
+	if len(newPlaylistPaths) > 0 {
 		s.mu.Lock()
-		s.Playlist = newPlaylist
+		s.Playlist = []PlaylistSong{}
+		for _, path := range newPlaylistPaths {
+			s.Playlist = append(s.Playlist, PlaylistSong{Path: path, ID: s.NextID})
+			s.NextID++
+		}
 		s.LastPlaylist = filename
 		s.mu.Unlock()
 	}
@@ -399,14 +409,22 @@ func (s *Streamer) GetPlaylist() []string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	res := make([]string, len(s.Playlist))
-	copy(res, s.Playlist)
+	for i, p := range s.Playlist {
+		res[i] = p.Path
+	}
 	return res
 }
 
 func (s *Streamer) SetPlaylist(p []string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.Playlist = p
+	s.Playlist = []PlaylistSong{}
+	for _, path := range p {
+		s.Playlist = append(s.Playlist, PlaylistSong{Path: path, ID: s.NextID})
+		s.NextID++
+	}
+	s.PlaylistVersion++
+	s.broadcastIdle("playlist")
 }
 
 func (s *Streamer) SetLastPlaylist(name string) {
@@ -418,7 +436,8 @@ func (s *Streamer) SetLastPlaylist(name string) {
 func (s *Streamer) AddToPlaylist(path string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.Playlist = append(s.Playlist, path)
+	s.Playlist = append(s.Playlist, PlaylistSong{Path: path, ID: s.NextID})
+	s.NextID++
 	s.PlaylistVersion++
 	s.broadcastIdle("playlist")
 }
@@ -435,7 +454,7 @@ func (s *Streamer) RemoveFromPlaylist(idx int) {
 
 func (s *Streamer) ClearPlaylist() {
 	s.mu.Lock()
-	s.Playlist = []string{}
+	s.Playlist = []PlaylistSong{}
 	s.PlaylistVersion++
 	s.mu.Unlock()
 	s.SavePlaylist()
@@ -500,7 +519,7 @@ func (s *Streamer) GetStats() StreamerStats {
 	}
 }
 
-func (sm *StreamerManager) StartStreamer(name, mount, musicDir string, loop bool, format string, bitrate int, injectMetadata bool, initialPlaylist []string, mpdEnabled bool, mpdPort, mpdPassword string, visible bool, lastPlaylist string) (*Streamer, error) {
+func (sm *StreamerManager) StartStreamer(name, mount, musicDir string, loop bool, format string, bitrate int, injectMetadata bool, initialPlaylistPaths []string, mpdEnabled bool, mpdPort, mpdPassword string, visible bool, lastPlaylist string) (*Streamer, error) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
@@ -510,6 +529,14 @@ func (sm *StreamerManager) StartStreamer(name, mount, musicDir string, loop bool
 
 	ctx, cancel := context.WithCancel(context.Background())
 	absMusicDir, _ := filepath.Abs(musicDir)
+
+	initialPlaylist := make([]PlaylistSong, 0, len(initialPlaylistPaths))
+	nextID := 1
+	for _, path := range initialPlaylistPaths {
+		initialPlaylist = append(initialPlaylist, PlaylistSong{Path: path, ID: nextID})
+		nextID++
+	}
+
 	s := &Streamer{
 		Name:              name,
 		OutputMount:       mount,
@@ -526,7 +553,7 @@ func (sm *StreamerManager) StartStreamer(name, mount, musicDir string, loop bool
 		relay:             sm.relay,
 		cancel:            cancel,
 		titleCache:        make(map[string]string),
-		NextID:            1,
+		NextID:            nextID, // Start NextID after initial playlist
 		CurrentPlayingPos: -1,
 		CurrentPlayingID:  -1,
 		PlaylistVersion:   1,
@@ -609,7 +636,7 @@ func (s *Streamer) MovePlaylistItem(from, to int) {
 	// Remove
 	s.Playlist = append(s.Playlist[:from], s.Playlist[from+1:]...)
 	// Insert
-	s.Playlist = append(s.Playlist[:to], append([]string{item}, s.Playlist[to:]...)...)
+	s.Playlist = append(s.Playlist[:to], append([]PlaylistSong{item}, s.Playlist[to:]...)...)
 	s.PlaylistVersion++
 	s.broadcastIdle("playlist")
 }
@@ -629,11 +656,15 @@ func (sm *StreamerManager) runStreamerLoop(ctx context.Context, s *Streamer) {
 
 			s.mu.Lock()
 			var filePath string
+			var fileID int
 
+			var filePos int
 			// 1. Check Queue first
 			if len(s.Queue) > 0 {
 				filePath = s.Queue[0]
 				s.Queue = s.Queue[1:]
+				fileID = -1 // Queue items don't have an ID from the playlist
+				filePos = -1
 			} else if len(s.Playlist) > 0 {
 				// 2. Handle Shuffle or Sequential Playlist
 				if s.Shuffle {
@@ -649,7 +680,9 @@ func (sm *StreamerManager) runStreamerLoop(ctx context.Context, s *Streamer) {
 						}
 					}
 				}
-				filePath = s.Playlist[s.CurrentPos]
+				filePath = s.Playlist[s.CurrentPos].Path
+				fileID = s.Playlist[s.CurrentPos].ID
+				filePos = s.CurrentPos
 				if !s.Shuffle {
 					s.CurrentPos++
 				}
@@ -667,7 +700,7 @@ func (sm *StreamerManager) runStreamerLoop(ctx context.Context, s *Streamer) {
 			s.fileCancel = fileCancel
 			s.mu.Unlock()
 
-			err := sm.streamFile(fileCtx, s, filePath)
+			err := sm.streamFile(fileCtx, s, filePath, filePos, fileID)
 			if err != nil && fileCtx.Err() == nil {
 				logger.L.Errorf("Streamer %s: Failed to stream %s: %v", s.Name, filePath, err)
 				time.Sleep(1 * time.Second)
@@ -680,7 +713,7 @@ func (sm *StreamerManager) runStreamerLoop(ctx context.Context, s *Streamer) {
 		}
 	}
 }
-func (sm *StreamerManager) streamFile(ctx context.Context, s *Streamer, path string) error {
+func (sm *StreamerManager) streamFile(ctx context.Context, s *Streamer, path string, pos, id int) error {
 	f, err := os.Open(path)
 	if err != nil {
 		return err
@@ -709,10 +742,8 @@ func (sm *StreamerManager) streamFile(ctx context.Context, s *Streamer, path str
 	s.CurrentArtist = ""
 	s.CurrentTitle = songTitle
 	s.CurrentAlbum = ""
-	s.CurrentID = s.NextID
-	s.CurrentPlayingPos = s.CurrentPos - 1 // CurrentPos was already incremented
-	s.CurrentPlayingID = s.CurrentID
-	s.NextID++
+	s.CurrentPlayingPos = pos
+	s.CurrentPlayingID = id
 	if m, err := tag.ReadFrom(f); err == nil {
 		s.CurrentArtist = m.Artist()
 		s.CurrentTitle = m.Title()

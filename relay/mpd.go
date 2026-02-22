@@ -194,7 +194,7 @@ func (m *MPDServer) dispatchCommand(cmd, args string, resp *MPDResponse) bool {
 		// OK
 	case "idle":
 		m.handleIdle(resp)
-		return false // handleIdle sends its own OK or Changed
+		return true
 	case "update":
 		m.streamer.ScanMusicDir()
 		resp.Field("updating_db", 1)
@@ -273,6 +273,9 @@ func (m *MPDServer) dispatchCommand(cmd, args string, resp *MPDResponse) bool {
 		resp.Field("handler", "https")
 	case "search":
 		m.handleSearch(args, resp)
+	case "albumart", "readpicture":
+		resp.ACK(50, 0, cmd, "No album art is available")
+		return false
 	default:
 		logger.L.Debugf("MPD: Unknown command: %s", cmd)
 		resp.ACK(5, 0, cmd, "unknown command")
@@ -286,9 +289,7 @@ func (m *MPDServer) handleIdle(resp *MPDResponse) {
 	select {
 	case <-m.streamer.idleCh:
 		resp.Field("changed", "playlist")
-		resp.OK()
 	case <-time.After(30 * time.Second):
-		resp.OK()
 	}
 }
 
@@ -321,8 +322,6 @@ func (m *MPDServer) handleSearch(args string, resp *MPDResponse) {
 		}
 		return nil
 	})
-
-	resp.OK()
 }
 
 func (m *MPDServer) handlePlaylistChanges(args string, resp *MPDResponse) {
@@ -331,17 +330,16 @@ func (m *MPDServer) handlePlaylistChanges(args string, resp *MPDResponse) {
 
 	m.streamer.mu.RLock()
 	currentVersion := m.streamer.PlaylistVersion
-	playlist := make([]string, len(m.streamer.Playlist))
+	playlist := make([]PlaylistSong, len(m.streamer.Playlist))
 	copy(playlist, m.streamer.Playlist)
 	m.streamer.mu.RUnlock()
 
 	if version < currentVersion {
-		for i, f := range playlist {
-			rel, _ := filepath.Rel(m.streamer.MusicDir, f)
-			m.writeSongInfo(resp, rel, i, i+1)
+		for i, ps := range playlist {
+			rel, _ := filepath.Rel(m.streamer.MusicDir, ps.Path)
+			m.writeSongInfo(resp, rel, i, ps.ID)
 		}
 	}
-	resp.OK()
 }
 func (m *MPDServer) handleStatus(resp *MPDResponse) {
 	state_str := "stop"
@@ -357,7 +355,6 @@ func (m *MPDServer) handleStatus(resp *MPDResponse) {
 	resp.Field("single", 0)
 	resp.Field("consume", 0)
 
-	resp.Field("song", m.streamer.CurrentPos) // Pos for NEXT song
 	resp.Field("playlist", 1)
 	resp.Field("playlistlength", len(m.streamer.Playlist))
 
@@ -388,8 +385,6 @@ func (m *MPDServer) handleStatus(resp *MPDResponse) {
 			resp.Field("songid", playingID)
 		}
 	}
-
-	resp.OK()
 }
 
 func (m *MPDServer) handleCurrentSong(resp *MPDResponse) {
@@ -398,7 +393,6 @@ func (m *MPDServer) handleCurrentSong(resp *MPDResponse) {
 	if m.streamer.CurrentPlayingPos >= 0 {
 		m.writeSongInfo(resp, m.streamer.CurrentFile, m.streamer.CurrentPlayingPos, m.streamer.CurrentPlayingID)
 	}
-	resp.OK()
 }
 
 func (m *MPDServer) writeSongInfo(resp *MPDResponse, file string, pos, id int) {
@@ -443,15 +437,14 @@ func (m *MPDServer) writeSongInfo(resp *MPDResponse, file string, pos, id int) {
 
 func (m *MPDServer) handlePlaylistInfo(args string, resp *MPDResponse) {
 	m.streamer.mu.RLock()
-	playlist := make([]string, len(m.streamer.Playlist))
+	playlist := make([]PlaylistSong, len(m.streamer.Playlist))
 	copy(playlist, m.streamer.Playlist)
 	m.streamer.mu.RUnlock()
 
-	for i, f := range playlist {
-		rel, _ := filepath.Rel(m.streamer.MusicDir, f)
-		m.writeSongInfo(resp, rel, i, i+1) // ID is pos+1 for dummy stable IDs
+	for i, ps := range playlist {
+		rel, _ := filepath.Rel(m.streamer.MusicDir, ps.Path)
+		m.writeSongInfo(resp, rel, i, ps.ID)
 	}
-	resp.OK()
 }
 
 func (m *MPDServer) handlePlaylistId(args string, resp *MPDResponse) {
@@ -464,13 +457,16 @@ func (m *MPDServer) handlePlaylistId(args string, resp *MPDResponse) {
 	}
 
 	m.streamer.mu.RLock()
-	if id > 0 && id <= len(m.streamer.Playlist) {
-		f := m.streamer.Playlist[id-1]
-		rel, _ := filepath.Rel(m.streamer.MusicDir, f)
-		m.writeSongInfo(resp, rel, id-1, id)
+	if id > 0 {
+		for i, ps := range m.streamer.Playlist {
+			if ps.ID == id {
+				rel, _ := filepath.Rel(m.streamer.MusicDir, ps.Path)
+				m.writeSongInfo(resp, rel, i, ps.ID)
+				break
+			}
+		}
 	}
 	m.streamer.mu.RUnlock()
-	resp.OK()
 }
 
 func (m *MPDServer) handleLsInfo(args string, resp *MPDResponse) {
@@ -490,7 +486,6 @@ func (m *MPDServer) handleLsInfo(args string, resp *MPDResponse) {
 			resp.Field("file", entry.Name())
 		}
 	}
-	resp.OK()
 }
 
 func (m *MPDServer) handleAdd(args string, resp *MPDResponse) {
@@ -544,7 +539,6 @@ func (m *MPDServer) handleListPlaylists(resp *MPDResponse) {
 			resp.Field("playlist", name)
 		}
 	}
-	resp.OK()
 }
 
 func (m *MPDServer) handleLoad(args string, resp *MPDResponse) {
@@ -566,12 +560,16 @@ func (m *MPDServer) handleRm(args string, resp *MPDResponse) {
 
 func (m *MPDServer) handleListAll(resp *MPDResponse) {
 	// Dummy for now, just list what's in the music dir or playlist
-	for _, f := range m.streamer.Playlist {
-		rel, err := filepath.Rel(m.streamer.MusicDir, f)
+	m.streamer.mu.RLock()
+	playlist := make([]PlaylistSong, len(m.streamer.Playlist))
+	copy(playlist, m.streamer.Playlist)
+	m.streamer.mu.RUnlock()
+
+	for _, ps := range playlist {
+		rel, err := filepath.Rel(m.streamer.MusicDir, ps.Path)
 		if err != nil {
-			rel = filepath.Base(f)
+			rel = filepath.Base(ps.Path)
 		}
 		resp.Field("file", rel)
 	}
-	resp.OK()
 }
