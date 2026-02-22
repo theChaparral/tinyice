@@ -274,7 +274,7 @@ func (m *MPDServer) dispatchCommand(cmd, args string, resp *MPDResponse) bool {
 	case "search":
 		m.handleSearch(args, resp)
 	case "albumart", "readpicture":
-		resp.ACK(50, 0, cmd, "No album art is available")
+		m.handleAlbumArt(args, resp)
 		return false
 	default:
 		logger.L.Debugf("MPD: Unknown command: %s", cmd)
@@ -322,6 +322,33 @@ func (m *MPDServer) handleSearch(args string, resp *MPDResponse) {
 		}
 		return nil
 	})
+}
+
+func (m *MPDServer) handleAlbumArt(args string, resp *MPDResponse) {
+	// 1x1 transparent PNG
+	fakeArt := []byte{
+		0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+		0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4,
+		0x89, 0x00, 0x00, 0x00, 0x0a, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0x00, 0x01, 0x00, 0x00,
+		0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae,
+		0x42, 0x60, 0x82,
+	}
+
+	// Args: "file" "offset"
+	parts := strings.Split(args, " ")
+	offset := 0
+	if len(parts) > 1 {
+		fmt.Sscanf(parts[1], "%d", &offset)
+	}
+
+	if offset >= len(fakeArt) {
+		resp.ACK(50, 0, "albumart", "No album art is available at this offset")
+		return
+	}
+
+	resp.Field("size", len(fakeArt))
+	resp.Binary(fakeArt[offset:])
+	resp.OK()
 }
 
 func (m *MPDServer) handlePlaylistChanges(args string, resp *MPDResponse) {
@@ -403,16 +430,21 @@ func (m *MPDServer) writeSongInfo(resp *MPDResponse, file string, pos, id int) {
 	album := ""
 	duration := 0
 
+	fullPath := file
+	if !filepath.IsAbs(file) {
+		fullPath = filepath.Join(m.streamer.MusicDir, file)
+	}
+
 	m.streamer.mu.RLock()
 	// If it's the current song, use the live metadata
-	if file == m.streamer.CurrentFile {
+	if fullPath == m.streamer.CurrentFilePath {
 		artist = m.streamer.CurrentArtist
 		title = m.streamer.CurrentTitle
 		album = m.streamer.CurrentAlbum
 		duration = int(m.streamer.CurrentFileDuration.Seconds())
 	} else {
 		// Try title cache
-		if t, ok := m.streamer.titleCache[filepath.Join(m.streamer.MusicDir, file)]; ok {
+		if t, ok := m.streamer.titleCache[fullPath]; ok {
 			title = t
 		}
 	}

@@ -39,3 +39,10 @@ func (r *MPDResponse) ACK(errorCode, listPos int, command, message string) {
 func (r *MPDResponse) Greeting(version string) {
 	fmt.Fprintf(r.w, "OK MPD %s\n", version)
 }
+
+// Binary writes binary data in MPD format
+func (r *MPDResponse) Binary(data []byte) {
+	fmt.Fprintf(r.w, "binary: %d\n", len(data))
+	r.w.Write(data)
+	fmt.Fprint(r.w, "\n")
+}

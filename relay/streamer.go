@@ -57,6 +57,7 @@ type Streamer struct {
 	CurrentArtist       string
 	CurrentTitle        string
 	CurrentAlbum        string
+	CurrentFilePath     string
 	CurrentPlayingPos   int
 	CurrentPlayingID    int
 	CurrentSampleRate   int
@@ -272,6 +273,7 @@ func (s *Streamer) GetQueueInfo() []PlaylistItem {
 		res[i] = PlaylistItem{
 			Title: s.GetSongTitle(p),
 			Path:  p,
+			ID:    -1, // Queue items don't have stable IDs yet
 		}
 	}
 	return res
@@ -434,6 +436,10 @@ func (s *Streamer) SetLastPlaylist(name string) {
 }
 
 func (s *Streamer) AddToPlaylist(path string) {
+	abs, err := filepath.Abs(path)
+	if err == nil {
+		path = abs
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.Playlist = append(s.Playlist, PlaylistSong{Path: path, ID: s.NextID})
@@ -742,6 +748,7 @@ func (sm *StreamerManager) streamFile(ctx context.Context, s *Streamer, path str
 	s.CurrentArtist = ""
 	s.CurrentTitle = songTitle
 	s.CurrentAlbum = ""
+	s.CurrentFilePath = path
 	s.CurrentPlayingPos = pos
 	s.CurrentPlayingID = id
 	if m, err := tag.ReadFrom(f); err == nil {
