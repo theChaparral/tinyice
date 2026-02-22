@@ -38,14 +38,36 @@ jobs:
           fi
           GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -ldflags="-s -w" -o dist/tinyice-${{ matrix.goos }}-${{ matrix.goarch }}${EXT} main.go
 
-      - name: Test TinyIce startup on Linux
-        if: ${{ runner.os == 'Linux' && matrix.goos == 'linux' }}
+
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: tinyice-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*
+
+  test_startup:
+    name: Test TinyIce Startup
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download Linux AMD64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: tinyice-linux-amd64
+          path: artifacts_to_test
+
+      - name: Run TinyIce startup test
         run: |
-          BINARY_PATH="dist/tinyice-${{ matrix.goos }}-${{ matrix.goarch }}"
+          # The downloaded artifact will be in a subdirectory named after the artifact, e.g., artifacts_to_test/tinyice-linux-amd64/tinyice-linux-amd64
+          BINARY_PATH="artifacts_to_test/tinyice-linux-amd64/tinyice-linux-amd64"
           
           echo "Starting TinyIce in background for 5 seconds to check for startup errors..."
           # Use a non-default port and tmp config to avoid conflicts
-          timeout 5s sh -c "$BINARY_PATH -port 8080 -config /tmp/tinyice-test-${{ matrix.goos }}-${{ matrix.goarch }}.json" &
+          timeout 5s sh -c "$BINARY_PATH -port 8080 -config /tmp/tinyice-test-linux-amd64.json" &
           PID=$!
           
           # Wait for the process to finish for up to 6 seconds (slightly more than timeout)
@@ -66,19 +88,13 @@ jobs:
               exit 0 # Treat graceful exit as success
             else
               echo "TinyIce exited with an error code: $EXIT_CODE within 5 seconds. This indicates a startup failure."
-              exit 1 # Treat non-zero exit as failure
+              exit 1 # Treat non-zero exit code as failure
             fi
           fi
 
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: tinyice-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: dist/*
-
   release:
     name: Create Release
-    needs: build
+    needs: [build, test_startup]
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
