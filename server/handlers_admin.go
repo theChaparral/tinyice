@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/DatanoiseTV/tinyice/config"
+	"github.com/DatanoiseTV/tinyice/logger"
 	"github.com/DatanoiseTV/tinyice/relay"
-	"github.com/sirupsen/logrus"
 )
 
 func (s *Server) handleAdmin(w http.ResponseWriter, r *http.Request) {
@@ -69,7 +69,7 @@ func (s *Server) handleAdmin(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := s.tmpl.ExecuteTemplate(w, "admin.html", data); err != nil {
 		if !strings.Contains(err.Error(), "broken pipe") {
-			logrus.WithError(err).Error("Template error")
+			logger.L.Errorf("Template error: %v", err)
 		}
 	}
 }
@@ -265,7 +265,7 @@ func (s *Server) handleToggleVisible(w http.ResponseWriter, r *http.Request) {
 			st.SetVisible(s.Config.VisibleMounts[mount])
 		}
 		s.Config.SaveConfig()
-		logrus.WithFields(logrus.Fields{"mount": mount, "visible": s.Config.VisibleMounts[mount]}).Info("Admin toggled visibility")
+		logger.L.Infow("Admin toggled visibility", "mount", mount, "visible", s.Config.VisibleMounts[mount])
 	}
 	http.Redirect(w, r, "/admin", http.StatusSeeOther)
 }

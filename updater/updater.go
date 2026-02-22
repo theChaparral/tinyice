@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/DatanoiseTV/tinyice/config"
-	"github.com/sirupsen/logrus"
+	"github.com/DatanoiseTV/tinyice/logger"
 )
 
 type Swapper interface {
@@ -36,7 +36,7 @@ func (u *Updater) Start(ctx context.Context) {
 		return
 	}
 
-	logrus.Info("AutoUpdate enabled, checking for updates periodically...")
+	logger.L.Info("AutoUpdate enabled, checking for updates periodically...")
 	ticker := time.NewTicker(1 * time.Hour)
 	defer ticker.Stop()
 
@@ -56,25 +56,25 @@ func (u *Updater) Start(ctx context.Context) {
 func (u *Updater) CheckAndApply() {
 	newHash, err := u.getLatestChecksum()
 	if err != nil {
-		logrus.WithError(err).Error("Failed to check for updates")
+		logger.L.Errorf("Failed to check for updates: %v", err)
 		return
 	}
 
 	if u.lastHash == "" {
 		u.lastHash = newHash
-		logrus.Debugf("Initial checksum recorded: %s", newHash)
+		logger.L.Debugf("Initial checksum recorded: %s", newHash)
 		return
 	}
 
 	if newHash != u.lastHash {
-		logrus.Infof("New update detected! Checksum changed: %s -> %s", u.lastHash, newHash)
+		logger.L.Infof("New update detected! Checksum changed: %s -> %s", u.lastHash, newHash)
 		if err := u.applyUpdate(); err != nil {
-			logrus.WithError(err).Error("Failed to apply update")
+			logger.L.Errorf("Failed to apply update: %v", err)
 		} else {
 			u.lastHash = newHash
-			logrus.Info("Update applied successfully, triggering hot swap...")
+			logger.L.Info("Update applied successfully, triggering hot swap...")
 			if err := u.swapper.HotSwap(); err != nil {
-				logrus.WithError(err).Error("Failed to trigger hot swap after update")
+				logger.L.Errorf("Failed to trigger hot swap after update: %v", err)
 			}
 		}
 	}
@@ -118,7 +118,7 @@ func (u *Updater) applyUpdate() error {
 	url = strings.ReplaceAll(url, "{{os}}", runtime.GOOS)
 	url = strings.ReplaceAll(url, "{{arch}}", runtime.GOARCH)
 
-	logrus.Infof("Downloading update from %s...", url)
+	logger.L.Infof("Downloading update from %s...", url)
 	resp, err := http.Get(url)
 	if err != nil {
 		return err

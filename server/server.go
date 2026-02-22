@@ -14,8 +14,9 @@ import (
 	"time"
 
 	"github.com/DatanoiseTV/tinyice/config"
+	"github.com/DatanoiseTV/tinyice/logger"
 	"github.com/DatanoiseTV/tinyice/relay"
-	"github.com/sirupsen/logrus"
+	"go.uber.org/zap"
 	"golang.org/x/crypto/acme/autocert"
 )
 
@@ -62,7 +63,7 @@ type Server struct {
 	Commit      string                   // Git commit hash
 	httpServers []*http.Server           // Active HTTP servers
 	startTime   time.Time                // Server start time
-	AuthLog     *logrus.Logger
+	AuthLog     *zap.SugaredLogger
 
 	sessions   map[string]*session
 	sessionsMu sync.RWMutex
@@ -78,16 +79,16 @@ type Server struct {
 	done chan struct{}
 }
 
-func NewServer(cfg *config.Config, authLog *logrus.Logger, version, commit string) *Server {
+func NewServer(cfg *config.Config, authLog *zap.SugaredLogger, version, commit string) *Server {
 	tmpl := template.New("base")
 	tmpl, err := tmpl.ParseFS(templateFS, "templates/*.html")
 	if err != nil {
-		logrus.Fatalf("Error loading embedded templates: %v", err)
+		logger.L.Fatalf("Error loading embedded templates: %v", err)
 	}
 
 	hm, err := relay.NewHistoryManager("history.db")
 	if err != nil {
-		logrus.WithError(err).Fatal("Failed to initialize history manager")
+		logger.L.Fatalf("Failed to initialize history manager: %v", err)
 	}
 
 	r := relay.NewRelay(cfg.LowLatencyMode, hm)
@@ -188,7 +189,7 @@ func (s *Server) setupRoutes() *http.ServeMux {
 }
 
 func (s *Server) Shutdown(ctx context.Context) error {
-	logrus.Info("Server shutting down gracefully...")
+	logger.L.Info("Server shutting down gracefully...")
 
 	close(s.done)
 
@@ -209,7 +210,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 			shCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			if err := srv.Shutdown(shCtx); err != nil {
-				logrus.Errorf("Error during HTTP server shutdown: %v", err)
+				logger.L.Errorf("Error during HTTP server shutdown: %v", err)
 			}
 		}(srv)
 	}
@@ -222,7 +223,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 
 	select {
 	case <-waitDone:
-		logrus.Info("All servers shut down successfully")
+		logger.L.Info("All servers shut down successfully")
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
@@ -230,7 +231,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 }
 
 func (s *Server) HotSwap() error {
-	logrus.Info("Initiating zero-downtime hot swap...")
+	logger.L.Info("Initiating zero-downtime hot swap...")
 
 	exe, err := os.Executable()
 	if err != nil {
@@ -246,11 +247,11 @@ func (s *Server) HotSwap() error {
 		return fmt.Errorf("failed to start new process: %v", err)
 	}
 
-	logrus.Infof("New process started with PID %d. Waiting for health check...", process.Pid)
+	logger.L.Infof("New process started with PID %d. Waiting for health check...", process.Pid)
 
 	time.Sleep(5 * time.Second)
 
-	logrus.Info("Handoff period complete. Shutting down old process...")
+	logger.L.Info("Handoff period complete. Shutting down old process...")
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -276,7 +277,7 @@ func (s *Server) ReloadConfig(cfg *config.Config) {
 			s.TranscoderM.StartTranscoder(tc)
 		}
 	}
-	logrus.Info("Configuration reloaded successfully")
+	logger.L.Info("Configuration reloaded successfully")
 }
 
 func (s *Server) Start() error {
@@ -319,7 +320,7 @@ func (s *Server) Start() error {
 				streamer.Play()
 			}
 		} else {
-			logrus.WithError(err).Errorf("Failed to initialize AutoDJ %s", adj.Name)
+			logger.L.Errorf("Failed to initialize AutoDJ %s: %v", adj.Name, err)
 		}
 	}
 
@@ -344,11 +345,11 @@ func (s *Server) Start() error {
 	}
 
 	if len(listeners) == 1 {
-		logrus.Infof("Starting TinyIce on %s (HTTP)", listeners[0].Addr())
+		logger.L.Infof("Starting TinyIce on %s (HTTP)", listeners[0].Addr())
 		return srv.Serve(listeners[0])
 	}
 
-	logrus.Infof("Starting TinyIce on [::]:%s and 0.0.0.0:%s (HTTP)", port, port)
+	logger.L.Infof("Starting TinyIce on [::]:%s and 0.0.0.0:%s (HTTP)", port, port)
 	combined := newMultiListener(listeners)
 	return srv.Serve(combined)
 }

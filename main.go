@@ -16,9 +16,10 @@ import (
 	"time"
 
 	"github.com/DatanoiseTV/tinyice/config"
+	"github.com/DatanoiseTV/tinyice/logger"
 	"github.com/DatanoiseTV/tinyice/server"
 	"github.com/DatanoiseTV/tinyice/updater"
-	"github.com/sirupsen/logrus"
+	"go.uber.org/zap"
 )
 
 var (
@@ -49,48 +50,19 @@ func generateRandomString(n int) string {
 	return hex.EncodeToString(b)
 }
 
-func initLogging() *logrus.Logger {
-	// Set Level
-	level, err := logrus.ParseLevel(strings.ToLower(*logLevel))
+func initLogging() *zap.SugaredLogger {
+	_, err := logger.Init(*logLevel, *jsonLogs, *logFile)
 	if err != nil {
-		logrus.Warnf("Invalid log level '%s', defaulting to info", *logLevel)
-		level = logrus.InfoLevel
-	}
-	logrus.SetLevel(level)
-
-	// Set Format
-	var formatter logrus.Formatter
-	if *jsonLogs {
-		formatter = &logrus.JSONFormatter{}
-	} else {
-		formatter = &logrus.TextFormatter{
-			FullTimestamp: true,
-		}
-	}
-	logrus.SetFormatter(formatter)
-
-	// Set Output
-	if *logFile != "" {
-		f, err := os.OpenFile(*logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-		if err != nil {
-			logrus.Fatalf("Failed to open log file %s: %v", *logFile, err)
-		}
-		logrus.SetOutput(f)
-	} else {
-		logrus.SetOutput(os.Stdout)
+		fmt.Printf("Failed to initialize logging: %v\n", err)
+		os.Exit(1)
 	}
 
-	// Create Auth Logger if needed
 	if *authLogFile != "" {
-		authLogger := logrus.New()
-		authLogger.SetLevel(level)
-		authLogger.SetFormatter(formatter)
-		f, err := os.OpenFile(*authLogFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		al, err := logger.NewAuthLogger(*logLevel, *jsonLogs, *authLogFile)
 		if err != nil {
-			logrus.Fatalf("Failed to open auth log file %s: %v", *authLogFile, err)
+			logger.L.Fatalf("Failed to open auth log file %s: %v", *authLogFile, err)
 		}
-		authLogger.SetOutput(f)
-		return authLogger
+		return al
 	}
 
 	return nil
@@ -129,7 +101,7 @@ func main() {
 	}
 
 	if err := os.WriteFile(actualPidFile, []byte(fmt.Sprintf("%d", os.Getpid())), 0644); err != nil {
-		logrus.Errorf("Failed to write PID file: %v", err)
+		logger.L.Errorf("Failed to write PID file: %v", err)
 	}
 	defer os.Remove(actualPidFile)
 
@@ -137,7 +109,7 @@ func main() {
 
 	cfg, err := config.LoadConfig(*configPath)
 	if err != nil {
-		logrus.Fatalf("Failed to load config: %v", err)
+		logger.L.Fatalf("Failed to load config: %v", err)
 	}
 
 	if handleCommands(cfg) {
@@ -181,7 +153,7 @@ func main() {
 
 	go func() {
 		if err := srv.Start(); err != nil && err.Error() != "http: Server closed" {
-			logrus.Fatalf("Server failed: %v", err)
+			logger.L.Fatalf("Server failed: %v", err)
 		}
 	}()
 
@@ -410,7 +382,7 @@ func handleDaemonMode() {
 		cmd := exec.Command(os.Args[0], args...)
 		cmd.Env = append(os.Environ(), "TINYICE_DAEMON=1")
 		if err := cmd.Start(); err != nil {
-			logrus.Fatalf("Failed to start daemon: %v", err)
+			logger.L.Fatalf("Failed to start daemon: %v", err)
 		}
 		fmt.Printf("TinyIce starting in background (PID: %d)\n", cmd.Process.Pid)
 		os.Exit(0)
@@ -419,7 +391,7 @@ func handleDaemonMode() {
 
 func ensureConfigExists() {
 	if _, err := os.Stat(*configPath); os.IsNotExist(err) {
-		logrus.Info("Config file not found, generating secure defaults...")
+		logger.L.Info("Config file not found, generating secure defaults...")
 
 		defaultSourcePass := generateRandomString(12)
 		liveMountPass := generateRandomString(12)
@@ -457,7 +429,7 @@ func ensureConfigExists() {
 
 		data, _ := json.MarshalIndent(defaultCfg, "", "    ")
 		if err := os.WriteFile(*configPath, data, 0600); err != nil {
-			logrus.Fatalf("Failed to create secure config: %v", err)
+			logger.L.Fatalf("Failed to create secure config: %v", err)
 		}
 
 		fmt.Println("**************************************************")
@@ -469,7 +441,7 @@ func ensureConfigExists() {
 		fmt.Println("  Stored in:", *configPath)
 		fmt.Println("**************************************************")
 	} else {
-		logrus.WithField("path", *configPath).Info("Starting TinyIce with existing configuration")
+		logger.L.Infow("Starting TinyIce with existing configuration", "path", *configPath)
 		fmt.Printf("Note: To reset all credentials, run: rm %s && ./tinyice\n", *configPath)
 	}
 }
@@ -479,21 +451,21 @@ func runEventLoop(srv *server.Server, sigs chan os.Signal) {
 		sig := <-sigs
 		switch sig {
 		case syscall.SIGHUP:
-			logrus.Info("Received SIGHUP, reloading configuration...")
+			logger.L.Info("Received SIGHUP, reloading configuration...")
 			newCfg, err := config.LoadConfig(*configPath)
 			if err != nil {
-				logrus.Errorf("Failed to reload config: %v", err)
+				logger.L.Errorf("Failed to reload config: %v", err)
 				continue
 			}
 			srv.ReloadConfig(newCfg)
 		case syscall.SIGINT, syscall.SIGTERM:
-			logrus.Infof("Received %v, shutting down...", sig)
+			logger.L.Infof("Received %v, shutting down...", sig)
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			if err := srv.Shutdown(ctx); err != nil {
-				logrus.Errorf("Graceful shutdown failed: %v", err)
+				logger.L.Errorf("Graceful shutdown failed: %v", err)
 			}
-			logrus.Info("TinyIce stopped")
+			logger.L.Info("TinyIce stopped")
 			return
 		}
 	}

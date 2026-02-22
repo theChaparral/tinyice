@@ -12,10 +12,10 @@ import (
 	"time"
 
 	"github.com/DatanoiseTV/tinyice/config"
+	"github.com/DatanoiseTV/tinyice/logger"
 	"github.com/bogem/id3v2/v2"
 	"github.com/dhowden/tag"
 	"github.com/hajimehoshi/go-mp3"
-	"github.com/sirupsen/logrus"
 )
 
 type StreamerState int
@@ -54,9 +54,18 @@ type Streamer struct {
 	// Stats
 	BytesStreamed       int64
 	CurrentFile         string
+	CurrentArtist       string
+	CurrentTitle        string
+	CurrentAlbum        string
+	CurrentID           int
+	CurrentPlayingPos   int
+	CurrentPlayingID    int
+	CurrentSampleRate   int
+	CurrentChannels     int
 	CurrentFileTime     time.Time
 	CurrentFileDuration time.Duration
 	MPDServer           *MPDServer
+	NextID              int
 }
 
 type StreamerManager struct {
@@ -219,23 +228,23 @@ func (s *Streamer) fetchTitleAndCache(path string) {
 		title := filepath.Base(path)
 
 		// Use id3v2 for extraction (Pure Go, no CGO/iconv)
-		logrus.Debugf("fetchTitleAndCache: Opening %s for ID3v2 parsing...", path)
+		logger.L.Debugf("fetchTitleAndCache: Opening %s for ID3v2 parsing...", path)
 		tag, err := id3v2.Open(path, id3v2.Options{Parse: true})
 		if err != nil {
-			logrus.WithError(err).Warnf("fetchTitleAndCache: Failed to open %s for id3v2 parsing", path)
+			logger.L.Errorf("fetchTitleAndCache: Failed to open %s for id3v2 parsing: %v", path, err)
 		} else {
 			defer tag.Close()
 			artist := strings.TrimSpace(tag.Artist())
 			song := strings.TrimSpace(tag.Title())
 
-			logrus.Debugf("fetchTitleAndCache: Raw tags for %s: artist=[%s] title=[%s]", path, artist, song)
+			logger.L.Debugf("fetchTitleAndCache: Raw tags for %s: artist=[%s] title=[%s]", path, artist, song)
 
 			if artist != "" && song != "" {
 				title = fmt.Sprintf("%s - %s", artist, song)
 			} else if song != "" {
 				title = song
 			}
-			logrus.Debugf("fetchTitleAndCache: Final title for %s set to: %s", path, title)
+			logger.L.Debugf("fetchTitleAndCache: Final title for %s set to: %s", path, title)
 		}
 
 		s.mu.Lock()
@@ -486,31 +495,34 @@ func (sm *StreamerManager) StartStreamer(name, mount, musicDir string, loop bool
 	ctx, cancel := context.WithCancel(context.Background())
 	absMusicDir, _ := filepath.Abs(musicDir)
 	s := &Streamer{
-		Name:           name,
-		OutputMount:    mount,
-		MusicDir:       absMusicDir,
-		Format:         format,
-		Bitrate:        bitrate,
-		Playlist:       initialPlaylist,
-		State:          StateStopped,
-		Loop:           loop,
-		InjectMetadata: injectMetadata,
-		Visible:        visible,
-		MPDPassword:    mpdPassword,
-		LastPlaylist:   lastPlaylist,
-		relay:          sm.relay,
-		cancel:         cancel,
-		titleCache:     make(map[string]string),
+		Name:              name,
+		OutputMount:       mount,
+		MusicDir:          absMusicDir,
+		Format:            format,
+		Bitrate:           bitrate,
+		Playlist:          initialPlaylist,
+		State:             StateStopped,
+		Loop:              loop,
+		InjectMetadata:    injectMetadata,
+		Visible:           visible,
+		MPDPassword:       mpdPassword,
+		LastPlaylist:      lastPlaylist,
+		relay:             sm.relay,
+		cancel:            cancel,
+		titleCache:        make(map[string]string),
+		NextID:            1,
+		CurrentPlayingPos: -1,
+		CurrentPlayingID:  -1,
 	}
 
 	if mpdEnabled && mpdPort != "" {
-		logrus.Debugf("AutoDJ %s: MPD enabled on port %s", name, mpdPort)
+		logger.L.Debugf("AutoDJ %s: MPD enabled on port %s", name, mpdPort)
 		// Check for port conflicts within our own instances
 		for _, inst := range sm.instances {
 			inst.mu.RLock()
 			if inst.MPDServer != nil && inst.MPDServer.Port == mpdPort {
 				inst.mu.RUnlock()
-				logrus.Warnf("AutoDJ %s: MPD port %s is already in use by %s", name, mpdPort, inst.Name)
+				logger.L.Warnf("AutoDJ %s: MPD port %s is already in use by %s", name, mpdPort, inst.Name)
 				return nil, fmt.Errorf("MPD port %s is already in use by AutoDJ %s", mpdPort, inst.Name)
 			}
 			inst.mu.RUnlock()
@@ -518,12 +530,12 @@ func (sm *StreamerManager) StartStreamer(name, mount, musicDir string, loop bool
 
 		s.MPDServer = NewMPDServer(mpdPort, mpdPassword, s)
 		if err := s.MPDServer.Start(); err != nil {
-			logrus.WithError(err).Errorf("Failed to start MPD server for AutoDJ %s", name)
+			logger.L.Errorf("Failed to start MPD server for AutoDJ %s: %v", name, err)
 		} else {
-			logrus.Infof("MPD Server for %s listening on port %s", name, mpdPort)
+			logger.L.Infof("MPD Server for %s listening on port %s", name, mpdPort)
 		}
 	} else {
-		logrus.Debugf("AutoDJ %s: MPD not enabled or no port specified (enabled=%v, port=%s)", name, mpdEnabled, mpdPort)
+		logger.L.Debugf("AutoDJ %s: MPD not enabled or no port specified (enabled=%v, port=%s)", name, mpdEnabled, mpdPort)
 	}
 
 	sm.instances[mount] = s
@@ -544,7 +556,7 @@ func (sm *StreamerManager) StopStreamer(mount string) {
 
 	if s, ok := sm.instances[mount]; ok {
 		if s.MPDServer != nil {
-			logrus.Debugf("AutoDJ %s: Stopping MPD server", s.Name)
+			logger.L.Debugf("AutoDJ %s: Stopping MPD server", s.Name)
 			s.MPDServer.Stop()
 		}
 		s.Stop()
@@ -583,7 +595,7 @@ func (s *Streamer) MovePlaylistItem(from, to int) {
 }
 
 func (sm *StreamerManager) runStreamerLoop(ctx context.Context, s *Streamer) {
-	logrus.Infof("Streamer %s starting for mount %s", s.Name, s.OutputMount)
+	logger.L.Infof("Streamer %s starting for mount %s", s.Name, s.OutputMount)
 
 	for {
 		select {
@@ -637,7 +649,7 @@ func (sm *StreamerManager) runStreamerLoop(ctx context.Context, s *Streamer) {
 
 			err := sm.streamFile(fileCtx, s, filePath)
 			if err != nil && fileCtx.Err() == nil {
-				logrus.WithError(err).Errorf("Streamer %s: Failed to stream %s", s.Name, filePath)
+				logger.L.Errorf("Streamer %s: Failed to stream %s: %v", s.Name, filePath, err)
 				time.Sleep(1 * time.Second)
 			}
 
@@ -674,6 +686,23 @@ func (sm *StreamerManager) streamFile(ctx context.Context, s *Streamer, path str
 
 	s.mu.Lock()
 	s.CurrentFile = songTitle
+	s.CurrentArtist = ""
+	s.CurrentTitle = songTitle
+	s.CurrentAlbum = ""
+	s.CurrentID = s.NextID
+	s.CurrentPlayingPos = s.CurrentPos - 1 // CurrentPos was already incremented
+	s.CurrentPlayingID = s.CurrentID
+	s.NextID++
+	if m, err := tag.ReadFrom(f); err == nil {
+		s.CurrentArtist = m.Artist()
+		s.CurrentTitle = m.Title()
+		s.CurrentAlbum = m.Album()
+		if s.CurrentTitle == "" {
+			s.CurrentTitle = songTitle
+		}
+	}
+	s.CurrentSampleRate = decoder.SampleRate()
+	s.CurrentChannels = 2 // go-mp3 always outputs 2 channels
 	s.CurrentFileTime = time.Now()
 	s.CurrentFileDuration = time.Duration(decoder.Length()) * time.Second / time.Duration(decoder.SampleRate()*4)
 	s.mu.Unlock()

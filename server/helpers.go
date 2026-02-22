@@ -5,7 +5,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/sirupsen/logrus"
+	// Added by instruction
+	// Added by instruction
+	"github.com/DatanoiseTV/tinyice/logger"
 )
 
 func (s *Server) validatePathInMusicDir(musicDir, targetPath string) (string, error) {
@@ -21,15 +23,15 @@ func (s *Server) validatePathInMusicDir(musicDir, targetPath string) (string, er
 
 	rel, err := filepath.Rel(absMusicDir, absTargetPath)
 
-	logrus.Debugf("PATH_VALIDATION: absMusicDir=[%s] absTargetPath=[%s] rel=[%s]", absMusicDir, absTargetPath, rel)
+	logger.L.Debugf("PATH_VALIDATION: absMusicDir=[%s] absTargetPath=[%s] rel=[%s]", absMusicDir, absTargetPath, rel)
 
 	if err != nil {
-		logrus.Debugf("validatePathInMusicDir: filepath.Rel error: %v", err)
+		logger.L.Debugf("validatePathInMusicDir: filepath.Rel error: %v", err)
 		return "", fmt.Errorf("path not within music directory: %w", err)
 	}
 
 	if strings.HasPrefix(rel, "..") || rel == ".." {
-		logrus.Warnf("PATH_VALIDATION_FAILED: Traversal detected. rel=[%s]", rel)
+		logger.L.Warnf("PATH_VALIDATION_FAILED: Traversal detected. rel=[%s]", rel)
 		return "", fmt.Errorf("security: path traversal attempt detected: %s", targetPath)
 	}
 

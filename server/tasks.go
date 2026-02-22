@@ -6,8 +6,8 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/DatanoiseTV/tinyice/logger"
 	"github.com/DatanoiseTV/tinyice/relay"
-	"github.com/sirupsen/logrus"
 )
 
 func (s *Server) directoryReportingTask() {
@@ -68,13 +68,13 @@ func (s *Server) reportToDirectory(st relay.StreamStats) {
 	data.Set("type", "audio/mpeg")
 	resp, err := http.PostForm(s.Config.DirectoryServer, data)
 	if err != nil {
-		logrus.WithError(err).Warn("Failed to report to directory server")
+		logger.L.Warnw("Failed to report to directory server", "error", err)
 		return
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		logrus.WithField("status", resp.Status).Warn("Directory server rejected update")
+		logger.L.Warnw("Directory server rejected update", "status", resp.Status)
 	} else {
-		logrus.WithField("mount", st.MountName).Debug("Reported to directory server")
+		logger.L.Debugw("Reported to directory server", "mount", st.MountName)
 	}
 }

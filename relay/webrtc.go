@@ -10,11 +10,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/DatanoiseTV/tinyice/logger"
 	"github.com/kazzmir/opus-go/ogg"
 	"github.com/pion/webrtc/v4"
 	"github.com/pion/webrtc/v4/pkg/media"
 	"github.com/pion/webrtc/v4/pkg/media/oggwriter"
-	"github.com/sirupsen/logrus"
 )
 
 type SimplePacer struct {
@@ -122,7 +122,7 @@ type relayWriter struct {
 }
 
 func (rw *relayWriter) Write(p []byte) (n int, err error) {
-	logrus.Debugf("relayWriter: Broadcasting %d bytes to %s", len(p), rw.stream.MountName)
+	logger.L.Debugw("relayWriter: Broadcasting", "bytes", len(p), "mount", rw.stream.MountName)
 	rw.stream.Broadcast(p, rw.relay)
 	return len(p), nil
 }
@@ -138,7 +138,7 @@ func (wm *WebRTCManager) HandleSourceOffer(mount string, offer webrtc.SessionDes
 	}
 
 	peerConnection.OnTrack(func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
-		logrus.Infof("WebRTC Source: Received track %s from %s", track.ID(), mount)
+		logger.L.Infow("WebRTC Source: Received track", "track", track.ID(), "mount", mount)
 
 		stream := wm.relay.GetOrCreateStream(mount)
 		stream.mu.Lock()
@@ -157,7 +157,7 @@ func (wm *WebRTCManager) HandleSourceOffer(mount string, offer webrtc.SessionDes
 
 		writer, err := oggwriter.NewWith(multi, 48000, 2)
 		if err != nil {
-			logrus.WithError(err).Error("Failed to create Ogg writer for WebRTC source")
+			logger.L.Errorf("Failed to create Ogg writer for WebRTC source: %v", err)
 			return
 		}
 		defer writer.Close()
@@ -167,19 +167,19 @@ func (wm *WebRTCManager) HandleSourceOffer(mount string, offer webrtc.SessionDes
 		h := make([]byte, headerBuf.Len())
 		copy(h, headerBuf.Bytes())
 		stream.OggHead = h
-		logrus.Infof("WebRTC Source: Captured %d bytes of Ogg/Opus headers at offset %d", len(h), stream.OggHeaderOffset)
+		logger.L.Infow("WebRTC Source: Captured Ogg/Opus headers", "bytes", len(h), "offset", stream.OggHeaderOffset)
 		stream.mu.Unlock()
 
 		for {
 			rtpPacket, _, err := track.ReadRTP()
 			if err != nil {
 				if err != io.EOF {
-					logrus.WithError(err).Error("Error reading RTP packet from source")
+					logger.L.Errorf("Error reading RTP packet from source: %v", err)
 				}
 				return
 			}
 			if err := writer.WriteRTP(rtpPacket); err != nil {
-				logrus.WithError(err).Error("Error writing RTP to Ogg muxer")
+				logger.L.Errorf("Error writing RTP to Ogg muxer: %v", err)
 				return
 			}
 		}
@@ -248,7 +248,7 @@ func (wm *WebRTCManager) streamToTrack(pc *webrtc.PeerConnection, track *webrtc.
 	}
 
 	if !foundSync {
-		logrus.WithField("mount", stream.MountName).Error("WebRTC: Could not find Ogg sync in first 512KB. Is it an Opus stream?")
+		logger.L.Errorw("WebRTC: Could not find Ogg sync in first 512KB. Is it an Opus stream?", "mount", stream.MountName)
 		return
 	}
 
@@ -263,12 +263,12 @@ func (wm *WebRTCManager) streamToTrack(pc *webrtc.PeerConnection, track *webrtc.
 
 	opusReader, err := ogg.NewOpusReader(finalReader)
 	if err != nil {
-		logrus.WithError(err).Error("Failed to initialize Ogg/Opus reader for WebRTC")
+		logger.L.Errorf("Failed to initialize Ogg/Opus reader for WebRTC: %v", err)
 		return
 	}
 
 	pacer := &SimplePacer{}
-	logrus.Infof("WebRTC: Beginning packet transmission for %s", stream.MountName)
+	logger.L.Infof("WebRTC: Beginning packet transmission for %s", stream.MountName)
 	sentCount := 0
 
 	// Default Opus duration is 20ms. If we detect drift, the pacer will self-correct.
@@ -278,7 +278,7 @@ func (wm *WebRTCManager) streamToTrack(pc *webrtc.PeerConnection, track *webrtc.
 		packet, err := opusReader.ReadAudioPacket()
 		if err != nil {
 			if err != io.EOF && !errors.Is(err, context.Canceled) {
-				logrus.WithError(err).Error("Error reading Opus packet")
+				logger.L.Errorf("Error reading Opus packet: %v", err)
 			}
 			return
 		}
@@ -293,7 +293,7 @@ func (wm *WebRTCManager) streamToTrack(pc *webrtc.PeerConnection, track *webrtc.
 		}
 		sentCount++
 		if sentCount%100 == 0 {
-			logrus.Debugf("WebRTC: Sent 100 packets to %s", stream.MountName)
+			logger.L.Debugw("WebRTC: Sent 100 packets", "mount", stream.MountName)
 		}
 	}
 }

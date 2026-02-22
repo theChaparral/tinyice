@@ -10,7 +10,8 @@ import (
 	"time"
 
 	"github.com/DatanoiseTV/tinyice/config"
-	"github.com/sirupsen/logrus"
+	"github.com/DatanoiseTV/tinyice/logger"
+	"go.uber.org/zap"
 )
 
 type scanAttempt struct {
@@ -29,20 +30,20 @@ type session struct {
 	CSRFToken string
 }
 
-func (s *Server) logAuth() *logrus.Entry {
+func (s *Server) logAuth() *zap.SugaredLogger {
 	if s.AuthLog != nil {
-		return s.AuthLog.WithField("subsystem", "auth")
+		return s.AuthLog
 	}
-	return logrus.WithField("subsystem", "auth")
+	return logger.L
 }
 
 func (s *Server) logAuthFailed(user, ip, reason string) {
 	host, _, _ := net.SplitHostPort(ip)
-	s.logAuth().WithFields(logrus.Fields{
-		"user":   user,
-		"ip":     host,
-		"reason": reason,
-	}).Warnf("Authentication failed for user '%s' from %s: %s", user, host, reason)
+	s.logAuth().Warnw(fmt.Sprintf("Authentication failed for user '%s' from %s: %s", user, host, reason),
+		"user", user,
+		"ip", host,
+		"reason", reason,
+	)
 }
 
 func (s *Server) checkAuthLimit(ip string) error {
@@ -84,7 +85,7 @@ func (s *Server) recordAuthFailure(ip string) {
 	attempt.Count++
 	if attempt.Count >= 5 {
 		attempt.LockoutBy = time.Now().Add(15 * time.Minute)
-		logrus.Warnf("IP %s locked out for 15 minutes due to 5 failed auth attempts", ip)
+		logger.L.Warnf("IP %s locked out for 15 minutes due to 5 failed auth attempts", ip)
 		s.dispatchWebhook("security_lockout", map[string]interface{}{
 			"ip":      ip,
 			"reason":  "brute_force_auth",
@@ -118,7 +119,7 @@ func (s *Server) recordScanAttempt(ip, path string) {
 
 	if attempt.Count >= 10 {
 		attempt.LockoutBy = time.Now().Add(15 * time.Minute)
-		logrus.Warnf("IP %s locked out for 15 minutes due to 10 scanning attempts (404s)", ip)
+		logger.L.Warnf("IP %s locked out for 15 minutes due to 10 scanning attempts (404s)", ip)
 		s.dispatchWebhook("security_lockout", map[string]interface{}{
 			"ip":      ip,
 			"reason":  "connection_scanning",
@@ -162,7 +163,7 @@ func (s *Server) checkAuth(r *http.Request) (*config.User, bool) {
 	}
 
 	s.recordAuthSuccess(host)
-	s.logAuth().WithFields(logrus.Fields{"user": u, "ip": host}).Info("Admin auth successful (Basic)")
+	s.logAuth().Infow("Admin auth successful (Basic)", "user", u, "ip", host)
 	return user, true
 }
 
@@ -228,7 +229,7 @@ func (s *Server) isCSRFSafe(r *http.Request) bool {
 
 	providedToken := r.FormValue("csrf")
 	if providedToken != sess.CSRFToken {
-		logrus.Warnf("CSRF Mismatch: provided=[%s] expected=[%s] remote=%s path=%s", providedToken, sess.CSRFToken, r.RemoteAddr, r.URL.Path)
+		logger.L.Warnf("CSRF Mismatch: provided=[%s] expected=[%s] remote=%s path=%s", providedToken, sess.CSRFToken, r.RemoteAddr, r.URL.Path)
 		return false
 	}
 

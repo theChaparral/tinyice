@@ -3,8 +3,8 @@ package relay
 import (
 	"time"
 
+	"github.com/DatanoiseTV/tinyice/logger"
 	"github.com/glebarez/sqlite"
-	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -43,7 +43,7 @@ type HistoryManager struct {
 // It uses the non-CGO SQLite driver for maximum portability.
 func NewHistoryManager(path string) (*HistoryManager, error) {
 	db, err := gorm.Open(sqlite.Open(path), &gorm.Config{
-		Logger: nil, // We'll handle logging via logrus
+		Logger: nil, // We'll handle logging via zap
 	})
 	if err != nil {
 		return nil, err
@@ -64,27 +64,27 @@ func NewHistoryManager(path string) (*HistoryManager, error) {
 func (hm *HistoryManager) migrateOldData() {
 	// 1. Migrate 'history' -> 'history_items'
 	if hm.db.Migrator().HasTable("history") {
-		logrus.Info("Migrating legacy 'history' table...")
+		logger.L.Info("Migrating legacy 'history' table...")
 		err := hm.db.Exec(`INSERT INTO history_items (mount, song, timestamp) 
 			SELECT mount, song, timestamp FROM history`).Error
 		if err == nil {
 			hm.db.Migrator().DropTable("history")
-			logrus.Info("Legacy 'history' table migrated and dropped")
+			logger.L.Info("Legacy 'history' table migrated and dropped")
 		} else {
-			logrus.WithError(err).Error("Failed to migrate legacy 'history' table")
+			logger.L.Errorf("Failed to migrate legacy 'history' table: %v", err)
 		}
 	}
 
 	// 2. Migrate 'listener_history' -> 'listener_histories'
 	if hm.db.Migrator().HasTable("listener_history") {
-		logrus.Info("Migrating legacy 'listener_history' table...")
+		logger.L.Info("Migrating legacy 'listener_history' table...")
 		err := hm.db.Exec(`INSERT INTO listener_histories (mount, listeners, bytes_in, bytes_out, timestamp) 
 			SELECT mount, listeners, bytes_in, bytes_out, timestamp FROM listener_history`).Error
 		if err == nil {
 			hm.db.Migrator().DropTable("listener_history")
-			logrus.Info("Legacy 'listener_history' table migrated and dropped")
+			logger.L.Info("Legacy 'listener_history' table migrated and dropped")
 		} else {
-			logrus.WithError(err).Error("Failed to migrate legacy 'listener_history' table")
+			logger.L.Errorf("Failed to migrate legacy 'listener_history' table: %v", err)
 		}
 	}
 }
@@ -99,7 +99,7 @@ func (hm *HistoryManager) RecordStats(mount string, listeners int, bi, bo int64)
 		Timestamp: time.Now(),
 	}
 	if err := hm.db.Create(&item).Error; err != nil {
-		logrus.WithError(err).Error("Failed to record historical stats")
+		logger.L.Errorf("Failed to record historical stats: %v", err)
 	}
 }
 
@@ -114,7 +114,7 @@ func (hm *HistoryManager) RecordUA(ua, uaType string) {
 	}).Create(&UserAgent{UA: ua, Type: uaType, Count: 1}).Error
 
 	if err != nil {
-		logrus.WithError(err).Error("Failed to record User-Agent")
+		logger.L.Errorf("Failed to record User-Agent: %v", err)
 	}
 }
 
@@ -132,7 +132,7 @@ func (hm *HistoryManager) GetTopUAs(uaType string, limit int) []UAStat {
 		Limit(limit).
 		Find(&stats).Error
 	if err != nil {
-		logrus.WithError(err).Error("Failed to get top UAs")
+		logger.L.Errorf("Failed to get top UAs: %v", err)
 		return nil
 	}
 	return stats
@@ -156,7 +156,7 @@ func (hm *HistoryManager) GetAllHistoricalStats(duration time.Duration) map[stri
 		Order("timestamp ASC").
 		Find(&results).Error
 	if err != nil {
-		logrus.WithError(err).Error("Failed to fetch all historical stats")
+		logger.L.Errorf("Failed to fetch all historical stats: %v", err)
 		return nil
 	}
 
@@ -186,7 +186,7 @@ func (hm *HistoryManager) Add(mount, song string) {
 		Timestamp: time.Now(),
 	}
 	if err := hm.db.Create(&item).Error; err != nil {
-		logrus.WithError(err).Error("Failed to save history")
+		logger.L.Errorf("Failed to save history: %v", err)
 		return
 	}
 
@@ -210,7 +210,7 @@ func (hm *HistoryManager) Get(mount string) []HistoryItem {
 		Limit(100).
 		Find(&items).Error
 	if err != nil {
-		logrus.WithError(err).Warn("Failed to get history")
+		logger.L.Warnf("Failed to get history: %v", err)
 		return nil
 	}
 	return items

@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sirupsen/logrus"
+	"github.com/DatanoiseTV/tinyice/logger"
 )
 
 type RelayInstance struct {
@@ -120,7 +120,7 @@ func (rm *RelayManager) runRelay(ctx context.Context, inst *RelayInstance) {
 }
 
 func (rm *RelayManager) performPull(ctx context.Context, inst *RelayInstance) {
-	logrus.WithField("url", inst.URL).Info("Attempting to pull relay stream")
+	logger.L.Infow("Attempting to pull relay stream", "url", inst.URL)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", inst.URL, nil)
 	if err != nil {
@@ -137,17 +137,17 @@ func (rm *RelayManager) performPull(ctx context.Context, inst *RelayInstance) {
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		logrus.WithError(err).Error("Relay connection failed")
+		logger.L.Errorf("Relay connection failed: %v", err)
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		logrus.WithField("status", resp.Status).Error("Relay server returned non-200")
+		logger.L.Errorw("Relay server returned non-200", "status", resp.Status)
 		return
 	}
 
-	logrus.WithField("mount", inst.Mount).Info("Relay stream connected and pulling")
+	logger.L.Infow("Relay stream connected and pulling", "mount", inst.Mount)
 
 	stream := rm.relay.GetOrCreateStream(inst.Mount)
 	stream.SourceIP = "relay-pull"

@@ -25,6 +25,11 @@ func (r *MPDResponse) OK() {
 	fmt.Fprint(r.w, "OK\n")
 }
 
+// ListOK writes the success terminator for a command list item
+func (r *MPDResponse) ListOK() {
+	fmt.Fprint(r.w, "list_OK\n")
+}
+
 // ACK writes a protocol error in the format: ACK [error_code@list_pos] {command} message
 func (r *MPDResponse) ACK(errorCode, listPos int, command, message string) {
 	fmt.Fprintf(r.w, "ACK [%d@%d] {%s} %s\n", errorCode, listPos, command, message)

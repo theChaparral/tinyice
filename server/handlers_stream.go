@@ -11,15 +11,15 @@ import (
 	"time"
 
 	"github.com/DatanoiseTV/tinyice/config"
+	"github.com/DatanoiseTV/tinyice/logger"
 	"github.com/DatanoiseTV/tinyice/relay"
 	"github.com/gomarkdown/markdown"
 	"github.com/gomarkdown/markdown/html"
 	"github.com/gomarkdown/markdown/parser"
-	"github.com/sirupsen/logrus"
 )
 
 func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
-	logrus.WithFields(logrus.Fields{"method": r.Method, "path": r.URL.Path}).Debug("Root handler request")
+	logger.L.Debugw("Root handler request", "method", r.Method, "path", r.URL.Path)
 	if r.Method == "PUT" || r.Method == "SOURCE" {
 		s.handleSource(w, r)
 		return
@@ -93,7 +93,7 @@ func (s *Server) handlePlaylist(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleSource(w http.ResponseWriter, r *http.Request) {
 	if s.isBanned(r.RemoteAddr) {
-		logrus.WithField("ip", r.RemoteAddr).Warn("Banned IP source connection")
+		logger.L.Warnw("Banned IP source connection", "ip", r.RemoteAddr)
 		return
 	}
 	mount := r.URL.Path
@@ -103,7 +103,7 @@ func (s *Server) handleSource(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if s.Config.DisabledMounts[mount] {
-		logrus.WithField("mount", mount).Warn("Disabled mount connection")
+		logger.L.Warnw("Disabled mount connection", "mount", mount)
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
@@ -121,7 +121,7 @@ func (s *Server) handleSource(w http.ResponseWriter, r *http.Request) {
 	}
 
 	host, _, _ := net.SplitHostPort(r.RemoteAddr)
-	s.logAuth().WithFields(logrus.Fields{"mount": mount, "ip": host}).Info("Source auth successful")
+	s.logAuth().Infow("Source auth successful", "mount", mount, "ip", host)
 
 	if s.Relay.History != nil {
 		s.Relay.History.RecordUA(r.Header.Get("User-Agent"), "source")
@@ -134,7 +134,7 @@ func (s *Server) handleSource(w http.ResponseWriter, r *http.Request) {
 	}
 	conn, bufrw, err := hj.Hijack()
 	if err != nil {
-		logrus.WithError(err).Error("Hijack failed")
+		logger.L.Errorf("Hijack failed: %v", err)
 		return
 	}
 	defer conn.Close()
@@ -142,7 +142,7 @@ func (s *Server) handleSource(w http.ResponseWriter, r *http.Request) {
 	bufrw.WriteString("HTTP/1.0 200 OK\r\nServer: Icecast 2.4.4\r\nConnection: Keep-Alive\r\n\r\n")
 	bufrw.Flush()
 
-	logrus.WithFields(logrus.Fields{"mount": mount, "ip": r.RemoteAddr, "ua": r.Header.Get("User-Agent")}).Info("Source connected")
+	logger.L.Infow("Source connected", "mount", mount, "ip", r.RemoteAddr, "ua", r.Header.Get("User-Agent"))
 	s.dispatchWebhook("source_connect", map[string]interface{}{
 		"mount": mount,
 		"ip":    r.RemoteAddr,
@@ -165,7 +165,7 @@ func (s *Server) handleSource(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-	logrus.WithField("mount", mount).Info("Source disconnected")
+	logger.L.Infow("Source disconnected", "mount", mount)
 	s.dispatchWebhook("source_disconnect", map[string]interface{}{
 		"mount": mount,
 	})
@@ -220,8 +220,8 @@ func (s *Server) handleListener(w http.ResponseWriter, r *http.Request) {
 
 	flusher, _ := w.(http.Flusher)
 	id := r.RemoteAddr + "-" + fmt.Sprintf("%d", time.Now().UnixNano())
-	logrus.WithFields(logrus.Fields{"mount": mount, "ip": r.RemoteAddr, "ua": r.Header.Get("User-Agent")}).Info("Listener connected")
-	defer logrus.WithFields(logrus.Fields{"mount": mount, "ip": r.RemoteAddr}).Info("Listener disconnected")
+	logger.L.Infow("Listener connected", "mount", mount, "ip", r.RemoteAddr, "ua", r.Header.Get("User-Agent"))
+	defer logger.L.Infow("Listener disconnected", "mount", mount, "ip", r.RemoteAddr)
 
 	recoveryTicker := time.NewTicker(10 * time.Second)
 	defer recoveryTicker.Stop()
@@ -235,7 +235,7 @@ func (s *Server) handleListener(w http.ResponseWriter, r *http.Request) {
 
 		if mount != originalMount {
 			if _, ok := s.Relay.GetStream(originalMount); ok {
-				logrus.WithField("mount", originalMount).Info("Primary stream returned, recovering from fallback")
+				logger.L.Infow("Primary stream returned, recovering from fallback", "mount", originalMount)
 				mount = originalMount
 			}
 		}
@@ -244,7 +244,7 @@ func (s *Server) handleListener(w http.ResponseWriter, r *http.Request) {
 		if !ok {
 			fallback, hasFallback := s.Config.FallbackMounts[mount]
 			if hasFallback && fallback != mount {
-				logrus.WithFields(logrus.Fields{"from": mount, "to": fallback}).Info("Primary stream down, falling back")
+				logger.L.Infow("Primary stream down, falling back", "from", mount, "to", fallback)
 				mount = fallback
 				continue
 			}
@@ -291,7 +291,7 @@ func (s *Server) serveStreamData(w http.ResponseWriter, r *http.Request, stream 
 		if _, err := w.Write(stream.OggHead); err != nil {
 			return false
 		}
-		logrus.Debugf("Ogg Listener %s: Sending stored headers (%d bytes), then starting burst at %d", id, len(stream.OggHead), offset)
+		logger.L.Debugf("Ogg Listener %s: Sending stored headers (%d bytes), then starting burst at %d", id, len(stream.OggHead), offset)
 	}
 
 	buf := make([]byte, 16384)
@@ -404,7 +404,7 @@ Explore our high-performance live streaming network. Discover new music, live sh
 	}
 	if err := s.tmpl.ExecuteTemplate(w, "index.html", data); err != nil {
 		if !strings.Contains(err.Error(), "broken pipe") {
-			logrus.WithError(err).Error("Template error")
+			logger.L.Errorf("Template error: %v", err)
 		}
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 	}

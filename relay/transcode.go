@@ -10,11 +10,11 @@ import (
 	"time"
 
 	"github.com/DatanoiseTV/tinyice/config"
+	"github.com/DatanoiseTV/tinyice/logger"
 	shine "github.com/braheezy/shine-mp3/pkg/mp3"
 	"github.com/hajimehoshi/go-mp3"
 	"github.com/kazzmir/opus-go/ogg"
 	"github.com/kazzmir/opus-go/opus"
-	"github.com/sirupsen/logrus"
 )
 
 type TranscoderInstance struct {
@@ -90,8 +90,13 @@ func (inst *TranscoderInstance) Stop() {
 }
 
 func (tm *TranscoderManager) runTranscoder(ctx context.Context, inst *TranscoderInstance) {
-	logrus.Infof("Starting transcoder %s: %s -> %s (%s %dkbps)",
-		inst.Config.Name, inst.Config.InputMount, inst.Config.OutputMount, inst.Config.Format, inst.Config.Bitrate)
+	logger.L.Infow("Starting transcoder",
+		"name", inst.Config.Name,
+		"input", inst.Config.InputMount,
+		"output", inst.Config.OutputMount,
+		"format", inst.Config.Format,
+		"bitrate", inst.Config.Bitrate,
+	)
 
 	for {
 		select {
@@ -127,7 +132,7 @@ func (tm *TranscoderManager) performTranscode(ctx context.Context, inst *Transco
 		}
 	}
 
-	logrus.Infof("Transcoder %s: Input stream %s found, initializing...", inst.Config.Name, inst.Config.InputMount)
+	logger.L.Infow("Transcoder: Input stream found, initializing...", "name", inst.Config.Name, "input", inst.Config.InputMount)
 
 	// 2. Subscribe to input
 	id := fmt.Sprintf("transcoder-%s", inst.Config.Name)
@@ -140,7 +145,7 @@ func (tm *TranscoderManager) performTranscode(ctx context.Context, inst *Transco
 	// 3. Decode
 	decoder, err := mp3.NewDecoder(reader)
 	if err != nil {
-		logrus.WithError(err).Errorf("Transcoder %s: Failed to initialize decoder for input %s", inst.Config.Name, inst.Config.InputMount)
+		logger.L.Errorw("Transcoder: Failed to initialize decoder", "name", inst.Config.Name, "input", inst.Config.InputMount, "error", err)
 		return
 	}
 
@@ -219,7 +224,7 @@ func EncodeOpus(ctx context.Context, relay *Relay, output *Stream, decoder io.Re
 
 	enc, err := opus.NewEncoder(sampleRate, channels, opus.ApplicationAudio)
 	if err != nil {
-		logrus.WithError(err).Error("Failed to create Opus encoder")
+		logger.L.Errorf("Failed to create Opus encoder: %v", err)
 		return
 	}
 	defer enc.Close()
@@ -278,7 +283,7 @@ func EncodeOpus(ctx context.Context, relay *Relay, output *Stream, decoder io.Re
 
 			en, eerr := enc.Encode(pcmSamples, frameSize, opusPacket)
 			if eerr != nil {
-				logrus.WithError(eerr).Error("Opus encode error")
+				logger.L.Errorf("Opus encode error: %v", eerr)
 				return
 			}
 

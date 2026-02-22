@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/DatanoiseTV/tinyice/config"
-	"github.com/sirupsen/logrus"
+	"github.com/DatanoiseTV/tinyice/logger"
 )
 
 func (s *Server) handlePlayerClearQueue(w http.ResponseWriter, r *http.Request) {
@@ -70,7 +70,7 @@ func (s *Server) handlePlayerScan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := streamer.ScanMusicDir(); err != nil {
-		logrus.WithError(err).Error("Failed to scan music directory")
+		logger.L.Errorf("Failed to scan music directory: %v", err)
 	}
 
 	w.WriteHeader(http.StatusOK)
@@ -223,8 +223,6 @@ func (s *Server) handlePlayerQueue(w http.ResponseWriter, r *http.Request) {
 	path := r.FormValue("path")
 	action := r.FormValue("action")
 
-	logrus.Debugf("handlePlayerQueue: mount=%s action=%s path=%s", mount, action, path)
-
 	streamer := s.StreamerM.GetStreamer(mount)
 	if streamer == nil {
 		http.Error(w, "Streamer not found", http.StatusNotFound)
@@ -235,13 +233,13 @@ func (s *Server) handlePlayerQueue(w http.ResponseWriter, r *http.Request) {
 		musicDir := streamer.GetMusicDir()
 		fullPath, err := s.validatePathInMusicDir(musicDir, path)
 		if err != nil {
-			logrus.WithError(err).Warnf("Security: Blocked queue addition of %s for mount %s", path, mount)
+			logger.L.Warnw("Security: Blocked queue addition", "path", path, "mount", mount, "error", err)
 			http.Error(w, "Forbidden", http.StatusForbidden)
 			return
 		}
 
 		streamer.PushToQueue(fullPath)
-		logrus.Debugf("AutoDJ %s: Queued song %s", mount, fullPath)
+		logger.L.Debugf("AutoDJ %s: Queued song %s", mount, fullPath)
 	} else if action == "remove" {
 		var index int
 		fmt.Sscanf(r.FormValue("index"), "%d", &index)
@@ -394,21 +392,21 @@ func (s *Server) handlePlayerFiles(w http.ResponseWriter, r *http.Request) {
 
 	fullPath, err := s.validatePathInMusicDir(musicDir, filepath.Join(musicDir, subDir))
 	if err != nil {
-		logrus.WithError(err).Warnf("Security: Blocked file browser access to %s for mount %s", subDir, mount)
+		logger.L.Warnw("Security: Blocked file browser access", "subDir", subDir, "mount", mount, "error", err)
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 
-	logrus.WithFields(logrus.Fields{
-		"mount":    mount,
-		"musicDir": musicDir,
-		"subDir":   subDir,
-		"fullPath": fullPath,
-	}).Debug("AutoDJ File Browser: Reading directory")
+	logger.L.Debugw("AutoDJ File Browser: Reading directory",
+		"mount", mount,
+		"musicDir", musicDir,
+		"subDir", subDir,
+		"fullPath", fullPath,
+	)
 
 	entries, err := os.ReadDir(fullPath)
 	if err != nil {
-		logrus.WithError(err).Errorf("AutoDJ File Browser: Failed to read directory: %s", fullPath)
+		logger.L.Errorf("AutoDJ File Browser: Failed to read directory %s: %v", fullPath, err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -478,7 +476,7 @@ func (s *Server) handlePlayerPlaylistAction(w http.ResponseWriter, r *http.Reque
 	action := r.FormValue("action")
 	relPath := r.FormValue("file")
 
-	logrus.Debugf("handlePlayerPlaylistAction: mount=%s action=%s file=%s", mount, action, relPath)
+	logger.L.Debugw("handlePlayerPlaylistAction", "mount", mount, "action", action, "file", relPath)
 
 	streamer := s.StreamerM.GetStreamer(mount)
 	if streamer == nil {
@@ -490,25 +488,25 @@ func (s *Server) handlePlayerPlaylistAction(w http.ResponseWriter, r *http.Reque
 		musicDir := streamer.GetMusicDir()
 		fullPath, err := s.validatePathInMusicDir(musicDir, relPath)
 		if err != nil {
-			logrus.WithError(err).Warnf("Security: Blocked playlist addition of %s for mount %s", relPath, mount)
+			logger.L.Warnw("Security: Blocked playlist addition", "relPath", relPath, "mount", mount, "error", err)
 			http.Error(w, "Forbidden", http.StatusForbidden)
 			return
 		}
 
-		logrus.Infof("AutoDJ %s: Attempting to add %s", mount, fullPath)
+		logger.L.Infof("AutoDJ %s: Attempting to add %s", mount, fullPath)
 
 		info, err := os.Stat(fullPath)
 		if err != nil {
-			logrus.WithError(err).Errorf("AutoDJ %s: Failed to stat path %s", mount, fullPath)
+			logger.L.Errorf("AutoDJ %s: Failed to stat path %s: %v", mount, fullPath, err)
 			http.Error(w, "File not found", http.StatusNotFound)
 			return
 		}
 
 		if info.IsDir() {
-			logrus.Infof("AutoDJ %s: Adding directory %s", mount, fullPath)
+			logger.L.Infof("AutoDJ %s: Adding directory %s", mount, fullPath)
 			err := filepath.Walk(fullPath, func(p string, i os.FileInfo, e error) error {
 				if e != nil {
-					logrus.WithError(e).Warnf("AutoDJ %s: Error walking path %s", mount, p)
+					logger.L.Warnw("AutoDJ error walking path", "mount", mount, "path", p, "error", e)
 					return nil
 				}
 				if !i.IsDir() && strings.ToLower(filepath.Ext(p)) == ".mp3" {
@@ -517,10 +515,10 @@ func (s *Server) handlePlayerPlaylistAction(w http.ResponseWriter, r *http.Reque
 				return nil
 			})
 			if err != nil {
-				logrus.WithError(err).Errorf("AutoDJ %s: Walk failed for %s", mount, fullPath)
+				logger.L.Errorf("AutoDJ %s: Walk failed for %s: %v", mount, fullPath, err)
 			}
 		} else {
-			logrus.Infof("AutoDJ %s: Adding single file %s", mount, fullPath)
+			logger.L.Infof("AutoDJ %s: Adding single file %s", mount, fullPath)
 			streamer.AddToPlaylist(fullPath)
 		}
 	} else if action == "remove" {
@@ -709,11 +707,11 @@ func (s *Server) handleAutoDJStudio(w http.ResponseWriter, r *http.Request) {
 	}
 
 	mount := r.URL.Query().Get("mount")
-	logrus.Infof("Studio: Requested mount: %s", mount)
+	logger.L.Infof("Studio: Requested mount: %s", mount)
 
 	streamer := s.StreamerM.GetStreamer(mount)
 	if streamer == nil {
-		logrus.Warnf("Studio: Streamer not found for mount: %s", mount)
+		logger.L.Warnf("Studio: Streamer not found for mount: %s", mount)
 		http.Redirect(w, r, "/admin#tab-streamer", http.StatusSeeOther)
 		return
 	}
@@ -738,7 +736,7 @@ func (s *Server) handleAutoDJStudio(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/html")
 	if err := s.tmpl.ExecuteTemplate(w, "autodj_studio.html", data); err != nil {
-		logrus.WithError(err).Error("Studio template error")
+		logger.L.Errorf("Studio template error: %v", err)
 	}
 }
 

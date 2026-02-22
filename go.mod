@@ -12,6 +12,7 @@ require (
 	github.com/kazzmir/opus-go v1.2.1
 	github.com/pion/webrtc/v4 v4.2.8
 	github.com/sirupsen/logrus v1.9.4
+	go.uber.org/zap v1.27.1
 	golang.org/x/crypto v0.48.0
 	golang.org/x/sys v0.41.0
 	gorm.io/gorm v1.31.1
@@ -41,6 +42,7 @@ require (
 	github.com/pion/turn/v4 v4.1.4 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/wlynxg/anet v0.0.5 // indirect
+	go.uber.org/multierr v1.10.0 // indirect
 	golang.org/x/net v0.50.0 // indirect
 	golang.org/x/text v0.34.0 // indirect
 	golang.org/x/time v0.10.0 // indirect

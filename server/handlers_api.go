@@ -12,9 +12,9 @@ import (
 	"time"
 
 	"github.com/DatanoiseTV/tinyice/config"
+	"github.com/DatanoiseTV/tinyice/logger"
 	"github.com/DatanoiseTV/tinyice/relay"
 	"github.com/pion/webrtc/v4"
-	"github.com/sirupsen/logrus"
 )
 
 type streamEventInfo struct {
@@ -423,7 +423,7 @@ func (s *Server) handleGoLive(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/html")
 	if err := s.tmpl.ExecuteTemplate(w, "go_live.html", data); err != nil {
-		logrus.WithError(err).Error("Go Live template error")
+		logger.L.Errorf("Go Live template error: %v", err)
 	}
 }
 

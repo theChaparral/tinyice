@@ -12,7 +12,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/sirupsen/logrus"
+	"github.com/DatanoiseTV/tinyice/logger"
 	"golang.org/x/crypto/acme"
 	"golang.org/x/crypto/acme/autocert"
 )
@@ -30,7 +30,7 @@ func (l *BannedListener) Accept() (net.Conn, error) {
 		}
 		remoteAddr := conn.RemoteAddr().String()
 		if l.s.isBanned(remoteAddr) {
-			logrus.WithField("ip", remoteAddr).Warn("Dropping connection from banned IP at TCP level")
+			logger.L.Warnw("Dropping connection from banned IP at TCP level", "ip", remoteAddr)
 			conn.Close()
 			continue
 		}
@@ -148,7 +148,7 @@ func (ml *multiListener) accept(l net.Listener) {
 			case <-ml.done:
 				return
 			default:
-				logrus.WithError(err).Warn("multiListener accept error")
+				logger.L.Warnw("multiListener accept error", "error", err)
 				return
 			}
 		}
@@ -224,7 +224,7 @@ func (s *Server) buildListeners(port string) ([]net.Listener, error) {
 	for _, addr := range addrs {
 		ln, err := s.listenWithReuse("tcp", addr)
 		if err != nil {
-			logrus.Warnf("Could not listen on %s: %v (skipping)", addr, err)
+			logger.L.Warnf("Could not listen on %s: %v (skipping)", addr, err)
 			continue
 		}
 		listeners = append(listeners, ln)
@@ -249,10 +249,10 @@ func (s *Server) startHTTPS(mux *http.ServeMux, addr string) error {
 	httpsAddr := net.JoinHostPort(s.Config.BindHost, s.Config.HTTPSPort)
 	if s.Config.AutoHTTPS {
 		if len(s.Config.Domains) == 0 {
-			logrus.Warn("Auto-HTTPS is enabled but no domains are configured in 'domains'. Certificates will not be issued.")
+			logger.L.Warn("Auto-HTTPS is enabled but no domains are configured in 'domains'. Certificates will not be issued.")
 		}
 		if s.Config.Port != "80" || s.Config.HTTPSPort != "443" {
-			logrus.Warnf("Auto-HTTPS usually requires port 80 and 443 to satisfy ACME challenges. Current ports: HTTP=%s, HTTPS=%s. Ensure you have port forwarding (80->%s, 443->%s) configured.", s.Config.Port, s.Config.HTTPSPort, s.Config.Port, s.Config.HTTPSPort)
+			logger.L.Warnf("Auto-HTTPS usually requires port 80 and 443 to satisfy ACME challenges. Current ports: HTTP=%s, HTTPS=%s. Ensure you have port forwarding (80->%s, 443->%s) configured.", s.Config.Port, s.Config.HTTPSPort, s.Config.Port, s.Config.HTTPSPort)
 		}
 
 		s.certManager = &autocert.Manager{
@@ -286,10 +286,10 @@ func (s *Server) startHTTPS(mux *http.ServeMux, addr string) error {
 				return
 			}
 			if s.certManager != nil && strings.HasPrefix(r.URL.Path, "/.well-known/acme-challenge/") {
-				logrus.WithFields(logrus.Fields{
-					"path": r.URL.Path,
-					"ip":   r.RemoteAddr,
-				}).Info("Handling ACME challenge request")
+				logger.L.Infow("Handling ACME challenge request",
+					"path", r.URL.Path,
+					"ip", r.RemoteAddr,
+				)
 				s.certManager.HTTPHandler(nil).ServeHTTP(w, r)
 				return
 			}
@@ -305,17 +305,17 @@ func (s *Server) startHTTPS(mux *http.ServeMux, addr string) error {
 	s.httpServers = append(s.httpServers, httpSrv)
 
 	go func() {
-		logrus.Infof("Starting HTTP listener on %s", addr)
+		logger.L.Infof("Starting HTTP listener on %s", addr)
 		ln, err := s.listenWithReuse("tcp", addr)
 		if err != nil {
-			logrus.Fatalf("HTTP listen failed: %v", err)
+			logger.L.Fatalf("HTTP listen failed: %v", err)
 		}
 		if err := httpSrv.Serve(ln); err != nil && err != http.ErrServerClosed {
-			logrus.Fatalf("HTTP server failed: %v", err)
+			logger.L.Fatalf("HTTP server failed: %v", err)
 		}
 	}()
 
-	logrus.Infof("Starting dual-mode HTTPS/HTTP server on %s", httpsAddr)
+	logger.L.Infof("Starting dual-mode HTTPS/HTTP server on %s", httpsAddr)
 	rawLn, err := s.listenWithReuse("tcp", httpsAddr)
 	if err != nil {
 		return err
@@ -333,7 +333,7 @@ func (s *Server) startHTTPS(mux *http.ServeMux, addr string) error {
 
 	go func() {
 		if err := httpSrv.Serve(plainLn); err != nil && err != http.ErrServerClosed {
-			logrus.Errorf("Sniffed HTTP server failed: %v", err)
+			logger.L.Errorf("Sniffed HTTP server failed: %v", err)
 		}
 	}()
 
@@ -341,4 +341,69 @@ func (s *Server) startHTTPS(mux *http.ServeMux, addr string) error {
 		return httpsSrv.ServeTLS(tlsLn, "", "")
 	}
 	return httpsSrv.ServeTLS(tlsLn, s.Config.CertFile, s.Config.KeyFile)
+}
+
+func (s *Server) startMetricsServer() {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/metrics", s.handleMetrics)
+
+	// In TinyIce, the metrics port might not be in the config yet, fallback to 8081
+	addr := ":8081"
+
+	logger.L.Infof("Starting metrics server on %s", addr)
+	srv := &http.Server{
+		Addr:    addr,
+		Handler: mux,
+	}
+
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.L.Errorf("Metrics server error: %v", err)
+		}
+	}()
+
+	go func() {
+		<-s.done
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		srv.Shutdown(ctx)
+	}()
+}
+
+func (s *Server) startHealthCheck() {
+	go func() {
+		ticker := time.NewTicker(1 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-s.done:
+				return
+			case <-ticker.C:
+				allStreams := s.Relay.Snapshot()
+				for _, st := range allStreams {
+					if st.Health < 50 {
+						logger.L.Warnw("Stream health critical", "mount", st.MountName, "health", st.Health)
+					}
+				}
+			}
+		}
+	}()
+}
+
+func (s *Server) startJanitor() {
+	go func() {
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-s.done:
+				return
+			case <-ticker.C:
+				s.scanAttemptsMu.Lock()
+				s.scanAttempts = make(map[string]*scanAttempt)
+				s.scanAttemptsMu.Unlock()
+				logger.L.Debug("Janitor: Cleared scan counters")
+			}
+		}
+	}()
 }

@@ -2,12 +2,16 @@ package relay
 
 import (
 	"bufio"
+	"fmt"
 	"io"
+	"math/rand"
 	"net"
+	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
-	"github.com/sirupsen/logrus"
+	"github.com/DatanoiseTV/tinyice/logger"
 )
 
 type MPDServer struct {
@@ -35,7 +39,7 @@ func (m *MPDServer) Start() error {
 		return err
 	}
 	m.listener = l
-	logrus.Infof("MPD Server listening on %s", addr)
+	logger.L.Infof("MPD Server listening on %s", addr)
 
 	go func() {
 		for {
@@ -51,7 +55,7 @@ func (m *MPDServer) Start() error {
 }
 
 func (m *MPDServer) Stop() {
-	logrus.Debugf("MPD: Stopping server on port %s", m.Port)
+	logger.L.Debugf("MPD: Stopping server on port %s", m.Port)
 	if m.listener != nil {
 		m.listener.Close()
 	}
@@ -64,21 +68,24 @@ func (m *MPDServer) handleConnection(conn net.Conn) {
 
 	resp := NewMPDResponse(writer)
 
-	logrus.Debugf("MPD: New connection from %v", conn.RemoteAddr())
+	logger.L.Debugf("MPD: New connection from %v", conn.RemoteAddr())
 
 	// Greeting
 	resp.Greeting("0.23.5")
 	writer.Flush()
 
 	authenticated := m.Password == ""
+	commandList := false
+	commandListOK := false
+	var commandListBuffer []string
 
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			if err != io.EOF {
-				logrus.WithError(err).Debug("MPD: Connection error")
+				logger.L.Errorf("MPD: Connection error: %v", err)
 			} else {
-				logrus.Debug("MPD: Connection closed by client")
+				logger.L.Debug("MPD: Connection closed by client")
 			}
 			return
 		}
@@ -94,107 +101,410 @@ func (m *MPDServer) handleConnection(conn net.Conn) {
 			args = parts[1]
 		}
 
-		logrus.Debugf("MPD: Command: %s, Args: %s (Authenticated: %v)", cmd, args, authenticated)
+		logger.L.Debugf("MPD: Command: %s, Args: %s (Authenticated: %v)", cmd, args, authenticated)
 
 		if !authenticated && cmd != "password" && cmd != "close" {
-			logrus.Debug("MPD: Permission denied for command: ", cmd)
+			logger.L.Debugf("MPD: Permission denied for command: %s", cmd)
 			resp.ACK(5, 0, "", "permission denied")
 			writer.Flush()
 			continue
 		}
 
 		switch cmd {
-		case "password":
-			if args == m.Password {
-				authenticated = true
-				resp.OK()
-			} else {
-				resp.ACK(3, 0, "password", "incorrect password")
+		case "command_list_begin":
+			commandList = true
+			commandListOK = false
+			commandListBuffer = []string{}
+			continue
+		case "command_list_ok_begin":
+			commandList = true
+			commandListOK = true
+			commandListBuffer = []string{}
+			continue
+		case "command_list_end":
+			if !commandList {
+				resp.ACK(5, 0, "command_list_end", "not in command list")
+				writer.Flush()
+				continue
 			}
-		case "status":
-			m.handleStatus(resp)
-		case "currentsong":
-			m.handleCurrentSong(resp)
-		case "play":
-			m.streamer.Play()
+			commandList = false
+			// Execute all buffered commands
+			allOK := true
+			for _, bufferedLine := range commandListBuffer {
+				parts := strings.SplitN(bufferedLine, " ", 2)
+				bcmd := strings.ToLower(parts[0])
+				bargs := ""
+				if len(parts) > 1 {
+					bargs = parts[1]
+				}
+				if !m.dispatchCommand(bcmd, bargs, resp) {
+					// On error, the ACK is already sent by dispatchCommand or it should be!
+					// Actually we need to send the correct [error@list_pos]
+					// Let's refine ACK to be more generic
+					allOK = false
+					break
+				}
+				if commandListOK {
+					resp.ListOK()
+				}
+			}
+			if allOK {
+				resp.OK()
+			}
+			writer.Flush()
+			continue
+		}
+
+		if commandList {
+			commandListBuffer = append(commandListBuffer, line)
+			continue
+		}
+
+		if m.dispatchCommand(cmd, args, resp) {
 			resp.OK()
-		case "stop":
-			m.streamer.Stop()
-			resp.OK()
-		case "pause":
-			m.streamer.TogglePlay()
-			resp.OK()
-		case "next":
-			m.streamer.Next()
-			resp.OK()
-		case "previous":
-			// We don't have previous yet, but let's be polite
-			resp.OK()
-		case "ping":
-			resp.OK()
-		case "close":
-			return
-		case "listall", "listallinfo":
-			m.handleListAll(resp)
-		case "listplaylists":
-			resp.OK()
-		case "lsinfo":
-			m.handleListAll(resp)
-		case "outputs":
-			resp.Field("outputid", 0)
-			resp.Field("outputname", m.streamer.OutputMount)
-			resp.Field("outputenabled", 1)
-			resp.OK()
-		case "config":
-			resp.OK()
-		case "stats":
-			resp.Field("uptime", 0)
-			resp.Field("playtime", 0)
-			resp.Field("artists", 0)
-			resp.Field("albums", 0)
-			resp.Field("songs", len(m.streamer.Playlist))
-			resp.OK()
-		default:
-			logrus.Debugf("MPD: Unknown command: %s", cmd)
-			resp.OK() // Be lenient for now
 		}
 		writer.Flush()
 	}
 }
 
-func (m *MPDServer) handleStatus(resp *MPDResponse) {
-	state := "stop"
-	if m.streamer.State == StatePlaying {
-		state = "play"
-	} else if m.streamer.State == StatePaused {
-		state = "pause"
+func (m *MPDServer) dispatchCommand(cmd, args string, resp *MPDResponse) bool {
+	switch cmd {
+	case "password":
+		if args == m.Password {
+			return true
+		} else {
+			resp.ACK(3, 0, "password", "incorrect password")
+			return false
+		}
+	case "status":
+		m.handleStatus(resp)
+	case "currentsong":
+		m.handleCurrentSong(resp)
+	case "play":
+		m.streamer.Play()
+	case "stop":
+		m.streamer.Stop()
+	case "pause":
+		m.streamer.TogglePlay()
+	case "next":
+		m.streamer.Next()
+	case "previous":
+		// Not implemented
+	case "ping":
+		// OK
+	case "idle":
+		m.handleIdle(resp)
+		return false // handleIdle sends its own OK or Changed
+	case "update":
+		m.streamer.ScanMusicDir()
+		resp.Field("updating_db", 1)
+	case "listall", "listallinfo":
+		m.handleListAll(resp)
+	case "lsinfo":
+		m.handleLsInfo(args, resp)
+	case "playlistinfo":
+		m.handlePlaylistInfo(args, resp)
+	case "playlistid":
+		m.handlePlaylistId(args, resp)
+	case "add":
+		m.handleAdd(args, resp)
+	case "addid":
+		m.handleAddId(args, resp)
+	case "delete":
+		m.handleDelete(args, resp)
+	case "deleteid":
+		m.handleDeleteId(args, resp)
+	case "clear":
+		m.streamer.ClearPlaylist()
+	case "move":
+		m.handleMove(args, resp)
+	case "moveid":
+		m.handleMoveId(args, resp)
+	case "shuffle":
+		m.streamer.mu.Lock()
+		// Basic shuffle of existing playlist
+		rand.Shuffle(len(m.streamer.Playlist), func(i, j int) {
+			m.streamer.Playlist[i], m.streamer.Playlist[j] = m.streamer.Playlist[j], m.streamer.Playlist[i]
+		})
+		m.streamer.mu.Unlock()
+	case "listplaylists":
+		m.handleListPlaylists(resp)
+	case "load":
+		m.handleLoad(args, resp)
+	case "save":
+		m.handleSave(args, resp)
+	case "rm":
+		m.handleRm(args, resp)
+	case "outputs":
+		resp.Field("outputid", 0)
+		resp.Field("outputname", m.streamer.OutputMount)
+		resp.Field("outputenabled", 1)
+	case "stats":
+		resp.Field("uptime", 0)
+		resp.Field("playtime", 0)
+		resp.Field("artists", 0)
+		resp.Field("albums", 0)
+		resp.Field("songs", len(m.streamer.Playlist))
+	case "config":
+		// Ignore
+	case "plchanges", "plchangesposid":
+		m.handlePlaylistInfo(args, resp)
+	case "decoders":
+		resp.Field("plugin", "mpg123")
+		resp.Field("suffix", "mp3")
+		resp.Field("mime_type", "audio/mpeg")
+	case "tagtypes":
+		resp.Field("tagtype", "Artist")
+		resp.Field("tagtype", "Title")
+		resp.Field("tagtype", "Album")
+	case "urlhandlers":
+		resp.Field("handler", "http")
+		resp.Field("handler", "https")
+	default:
+		logger.L.Debugf("MPD: Unknown command: %s", cmd)
+		resp.ACK(5, 0, cmd, "unknown command")
+		return false
 	}
+	return true
+}
 
-	resp.Field("state", state)
+func (m *MPDServer) handleIdle(resp *MPDResponse) {
+	// Blocking idle for a short period to prevent client spin-loops
+	// In a real MPD this would wait for events.
+	select {
+	case <-time.After(10 * time.Second):
+		resp.OK()
+	}
+}
+func (m *MPDServer) handleStatus(resp *MPDResponse) {
+	state_str := "stop"
+	if m.streamer.State == StatePlaying {
+		state_str = "play"
+	} else if m.streamer.State == StatePaused {
+		state_str = "pause"
+	}
+	resp.Field("state", state_str)
 	resp.Field("volume", 100)
 	resp.Field("repeat", 0)
 	resp.Field("random", 0)
 	resp.Field("single", 0)
 	resp.Field("consume", 0)
+
+	resp.Field("song", m.streamer.CurrentPos) // Pos for NEXT song
 	resp.Field("playlist", 1)
 	resp.Field("playlistlength", len(m.streamer.Playlist))
+
+	m.streamer.mu.RLock()
+	state := m.streamer.State
+	elapsed := time.Since(m.streamer.CurrentFileTime).Seconds()
+	duration := m.streamer.CurrentFileDuration.Seconds()
+	if m.streamer.CurrentFileTime.IsZero() {
+		elapsed = 0
+	}
+	sampleRate := m.streamer.CurrentSampleRate
+	channels := m.streamer.CurrentChannels
+	bitrate := m.streamer.Bitrate
+	playingPos := m.streamer.CurrentPlayingPos
+	playingID := m.streamer.CurrentPlayingID
+	m.streamer.mu.RUnlock()
+
+	if state != StateStopped {
+		resp.Field("time", fmt.Sprintf("%d:%d", int(elapsed), int(duration)))
+		resp.Field("elapsed", fmt.Sprintf("%.3f", elapsed))
+		resp.Field("duration", fmt.Sprintf("%.3f", duration))
+		resp.Field("bitrate", bitrate)
+		if sampleRate > 0 {
+			resp.Field("audio", fmt.Sprintf("%d:16:%d", sampleRate, channels))
+		}
+		if playingPos >= 0 {
+			resp.Field("song", playingPos)
+			resp.Field("songid", playingID)
+		}
+	}
+
 	resp.OK()
 }
 
 func (m *MPDServer) handleCurrentSong(resp *MPDResponse) {
 	m.streamer.mu.RLock()
 	defer m.streamer.mu.RUnlock()
-	resp.Field("file", m.streamer.CurrentFile)
-	resp.Field("Title", m.streamer.CurrentFile)
-	resp.Field("Pos", m.streamer.CurrentPos)
-	resp.Field("Id", m.streamer.CurrentPos)
+	if m.streamer.CurrentPlayingPos >= 0 {
+		m.writeSongInfo(resp, m.streamer.CurrentFile, m.streamer.CurrentPlayingPos, m.streamer.CurrentPlayingID)
+	}
 	resp.OK()
+}
+
+func (m *MPDServer) writeSongInfo(resp *MPDResponse, file string, pos, id int) {
+	resp.Field("file", file)
+	// Try to get tags from streamer cache
+	artist := ""
+	title := ""
+	album := ""
+	duration := 0
+
+	m.streamer.mu.RLock()
+	// If it's the current song, use the live metadata
+	if file == m.streamer.CurrentFile {
+		artist = m.streamer.CurrentArtist
+		title = m.streamer.CurrentTitle
+		album = m.streamer.CurrentAlbum
+		duration = int(m.streamer.CurrentFileDuration.Seconds())
+	} else {
+		// Try title cache
+		if t, ok := m.streamer.titleCache[filepath.Join(m.streamer.MusicDir, file)]; ok {
+			title = t
+		}
+	}
+	m.streamer.mu.RUnlock()
+
+	if artist != "" {
+		resp.Field("Artist", artist)
+	}
+	if title != "" {
+		resp.Field("Title", title)
+	}
+	if album != "" {
+		resp.Field("Album", album)
+	}
+	if duration > 0 {
+		resp.Field("Time", duration)
+		resp.Field("duration", fmt.Sprintf("%.3f", float64(duration)))
+	}
+	resp.Field("Pos", pos)
+	resp.Field("Id", id)
+}
+
+func (m *MPDServer) handlePlaylistInfo(args string, resp *MPDResponse) {
+	m.streamer.mu.RLock()
+	playlist := make([]string, len(m.streamer.Playlist))
+	copy(playlist, m.streamer.Playlist)
+	m.streamer.mu.RUnlock()
+
+	for i, f := range playlist {
+		rel, _ := filepath.Rel(m.streamer.MusicDir, f)
+		m.writeSongInfo(resp, rel, i, i+1) // ID is pos+1 for dummy stable IDs
+	}
+	resp.OK()
+}
+
+func (m *MPDServer) handlePlaylistId(args string, resp *MPDResponse) {
+	// Parse ID
+	id := 0
+	fmt.Sscanf(args, "%d", &id)
+	if id <= 0 {
+		m.handlePlaylistInfo("", resp)
+		return
+	}
+
+	m.streamer.mu.RLock()
+	if id > 0 && id <= len(m.streamer.Playlist) {
+		f := m.streamer.Playlist[id-1]
+		rel, _ := filepath.Rel(m.streamer.MusicDir, f)
+		m.writeSongInfo(resp, rel, id-1, id)
+	}
+	m.streamer.mu.RUnlock()
+	resp.OK()
+}
+
+func (m *MPDServer) handleLsInfo(args string, resp *MPDResponse) {
+	m.streamer.mu.RLock()
+	defer m.streamer.mu.RUnlock()
+
+	dir := m.streamer.MusicDir
+	if args != "" {
+		dir = filepath.Join(m.streamer.MusicDir, strings.Trim(args, "\""))
+	}
+
+	entries, _ := os.ReadDir(dir)
+	for _, entry := range entries {
+		if entry.IsDir() {
+			resp.Field("directory", entry.Name())
+		} else {
+			resp.Field("file", entry.Name())
+		}
+	}
+	resp.OK()
+}
+
+func (m *MPDServer) handleAdd(args string, resp *MPDResponse) {
+	path := strings.Trim(args, "\"")
+	full := filepath.Join(m.streamer.MusicDir, path)
+	m.streamer.AddToPlaylist(full)
+}
+
+func (m *MPDServer) handleAddId(args string, resp *MPDResponse) {
+	path := strings.Trim(args, "\"")
+	full := filepath.Join(m.streamer.MusicDir, path)
+	m.streamer.AddToPlaylist(full)
+	resp.Field("Id", len(m.streamer.GetPlaylist()))
+}
+
+func (m *MPDServer) handleDelete(args string, resp *MPDResponse) {
+	pos := -1
+	fmt.Sscanf(args, "%d", &pos)
+	if pos >= 0 {
+		m.streamer.RemoveFromPlaylist(pos)
+	}
+}
+
+func (m *MPDServer) handleDeleteId(args string, resp *MPDResponse) {
+	id := -1
+	fmt.Sscanf(args, "%d", &id)
+	if id > 0 {
+		m.streamer.RemoveFromPlaylist(id - 1)
+	}
+}
+
+func (m *MPDServer) handleMove(args string, resp *MPDResponse) {
+	var from, to int
+	fmt.Sscanf(args, "%d %d", &from, &to)
+	m.streamer.MovePlaylistItem(from, to)
+}
+
+func (m *MPDServer) handleMoveId(args string, resp *MPDResponse) {
+	var fromId, to int
+	fmt.Sscanf(args, "%d %d", &fromId, &to)
+	if fromId > 0 {
+		m.streamer.MovePlaylistItem(fromId-1, to)
+	}
+}
+
+func (m *MPDServer) handleListPlaylists(resp *MPDResponse) {
+	entries, _ := os.ReadDir("playlists")
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".pls") {
+			name := strings.TrimSuffix(entry.Name(), ".pls")
+			resp.Field("playlist", name)
+		}
+	}
+	resp.OK()
+}
+
+func (m *MPDServer) handleLoad(args string, resp *MPDResponse) {
+	name := strings.Trim(args, "\"")
+	m.streamer.LoadPlaylist(name + ".pls")
+}
+
+func (m *MPDServer) handleSave(args string, resp *MPDResponse) {
+	// Streamer already has a SavePlaylist that uses s.Name
+	// Let's just override it if we want custom name?
+	// For now, use streamer's name or ignore args if they match
+	m.streamer.SavePlaylist()
+}
+
+func (m *MPDServer) handleRm(args string, resp *MPDResponse) {
+	name := strings.Trim(args, "\"")
+	os.Remove(filepath.Join("playlists", name+".pls"))
 }
 
 func (m *MPDServer) handleListAll(resp *MPDResponse) {
 	// Dummy for now, just list what's in the music dir or playlist
 	for _, f := range m.streamer.Playlist {
-		resp.Field("file", filepath.Base(f))
+		rel, err := filepath.Rel(m.streamer.MusicDir, f)
+		if err != nil {
+			rel = filepath.Base(f)
+		}
+		resp.Field("file", rel)
 	}
 	resp.OK()
 }

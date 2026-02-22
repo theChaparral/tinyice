@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/sirupsen/logrus"
+	"github.com/DatanoiseTV/tinyice/logger"
 )
 
 func (s *Server) dispatchWebhook(event string, data map[string]interface{}) {
@@ -24,7 +24,7 @@ func (s *Server) dispatchWebhook(event string, data map[string]interface{}) {
 
 	jsonPayload, err := json.Marshal(payload)
 	if err != nil {
-		logrus.WithError(err).Error("Failed to marshal webhook payload")
+		logger.L.Errorf("Failed to marshal webhook payload: %v", err)
 		return
 	}
 
@@ -58,13 +58,13 @@ func (s *Server) dispatchWebhook(event string, data map[string]interface{}) {
 
 			resp, err := http.DefaultClient.Do(req)
 			if err != nil {
-				logrus.Warnf("Webhook delivery failed to %s: %v", url, err)
+				logger.L.Warnw("Webhook delivery failed", "url", url, "error", err)
 				return
 			}
 			defer resp.Body.Close()
 
 			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-				logrus.Warnf("Webhook returned non-2xx status from %s: %d", url, resp.StatusCode)
+				logger.L.Warnw("Webhook returned non-2xx status", "url", url, "status", resp.StatusCode)
 			}
 		}(wh.URL, jsonPayload)
 	}

@@ -5,8 +5,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/DatanoiseTV/tinyice/logger"
 	"github.com/DatanoiseTV/tinyice/relay"
-	"github.com/sirupsen/logrus"
 )
 
 func (s *Server) handlePlayer(w http.ResponseWriter, r *http.Request) {
@@ -35,7 +35,9 @@ func (s *Server) handlePlayer(w http.ResponseWriter, r *http.Request) {
 		"Config": s.Config,
 	}
 	if err := s.tmpl.ExecuteTemplate(w, "player.html", data); err != nil {
-		logrus.WithError(err).Error("Template error")
+		if !strings.Contains(err.Error(), "broken pipe") {
+			logger.L.Errorf("Template error: %v", err)
+		}
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 	}
 }
@@ -58,7 +60,7 @@ func (s *Server) handleWebRTCPlayer(w http.ResponseWriter, r *http.Request) {
 		"Config": s.Config,
 	}
 	if err := s.tmpl.ExecuteTemplate(w, "webrtc_player.html", data); err != nil {
-		logrus.WithError(err).Error("Template error")
+		logger.L.Errorf("Template error: %v", err)
 	}
 }
 
@@ -89,7 +91,7 @@ func (s *Server) handleEmbed(w http.ResponseWriter, r *http.Request) {
 		"Config": s.Config,
 	}
 	if err := s.tmpl.ExecuteTemplate(w, "embed.html", data); err != nil {
-		logrus.WithError(err).Error("Template error")
+		logger.L.Errorf("Template error: %v", err)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 	}
 }
@@ -112,7 +114,7 @@ func (s *Server) handleExplore(w http.ResponseWriter, r *http.Request) {
 		"Config":  s.Config,
 	}
 	if err := s.tmpl.ExecuteTemplate(w, "explore.html", data); err != nil {
-		logrus.WithError(err).Error("Template error")
+		logger.L.Errorf("Template error: %v", err)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 	}
 }

@@ -6,7 +6,7 @@ import (
 	"io"
 	"sync/atomic"
 
-	"github.com/sirupsen/logrus"
+	"github.com/DatanoiseTV/tinyice/logger"
 )
 
 // StreamWriter is a generic writer that broadcasts data to a stream and optionally tracks statistics
@@ -55,7 +55,7 @@ func (w *StreamWriter) Write(p []byte) (n int, err error) {
 	}
 
 	if w.debug {
-		logrus.Debugf("StreamWriter(%s): Broadcasting %d bytes to %s", w.name, len(p), w.stream.MountName)
+		logger.L.Debugw("StreamWriter: Broadcasting", "name", w.name, "bytes", len(p), "mount", w.stream.MountName)
 	}
 
 	w.stream.Broadcast(p, w.relay)
