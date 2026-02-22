@@ -1,79 +1,119 @@
 package relay
 
 import (
-	"database/sql"
 	"time"
 
-	_ "github.com/glebarez/go-sqlite"
+	"github.com/glebarez/sqlite"
 	"github.com/sirupsen/logrus"
+	"gorm.io/gorm"
 )
 
+// HistoryItem represents a song played on a specific mount.
 type HistoryItem struct {
-	Mount     string
+	ID        uint   `gorm:"primaryKey"`
+	Mount     string `gorm:"index"`
 	Song      string
-	Timestamp time.Time
+	Timestamp time.Time `gorm:"index"`
 }
 
+// UserAgent tracks listener and source client software counts.
+type UserAgent struct {
+	UA    string `gorm:"primaryKey"`
+	Type  string `gorm:"primaryKey"`
+	Count int    `gorm:"default:1"`
+}
+
+// ListenerHistory records periodic listener counts and bandwidth usage.
+type ListenerHistory struct {
+	ID        uint   `gorm:"primaryKey"`
+	Mount     string `gorm:"index"`
+	Listeners int
+	BytesIn   int64
+	BytesOut  int64
+	Timestamp time.Time `gorm:"index"`
+}
+
+// HistoryManager coordinates all historical data persistence using GORM.
 type HistoryManager struct {
-	db *sql.DB
+	db *gorm.DB
 }
 
+// NewHistoryManager initializes the GORM database connection and performs auto-migration.
+// It uses the non-CGO SQLite driver for maximum portability.
 func NewHistoryManager(path string) (*HistoryManager, error) {
-	db, err := sql.Open("sqlite", path)
+	db, err := gorm.Open(sqlite.Open(path), &gorm.Config{
+		Logger: nil, // We'll handle logging via logrus
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS history (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		mount TEXT,
-		song TEXT,
-		timestamp DATETIME
-	)`)
+	// Perform auto-migration to ensure schema is up-to-date
+	err = db.AutoMigrate(&HistoryItem{}, &UserAgent{}, &ListenerHistory{})
 	if err != nil {
 		return nil, err
 	}
 
-	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS user_agents (
-		ua TEXT,
-		type TEXT,
-		count INTEGER DEFAULT 1,
-		PRIMARY KEY (ua, type)
-	)`)
-	if err != nil {
-		return nil, err
-	}
-
-	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS listener_history (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		mount TEXT,
-		listeners INTEGER,
-		bytes_in INTEGER,
-		bytes_out INTEGER,
-		timestamp DATETIME
-	)`)
-	if err != nil {
-		return nil, err
-	}
-
-	return &HistoryManager{db: db}, nil
+	hm := &HistoryManager{db: db}
+	hm.migrateOldData()
+	return hm, nil
 }
 
+// migrateOldData moves data from legacy tables to the new GORM-managed structure.
+func (hm *HistoryManager) migrateOldData() {
+	// 1. Migrate 'history' -> 'history_items'
+	if hm.db.Migrator().HasTable("history") {
+		logrus.Info("Migrating legacy 'history' table...")
+		err := hm.db.Exec(`INSERT INTO history_items (mount, song, timestamp) 
+			SELECT mount, song, timestamp FROM history`).Error
+		if err == nil {
+			hm.db.Migrator().DropTable("history")
+			logrus.Info("Legacy 'history' table migrated and dropped")
+		} else {
+			logrus.WithError(err).Error("Failed to migrate legacy 'history' table")
+		}
+	}
+
+	// 2. Migrate 'listener_history' -> 'listener_histories'
+	if hm.db.Migrator().HasTable("listener_history") {
+		logrus.Info("Migrating legacy 'listener_history' table...")
+		err := hm.db.Exec(`INSERT INTO listener_histories (mount, listeners, bytes_in, bytes_out, timestamp) 
+			SELECT mount, listeners, bytes_in, bytes_out, timestamp FROM listener_history`).Error
+		if err == nil {
+			hm.db.Migrator().DropTable("listener_history")
+			logrus.Info("Legacy 'listener_history' table migrated and dropped")
+		} else {
+			logrus.WithError(err).Error("Failed to migrate legacy 'listener_history' table")
+		}
+	}
+}
+
+// RecordStats persists periodic metrics for a specific mount.
 func (hm *HistoryManager) RecordStats(mount string, listeners int, bi, bo int64) {
-	_, err := hm.db.Exec("INSERT INTO listener_history (mount, listeners, bytes_in, bytes_out, timestamp) VALUES (?, ?, ?, ?, ?)",
-		mount, listeners, bi, bo, time.Now())
-	if err != nil {
+	item := ListenerHistory{
+		Mount:     mount,
+		Listeners: listeners,
+		BytesIn:   bi,
+		BytesOut:  bo,
+		Timestamp: time.Now(),
+	}
+	if err := hm.db.Create(&item).Error; err != nil {
 		logrus.WithError(err).Error("Failed to record historical stats")
 	}
 }
 
+// RecordUA tracks or updates usage counts for specific User-Agent strings.
 func (hm *HistoryManager) RecordUA(ua, uaType string) {
 	if ua == "" {
 		ua = "Unknown"
 	}
-	_, err := hm.db.Exec(`INSERT INTO user_agents (ua, type, count) VALUES (?, ?, 1)
-		ON CONFLICT(ua, type) DO UPDATE SET count = count + 1`, ua, uaType)
-	if err != nil {
+	err := hm.db.Model(&UserAgent{}).
+		Where("ua = ? AND type = ?", ua, uaType).
+		UpdateColumn("count", gorm.Expr("count + 1")).Error
+
+	if err == gorm.ErrRecordNotFound || (err == nil && hm.db.RowsAffected == 0) {
+		hm.db.Create(&UserAgent{UA: ua, Type: uaType, Count: 1})
+	} else if err != nil {
 		logrus.WithError(err).Error("Failed to record User-Agent")
 	}
 }
@@ -83,18 +123,17 @@ type UAStat struct {
 	Count int    `json:"count"`
 }
 
+// GetTopUAs retrieves the most frequent User-Agents of a specific type.
 func (hm *HistoryManager) GetTopUAs(uaType string, limit int) []UAStat {
-	rows, err := hm.db.Query("SELECT ua, count FROM user_agents WHERE type = ? ORDER BY count DESC LIMIT ?", uaType, limit)
-	if err != nil {
-		return nil
-	}
-	defer rows.Close()
-
 	var stats []UAStat
-	for rows.Next() {
-		var s UAStat
-		rows.Scan(&s.UA, &s.Count)
-		stats = append(stats, s)
+	err := hm.db.Model(&UserAgent{}).
+		Where("type = ?", uaType).
+		Order("count DESC").
+		Limit(limit).
+		Find(&stats).Error
+	if err != nil {
+		logrus.WithError(err).Error("Failed to get top UAs")
+		return nil
 	}
 	return stats
 }
@@ -106,64 +145,73 @@ type HistoricalStat struct {
 	BytesOut  int64     `json:"bytes_out"`
 }
 
+// GetAllHistoricalStats retrieves metrics for all mounts within a specific duration.
 func (hm *HistoryManager) GetAllHistoricalStats(duration time.Duration) map[string][]HistoricalStat {
-	rows, err := hm.db.Query(`SELECT mount, listeners, bytes_in, bytes_out, timestamp 
-		FROM listener_history 
-		WHERE timestamp > ? 
-		ORDER BY timestamp ASC`, time.Now().Add(-duration))
+	var results []struct {
+		Mount string
+		HistoricalStat
+	}
+	err := hm.db.Model(&ListenerHistory{}).
+		Where("timestamp > ?", time.Now().Add(-duration)).
+		Order("timestamp ASC").
+		Find(&results).Error
 	if err != nil {
 		logrus.WithError(err).Error("Failed to fetch all historical stats")
 		return nil
 	}
-	defer rows.Close()
 
 	stats := make(map[string][]HistoricalStat)
-	for rows.Next() {
-		var mount string
-		var s HistoricalStat
-		rows.Scan(&mount, &s.Listeners, &s.BytesIn, &s.BytesOut, &s.Timestamp)
-		stats[mount] = append(stats[mount], s)
+	for _, r := range results {
+		stats[r.Mount] = append(stats[r.Mount], r.HistoricalStat)
 	}
 	return stats
 }
 
+// Add records a new song entry in the history, avoiding duplicates and pruning old entries.
 func (hm *HistoryManager) Add(mount, song string) {
 	if song == "" || song == "N/A" || song == "-" {
 		return
 	}
 
-	// Check last entry to avoid duplicates
-	var lastSong string
-	err := hm.db.QueryRow("SELECT song FROM history WHERE mount = ? ORDER BY id DESC LIMIT 1", mount).Scan(&lastSong)
-	if err == nil && lastSong == song {
+	// Check last entry to avoid immediate duplicates
+	var last HistoryItem
+	err := hm.db.Where("mount = ?", mount).Order("id DESC").First(&last).Error
+	if err == nil && last.Song == song {
 		return
 	}
 
-	_, err = hm.db.Exec("INSERT INTO history (mount, song, timestamp) VALUES (?, ?, ?)", mount, song, time.Now())
-	if err != nil {
+	item := HistoryItem{
+		Mount:     mount,
+		Song:      song,
+		Timestamp: time.Now(),
+	}
+	if err := hm.db.Create(&item).Error; err != nil {
 		logrus.WithError(err).Error("Failed to save history")
+		return
 	}
 
-	// Limit to 100 entries per mount
-	_, err = hm.db.Exec("DELETE FROM history WHERE id NOT IN (SELECT id FROM history WHERE mount = ? ORDER BY id DESC LIMIT 100) AND mount = ?", mount, mount)
-	if err != nil {
-		logrus.WithError(err).Error("Failed to prune history")
+	// Prune history to keep only the latest 100 entries per mount
+	var count int64
+	hm.db.Model(&HistoryItem{}).Where("mount = ?", mount).Count(&count)
+	if count > 100 {
+		var oldest HistoryItem
+		hm.db.Where("mount = ?", mount).Order("id DESC").Offset(100).First(&oldest)
+		if oldest.ID > 0 {
+			hm.db.Where("mount = ? AND id <= ?", mount, oldest.ID).Delete(&HistoryItem{})
+		}
 	}
 }
 
+// Get retrieves the most recent song history for a mount.
 func (hm *HistoryManager) Get(mount string) []HistoryItem {
-	rows, err := hm.db.Query("SELECT song, timestamp FROM history WHERE mount = ? ORDER BY id DESC LIMIT 100", mount)
-	if err != nil {
-		return nil
-	}
-	defer rows.Close()
-
 	var items []HistoryItem
-	for rows.Next() {
-		var item HistoryItem
-		item.Mount = mount
-		rows.Scan(&item.Song, &item.Timestamp)
-		items = append(items, item)
+	err := hm.db.Where("mount = ?", mount).
+		Order("id DESC").
+		Limit(100).
+		Find(&items).Error
+	if err != nil {
+		logrus.WithError(err).Warn("Failed to get history")
+		return nil
 	}
 	return items
 }

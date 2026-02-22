@@ -3,8 +3,17 @@ tinyice.json
 *.log
 .DS_Store
 history.db
+history.db-shm
+history.db-wal
+tinyice.db
 MEDIUM_POST.md
 music/
 tests/
 tinyice.pid
 playlists/
+.go-cache/
+tmp_gocache/
+tmp_gomodcache/
+bin/
+.gemini/
+.antigravity/
