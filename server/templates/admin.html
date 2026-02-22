@@ -623,8 +623,7 @@
             </div>
             <div style="margin-top: auto; padding-top: 2rem;">
                 <div style="font-size: 0.8rem; color: var(--text-dim); margin-bottom: 1rem;">User:
-                    <strong>{{.User.Username}}</strong> <span class="role-badge {{if eq .User.Role "
-                        superadmin"}}role-super{{else}}role-admin{{end}}">{{.User.Role}}</span>
+                    <strong>{{.User.Username}}</strong> <span class="role-badge {{if eq .User.Role "superadmin"}}role-super{{else}}role-admin{{end}}">{{.User.Role}}</span>
                 </div>
                 <div style="font-size: 0.75rem; color: var(--text-dim);">Powered by <a
                         href="https://github.com/DatanoiseTV/tinyice/{{if .Commit}}commit/{{.Commit}}{{else}}releases/latest{{end}}"
@@ -1216,8 +1215,7 @@
                                             {{.Name}}
                                             <span class="status-pill adj-status {{if ne .State 1}}inactive{{end}}"
                                                 style="font-size: 0.6rem; padding: 0.1rem 0.4rem;">
-                                                <div class="dot"></div> <span class="adj-status-text">{{if eq .State
-                                                    1}}LIVE{{else}}IDLE{{end}}</span>
+                                                <div class="dot"></div> <span class="adj-status-text">{{if eq .State 1}}LIVE{{else}}IDLE{{end}}</span>
                                             </span>
                                         </h3>
                                         <div style="font-size: 0.8rem; color: var(--text-dim); margin-top: 0.2rem;">
