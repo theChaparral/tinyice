@@ -334,6 +334,39 @@ func (s *Server) handleRemoveBannedIP(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/admin", http.StatusSeeOther)
 }
 
+func (s *Server) handleAddWhitelistedIP(w http.ResponseWriter, r *http.Request) {
+	if !s.isCSRFSafe(r) {
+		return
+	}
+	user, ok := s.checkAuth(r)
+	if ok && user.Role == config.RoleSuperAdmin {
+		ip := r.FormValue("ip")
+		if ip != "" {
+			s.Config.WhitelistedIPs = append(s.Config.WhitelistedIPs, ip)
+			s.Config.SaveConfig()
+		}
+	}
+	http.Redirect(w, r, "/admin", http.StatusSeeOther)
+}
+
+func (s *Server) handleRemoveWhitelistedIP(w http.ResponseWriter, r *http.Request) {
+	if !s.isCSRFSafe(r) {
+		return
+	}
+	user, ok := s.checkAuth(r)
+	if ok && user.Role == config.RoleSuperAdmin {
+		ip := r.FormValue("ip")
+		for i, b := range s.Config.WhitelistedIPs {
+			if b == ip {
+				s.Config.WhitelistedIPs = append(s.Config.WhitelistedIPs[:i], s.Config.WhitelistedIPs[i+1:]...)
+				s.Config.SaveConfig()
+				break
+			}
+		}
+	}
+	http.Redirect(w, r, "/admin", http.StatusSeeOther)
+}
+
 func (s *Server) handleClearAuthLockout(w http.ResponseWriter, r *http.Request) {
 	if !s.isCSRFSafe(r) {
 		http.Error(w, "Forbidden", http.StatusForbidden)

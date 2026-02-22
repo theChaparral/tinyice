@@ -62,10 +62,16 @@ func (s *Server) checkAuthLimit(ip string) error {
 		attempt.Count = 0
 	}
 
+	if s.isWhitelisted(ip) {
+		return nil
+	}
 	return nil
 }
 
 func (s *Server) recordAuthFailure(ip string) {
+	if s.isWhitelisted(ip) {
+		return
+	}
 	s.authAttemptsMu.Lock()
 	defer s.authAttemptsMu.Unlock()
 
@@ -95,6 +101,9 @@ func (s *Server) recordAuthSuccess(ip string) {
 }
 
 func (s *Server) recordScanAttempt(ip, path string) {
+	if s.isWhitelisted(ip) {
+		return
+	}
 	s.scanAttemptsMu.Lock()
 	defer s.scanAttemptsMu.Unlock()
 
@@ -104,10 +113,8 @@ func (s *Server) recordScanAttempt(ip, path string) {
 		s.scanAttempts[ip] = attempt
 	}
 
-	if !attempt.Paths[path] {
-		attempt.Paths[path] = true
-		attempt.Count++
-	}
+	attempt.Paths[path] = true
+	attempt.Count++
 
 	if attempt.Count >= 10 {
 		attempt.LockoutBy = time.Now().Add(15 * time.Minute)
@@ -167,6 +174,35 @@ func (s *Server) hasAccess(user *config.User, mount string) bool {
 	return exists
 }
 
+func (s *Server) isWhitelisted(ipStr string) bool {
+	host, _, err := net.SplitHostPort(ipStr)
+	if err != nil {
+		host = ipStr
+	}
+
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+
+	if ip.IsLoopback() {
+		return true
+	}
+
+	for _, whitelisted := range s.Config.WhitelistedIPs {
+		if strings.Contains(whitelisted, "/") {
+			_, ipnet, err := net.ParseCIDR(whitelisted)
+			if err == nil && ipnet.Contains(ip) {
+				return true
+			}
+		}
+		if whitelisted == host {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Server) isCSRFSafe(r *http.Request) bool {
 	if r.Method != http.MethodPost {
 		return true
@@ -200,6 +236,9 @@ func (s *Server) isCSRFSafe(r *http.Request) bool {
 }
 
 func (s *Server) isBanned(ipStr string) bool {
+	if s.isWhitelisted(ipStr) {
+		return false
+	}
 	host, _, err := net.SplitHostPort(ipStr)
 	if err != nil {
 		host = ipStr

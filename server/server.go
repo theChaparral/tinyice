@@ -131,6 +131,8 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/admin/remove-user", s.handleRemoveUser)
 	mux.HandleFunc("/admin/add-banned-ip", s.handleAddBannedIP)
 	mux.HandleFunc("/admin/remove-banned-ip", s.handleRemoveBannedIP)
+	mux.HandleFunc("/admin/add-whitelisted-ip", s.handleAddWhitelistedIP)
+	mux.HandleFunc("/admin/remove-whitelisted-ip", s.handleRemoveWhitelistedIP)
 	mux.HandleFunc("/admin/clear-auth-lockout", s.handleClearAuthLockout)
 	mux.HandleFunc("/admin/clear-scan-lockout", s.handleClearScanLockout)
 	mux.HandleFunc("/admin/add-webhook", s.handleAddWebhook)
