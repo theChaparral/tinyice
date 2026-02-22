@@ -1,4 +1,4 @@
-# TinyIce
+# TinyIce ❄️
 
 ![TinyIce Logo](https://raw.githubusercontent.com/DatanoiseTV/tinyice/main/assets/logo.png?v=2)
 
