@@ -299,6 +299,8 @@ bantime = 3600
 
 ## Monitoring & Observability
 
+<img width="3004" height="1828" alt="image" src="https://github.com/user-attachments/assets/277ad0db-b8af-4025-9c05-780aa9e28762" />
+
 TinyIce provides built-in support for real-time monitoring via Prometheus.
 
 - **Metrics Endpoint**: `/metrics` (Requires Basic Auth)
