@@ -6,6 +6,7 @@ import (
 	"github.com/glebarez/sqlite"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // HistoryItem represents a song played on a specific mount.
@@ -107,13 +108,12 @@ func (hm *HistoryManager) RecordUA(ua, uaType string) {
 	if ua == "" {
 		ua = "Unknown"
 	}
-	err := hm.db.Model(&UserAgent{}).
-		Where("ua = ? AND type = ?", ua, uaType).
-		UpdateColumn("count", gorm.Expr("count + 1")).Error
+	err := hm.db.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "ua"}, {Name: "type"}},
+		DoUpdates: clause.Assignments(map[string]interface{}{"count": gorm.Expr("user_agents.count + 1")}),
+	}).Create(&UserAgent{UA: ua, Type: uaType, Count: 1}).Error
 
-	if err == gorm.ErrRecordNotFound || (err == nil && hm.db.RowsAffected == 0) {
-		hm.db.Create(&UserAgent{UA: ua, Type: uaType, Count: 1})
-	} else if err != nil {
+	if err != nil {
 		logrus.WithError(err).Error("Failed to record User-Agent")
 	}
 }

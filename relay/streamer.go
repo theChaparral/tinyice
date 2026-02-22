@@ -504,11 +504,13 @@ func (sm *StreamerManager) StartStreamer(name, mount, musicDir string, loop bool
 	}
 
 	if mpdEnabled && mpdPort != "" {
+		logrus.Debugf("AutoDJ %s: MPD enabled on port %s", name, mpdPort)
 		// Check for port conflicts within our own instances
 		for _, inst := range sm.instances {
 			inst.mu.RLock()
 			if inst.MPDServer != nil && inst.MPDServer.Port == mpdPort {
 				inst.mu.RUnlock()
+				logrus.Warnf("AutoDJ %s: MPD port %s is already in use by %s", name, mpdPort, inst.Name)
 				return nil, fmt.Errorf("MPD port %s is already in use by AutoDJ %s", mpdPort, inst.Name)
 			}
 			inst.mu.RUnlock()
@@ -520,6 +522,8 @@ func (sm *StreamerManager) StartStreamer(name, mount, musicDir string, loop bool
 		} else {
 			logrus.Infof("MPD Server for %s listening on port %s", name, mpdPort)
 		}
+	} else {
+		logrus.Debugf("AutoDJ %s: MPD not enabled or no port specified (enabled=%v, port=%s)", name, mpdEnabled, mpdPort)
 	}
 
 	sm.instances[mount] = s
@@ -540,6 +544,7 @@ func (sm *StreamerManager) StopStreamer(mount string) {
 
 	if s, ok := sm.instances[mount]; ok {
 		if s.MPDServer != nil {
+			logrus.Debugf("AutoDJ %s: Stopping MPD server", s.Name)
 			s.MPDServer.Stop()
 		}
 		s.Stop()

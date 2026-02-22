@@ -2,6 +2,7 @@ package relay
 
 import (
 	"bufio"
+	"io"
 	"net"
 	"path/filepath"
 	"strings"
@@ -50,6 +51,7 @@ func (m *MPDServer) Start() error {
 }
 
 func (m *MPDServer) Stop() {
+	logrus.Debugf("MPD: Stopping server on port %s", m.Port)
 	if m.listener != nil {
 		m.listener.Close()
 	}
@@ -62,6 +64,8 @@ func (m *MPDServer) handleConnection(conn net.Conn) {
 
 	resp := NewMPDResponse(writer)
 
+	logrus.Debugf("MPD: New connection from %v", conn.RemoteAddr())
+
 	// Greeting
 	resp.Greeting("0.23.5")
 	writer.Flush()
@@ -71,6 +75,11 @@ func (m *MPDServer) handleConnection(conn net.Conn) {
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
+			if err != io.EOF {
+				logrus.WithError(err).Debug("MPD: Connection error")
+			} else {
+				logrus.Debug("MPD: Connection closed by client")
+			}
 			return
 		}
 		line = strings.TrimSpace(line)
@@ -78,10 +87,17 @@ func (m *MPDServer) handleConnection(conn net.Conn) {
 			continue
 		}
 
-		cmd := strings.Split(line, " ")[0]
-		args := strings.TrimPrefix(line, cmd+" ")
+		parts := strings.SplitN(line, " ", 2)
+		cmd := strings.ToLower(parts[0])
+		args := ""
+		if len(parts) > 1 {
+			args = parts[1]
+		}
+
+		logrus.Debugf("MPD: Command: %s, Args: %s (Authenticated: %v)", cmd, args, authenticated)
 
 		if !authenticated && cmd != "password" && cmd != "close" {
+			logrus.Debug("MPD: Permission denied for command: ", cmd)
 			resp.ACK(5, 0, "", "permission denied")
 			writer.Flush()
 			continue
