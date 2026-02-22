@@ -239,6 +239,9 @@ func (m *MPDServer) dispatchCommand(cmd, args string, resp *MPDResponse) bool {
 		resp.Field("outputid", 0)
 		resp.Field("outputname", m.streamer.OutputMount)
 		resp.Field("outputenabled", 1)
+		resp.Field("outputid", 1)
+		resp.Field("outputname", "HTTP Stream")
+		resp.Field("outputenabled", 1)
 	case "stats":
 		resp.Field("uptime", 0)
 		resp.Field("playtime", 0)
@@ -247,12 +250,20 @@ func (m *MPDServer) dispatchCommand(cmd, args string, resp *MPDResponse) bool {
 		resp.Field("songs", len(m.streamer.Playlist))
 	case "config":
 		// Ignore
-	case "plchanges", "plchangesposid":
+	case "plchanges":
+		m.handlePlaylistChanges(args, resp)
+	case "plchangesposid":
 		m.handlePlaylistInfo(args, resp)
 	case "decoders":
+		resp.Field("plugin", "mad")
+		resp.Field("suffix", "mp3")
+		resp.Field("mime_type", "audio/mpeg")
 		resp.Field("plugin", "mpg123")
 		resp.Field("suffix", "mp3")
 		resp.Field("mime_type", "audio/mpeg")
+		resp.Field("plugin", "vorbis")
+		resp.Field("suffix", "ogg")
+		resp.Field("mime_type", "audio/ogg")
 	case "tagtypes":
 		resp.Field("tagtype", "Artist")
 		resp.Field("tagtype", "Title")
@@ -269,12 +280,33 @@ func (m *MPDServer) dispatchCommand(cmd, args string, resp *MPDResponse) bool {
 }
 
 func (m *MPDServer) handleIdle(resp *MPDResponse) {
-	// Blocking idle for a short period to prevent client spin-loops
-	// In a real MPD this would wait for events.
+	// Wait for events or timeout
 	select {
-	case <-time.After(10 * time.Second):
+	case <-m.streamer.idleCh:
+		resp.Field("changed", "playlist")
+		resp.OK()
+	case <-time.After(30 * time.Second):
 		resp.OK()
 	}
+}
+
+func (m *MPDServer) handlePlaylistChanges(args string, resp *MPDResponse) {
+	var version uint32
+	fmt.Sscanf(args, "%d", &version)
+
+	m.streamer.mu.RLock()
+	currentVersion := m.streamer.PlaylistVersion
+	playlist := make([]string, len(m.streamer.Playlist))
+	copy(playlist, m.streamer.Playlist)
+	m.streamer.mu.RUnlock()
+
+	if version < currentVersion {
+		for i, f := range playlist {
+			rel, _ := filepath.Rel(m.streamer.MusicDir, f)
+			m.writeSongInfo(resp, rel, i, i+1)
+		}
+	}
+	resp.OK()
 }
 func (m *MPDServer) handleStatus(resp *MPDResponse) {
 	state_str := "stop"

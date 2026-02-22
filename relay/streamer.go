@@ -66,6 +66,8 @@ type Streamer struct {
 	CurrentFileDuration time.Duration
 	MPDServer           *MPDServer
 	NextID              int
+	PlaylistVersion     uint32
+	idleCh              chan string
 }
 
 type StreamerManager struct {
@@ -417,6 +419,8 @@ func (s *Streamer) AddToPlaylist(path string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.Playlist = append(s.Playlist, path)
+	s.PlaylistVersion++
+	s.broadcastIdle("playlist")
 }
 
 func (s *Streamer) RemoveFromPlaylist(idx int) {
@@ -424,14 +428,26 @@ func (s *Streamer) RemoveFromPlaylist(idx int) {
 	defer s.mu.Unlock()
 	if idx >= 0 && idx < len(s.Playlist) {
 		s.Playlist = append(s.Playlist[:idx], s.Playlist[idx+1:]...)
+		s.PlaylistVersion++
+		s.broadcastIdle("playlist")
 	}
 }
 
 func (s *Streamer) ClearPlaylist() {
 	s.mu.Lock()
 	s.Playlist = []string{}
+	s.PlaylistVersion++
 	s.mu.Unlock()
 	s.SavePlaylist()
+	s.broadcastIdle("playlist")
+}
+
+func (s *Streamer) broadcastIdle(subsystem string) {
+	// Non-blocking broadcast
+	select {
+	case s.idleCh <- subsystem:
+	default:
+	}
 }
 
 type StreamerStats struct {
@@ -513,6 +529,8 @@ func (sm *StreamerManager) StartStreamer(name, mount, musicDir string, loop bool
 		NextID:            1,
 		CurrentPlayingPos: -1,
 		CurrentPlayingID:  -1,
+		PlaylistVersion:   1,
+		idleCh:            make(chan string, 10),
 	}
 
 	if mpdEnabled && mpdPort != "" {
@@ -592,6 +610,8 @@ func (s *Streamer) MovePlaylistItem(from, to int) {
 	s.Playlist = append(s.Playlist[:from], s.Playlist[from+1:]...)
 	// Insert
 	s.Playlist = append(s.Playlist[:to], append([]string{item}, s.Playlist[to:]...)...)
+	s.PlaylistVersion++
+	s.broadcastIdle("playlist")
 }
 
 func (sm *StreamerManager) runStreamerLoop(ctx context.Context, s *Streamer) {
