@@ -299,50 +299,41 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
 
-	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
-	fmt.Fprintf(w, "# HELP tinyice_bandwidth_in_bytes_total Total bytes received\n# TYPE tinyice_bandwidth_in_bytes_total counter\ntinyice_bandwidth_in_bytes_total %d\n\n", bi)
-	fmt.Fprintf(w, "# HELP tinyice_bandwidth_out_bytes_total Total bytes sent\n# TYPE tinyice_bandwidth_out_bytes_total counter\ntinyice_bandwidth_out_bytes_total %d\n\n", bo)
-	fmt.Fprintf(w, "# HELP tinyice_listeners_total Total active listeners\n# TYPE tinyice_listeners_total gauge\ntinyice_listeners_total %d\n\n", tl)
-	fmt.Fprintf(w, "# HELP tinyice_sources_total Total active sources\n# TYPE tinyice_sources_total gauge\ntinyice_sources_total %d\n\n", len(allStreams))
-	fmt.Fprintf(w, "# HELP tinyice_total_dropped_bytes Total bytes dropped across all streams\n# TYPE tinyice_total_dropped_bytes counter\ntinyice_total_dropped_bytes %d\n\n", totalDropped)
+	reg := NewPrometheusRegistry()
+
+	// Global metrics
+	reg.Add("tinyice_bandwidth_in_bytes_total", "Total bytes received", Counter, nil, bi)
+	reg.Add("tinyice_bandwidth_out_bytes_total", "Total bytes sent", Counter, nil, bo)
+	reg.Add("tinyice_listeners_total", "Total active listeners", Gauge, nil, tl)
+	reg.Add("tinyice_sources_total", "Total active sources", Gauge, nil, len(allStreams))
+	reg.Add("tinyice_total_dropped_bytes", "Total bytes dropped across all streams", Counter, nil, totalDropped)
 
 	// System metrics
-	fmt.Fprintf(w, "# HELP tinyice_mem_sys_bytes Total bytes of memory obtained from the OS\n# TYPE tinyice_mem_sys_bytes gauge\ntinyice_mem_sys_bytes %d\n\n", m.Sys)
-	fmt.Fprintf(w, "# HELP tinyice_heap_alloc_bytes Bytes of allocated heap objects\n# TYPE tinyice_heap_alloc_bytes gauge\ntinyice_heap_alloc_bytes %d\n\n", m.HeapAlloc)
-	fmt.Fprintf(w, "# HELP tinyice_stack_sys_bytes Bytes of stack memory obtained from the OS\n# TYPE tinyice_stack_sys_bytes gauge\ntinyice_stack_sys_bytes %d\n\n", m.StackSys)
-	fmt.Fprintf(w, "# HELP tinyice_num_gc Number of completed GC cycles\n# TYPE tinyice_num_gc counter\ntinyice_num_gc %d\n\n", m.NumGC)
-	fmt.Fprintf(w, "# HELP tinyice_goroutines Number of running goroutines\n# TYPE tinyice_goroutines gauge\ntinyice_goroutines %d\n\n", runtime.NumGoroutine())
-	fmt.Fprintf(w, "# HELP tinyice_server_uptime_seconds Server uptime in seconds\n# TYPE tinyice_server_uptime_seconds gauge\ntinyice_server_uptime_seconds %.0f\n\n", time.Since(s.startTime).Seconds())
+	reg.Add("tinyice_mem_sys_bytes", "Total bytes of memory obtained from the OS", Gauge, nil, m.Sys)
+	reg.Add("tinyice_heap_alloc_bytes", "Bytes of allocated heap objects", Gauge, nil, m.HeapAlloc)
+	reg.Add("tinyice_stack_sys_bytes", "Bytes of stack memory obtained from the OS", Gauge, nil, m.StackSys)
+	reg.Add("tinyice_num_gc", "Number of completed GC cycles", Counter, nil, m.NumGC)
+	reg.Add("tinyice_goroutines", "Number of running goroutines", Gauge, nil, runtime.NumGoroutine())
+	reg.Add("tinyice_server_uptime_seconds", "Server uptime in seconds", Gauge, nil, time.Since(s.startTime).Seconds())
 
 	// Per-stream metrics
-	fmt.Fprintf(w, "# HELP tinyice_stream_listeners_current Current number of listeners for this stream\n# TYPE tinyice_stream_listeners_current gauge\n")
 	for _, st := range allStreams {
-		fmt.Fprintf(w, "tinyice_stream_listeners_current{mount=\"%s\",name=\"%s\"} %d\n", st.MountName, st.Name, st.ListenersCount)
-	}
-	fmt.Fprintf(w, "\n# HELP tinyice_stream_bytes_in_total Total bytes received for this stream\n# TYPE tinyice_stream_bytes_in_total counter\n")
-	for _, st := range allStreams {
-		fmt.Fprintf(w, "tinyice_stream_bytes_in_total{mount=\"%s\",name=\"%s\"} %d\n", st.MountName, st.Name, st.BytesIn)
-	}
-	fmt.Fprintf(w, "\n# HELP tinyice_stream_bytes_out_total Total bytes sent for this stream\n# TYPE tinyice_stream_bytes_out_total counter\n")
-	for _, st := range allStreams {
-		fmt.Fprintf(w, "tinyice_stream_bytes_out_total{mount=\"%s\",name=\"%s\"} %d\n", st.MountName, st.Name, st.BytesOut)
-	}
-	fmt.Fprintf(w, "\n# HELP tinyice_stream_bytes_dropped_total Total bytes dropped for this stream\n# TYPE tinyice_stream_bytes_dropped_total counter\n")
-	for _, st := range allStreams {
-		fmt.Fprintf(w, "tinyice_stream_bytes_dropped_total{mount=\"%s\",name=\"%s\"} %d\n", st.MountName, st.Name, st.BytesDropped)
-	}
-	fmt.Fprintf(w, "\n# HELP tinyice_stream_health_ratio Current health ratio of the stream (0.0 to 1.0)\n# TYPE tinyice_stream_health_ratio gauge\n")
-	for _, st := range allStreams {
-		fmt.Fprintf(w, "tinyice_stream_health_ratio{mount=\"%s\",name=\"%s\"} %f\n", st.MountName, st.Name, st.Health/100.0)
-	}
-	fmt.Fprintf(w, "\n# HELP tinyice_stream_is_transcoded Whether the stream is being transcoded (1 for yes, 0 for no)\n# TYPE tinyice_stream_is_transcoded gauge\n")
-	for _, st := range allStreams {
+		labels := map[string]string{"mount": st.MountName, "name": st.Name}
+		reg.Add("tinyice_stream_listeners_current", "Current number of listeners for this stream", Gauge, labels, st.ListenersCount)
+		reg.Add("tinyice_stream_bytes_in_total", "Total bytes received for this stream", Counter, labels, st.BytesIn)
+		reg.Add("tinyice_stream_bytes_out_total", "Total bytes sent for this stream", Counter, labels, st.BytesOut)
+		reg.Add("tinyice_stream_bytes_dropped_total", "Total bytes dropped for this stream", Counter, labels, st.BytesDropped)
+		reg.Add("tinyice_stream_health_ratio", "Current health ratio of the stream (0.0 to 1.0)", Gauge, labels, st.Health/100.0)
+
 		val := 0
 		if st.IsTranscoded {
 			val = 1
 		}
-		fmt.Fprintf(w, "tinyice_stream_is_transcoded{mount=\"%s\",name=\"%s\"} %d\n", st.MountName, st.Name, val)
+		reg.Add("tinyice_stream_is_transcoded", "Whether the stream is being transcoded (1 for yes, 0 for no)", Gauge, labels, val)
 	}
+
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+	w.Write([]byte(reg.Render()))
 }
 
 func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
