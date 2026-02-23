@@ -284,7 +284,7 @@ func (s *Server) handleListener(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) serveStreamData(w http.ResponseWriter, r *http.Request, stream *relay.Stream, id, originalMount, currentMount string, recoveryTicker *time.Ticker, metaint int) bool {
-	offset, signal := stream.Subscribe(id, 256*1024)
+	offset, signal := stream.Subscribe(id, 128*1024)
 	defer stream.Unsubscribe(id)
 
 	if stream.OggHead != nil {
@@ -294,7 +294,8 @@ func (s *Server) serveStreamData(w http.ResponseWriter, r *http.Request, stream 
 		logger.L.Debugf("Ogg Listener %s: Sending stored headers (%d bytes), then starting burst at %d", id, len(stream.OggHead), offset)
 	}
 
-	buf := make([]byte, 16384)
+	// was 16384
+	buf := make([]byte, 4096)
 	flusher, _ := w.(http.Flusher)
 
 	bytesSentSinceMeta := 0
