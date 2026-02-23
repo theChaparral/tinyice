@@ -728,7 +728,9 @@ func (sm *StreamerManager) streamFile(ctx context.Context, s *Streamer, path str
 
 	// Extract metadata
 	songTitle := filepath.Base(path)
+	var tagMeta tag.Metadata
 	if m, err := tag.ReadFrom(f); err == nil {
+		tagMeta = m
 		if m.Artist() != "" && m.Title() != "" {
 			songTitle = fmt.Sprintf("%s - %s", m.Artist(), m.Title())
 		} else if m.Title() != "" {
@@ -751,10 +753,10 @@ func (sm *StreamerManager) streamFile(ctx context.Context, s *Streamer, path str
 	s.CurrentFilePath = path
 	s.CurrentPlayingPos = pos
 	s.CurrentPlayingID = id
-	if m, err := tag.ReadFrom(f); err == nil {
-		s.CurrentArtist = m.Artist()
-		s.CurrentTitle = m.Title()
-		s.CurrentAlbum = m.Album()
+	if tagMeta != nil {
+		s.CurrentArtist = tagMeta.Artist()
+		s.CurrentTitle = tagMeta.Title()
+		s.CurrentAlbum = tagMeta.Album()
 		if s.CurrentTitle == "" {
 			s.CurrentTitle = songTitle
 		}
