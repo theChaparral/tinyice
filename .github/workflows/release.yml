@@ -36,7 +36,9 @@ jobs:
           if [ "${{ matrix.goos }}" = "windows" ]; then
             EXT=".exe"
           fi
-          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -ldflags="-s -w" -o dist/tinyice-${{ matrix.goos }}-${{ matrix.goarch }}${EXT} main.go
+          VERSION="${{ github.ref_name }}"
+          COMMIT="$(git rev-parse HEAD)"
+          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -ldflags="-s -w -X main.Version=${VERSION} -X main.Commit=${COMMIT}" -o dist/tinyice-${{ matrix.goos }}-${{ matrix.goarch }}${EXT} main.go
 
 
       - name: Upload artifacts
