@@ -381,6 +381,354 @@ go build             # Embeds dist/ via go:embed
 - `npm run build` added before `go build` in GitHub Actions
 - Built assets committed to repo (or built in CI) — keeps `go install` working without Node.js
 
+## Go Server Integration
+
+### Handler Changes
+
+The Go server transitions from rendering full HTML templates to serving thin HTML shells that load Preact bundles. Key changes:
+
+**Embed path change**:
+```go
+// Before (current):
+//go:embed templates/*
+var templateFS embed.FS
+//go:embed assets/*
+var assetFS embed.FS
+
+// After:
+//go:embed frontend/dist/*
+var frontendFS embed.FS
+```
+
+**Shell template**: A single `shell.html` Go template replaces all 9 current templates. It renders:
+```html
+<!DOCTYPE html>
+<html lang="en" style="color-scheme:dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{.PageTitle}} — TinyIce</title>
+  <link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+  <div id="app"></div>
+  <script>window.__TINYICE__ = {{.InitialData}}</script>
+  <script type="module" src="/assets/{{.EntryPoint}}"></script>
+</body>
+</html>
+```
+
+**Handler pattern** — each handler becomes a shell renderer:
+```go
+func (s *Server) handlePlayer(w http.ResponseWriter, r *http.Request) {
+    mount := extractMount(r)
+    stream := s.relay.GetStream(mount)
+    data := PlayerInitialData{
+        Mount:     mount,
+        Title:     stream.Title,
+        Artist:    stream.Artist,
+        Format:    stream.Format,
+        Bitrate:   stream.Bitrate,
+        Listeners: stream.Listeners,
+        CSRFToken: s.getCSRFToken(r),
+    }
+    s.renderShell(w, "player", data)
+}
+```
+
+**Route mapping**:
+| Route | Handler | Entry Point | Auth |
+|-------|---------|-------------|------|
+| `/` | `handleLanding` | `landing.js` | No |
+| `/explore` | `handleExplore` | `explore.js` | No |
+| `/player/:mount` | `handlePlayer` | `player.js` | No |
+| `/player-webrtc/:mount` | redirect → `/player/:mount?mode=webrtc` | — | No |
+| `/embed/:mount` | `handleEmbed` | `embed.js` | No |
+| `/developers` | `handleDevelopers` | `developers.js` | No |
+| `/login` | `handleLogin` | `login.js` | No |
+| `/admin` | `handleAdmin` | `admin.js` | Yes |
+| `/admin/*` | `handleAdmin` (SPA catch-all) | `admin.js` | Yes |
+
+**Vite multi-page setup**: Each public page gets its own entry point for minimal bundle size. Admin is a single SPA entry point with client-side routing.
+
+### `window.__TINYICE__` Schema
+
+Per-page initial data injected by Go:
+
+```typescript
+// Base (all pages)
+interface TinyIceBase {
+  csrfToken: string;
+  version: string;
+  pageTitle: string;
+  pageSubtitle: string;
+  branding: {
+    logoUrl: string | null;
+    accentColor: string;  // hex, default "#ff6600"
+    landingMarkdown: string;
+  };
+}
+
+// Player page
+interface PlayerData extends TinyIceBase {
+  mount: string;
+  title: string;
+  artist: string;
+  format: "mp3" | "opus";
+  bitrate: number;
+  listeners: number;
+  hasWebRTC: boolean;
+}
+
+// Admin pages
+interface AdminData extends TinyIceBase {
+  user: { username: string; role: "superadmin" | "admin" };
+  mounts: string[];
+}
+
+// Landing page
+interface LandingData extends TinyIceBase {
+  streams: Array<{
+    mount: string;
+    title: string;
+    artist: string;
+    format: string;
+    bitrate: number;
+    listeners: number;
+    live: boolean;
+  }>;
+}
+```
+
+### API Contract
+
+All admin actions become JSON REST endpoints. The existing form-POST endpoints are preserved for backward compatibility but marked deprecated.
+
+**Authentication**: Cookie-based sessions (unchanged). CSRF token passed via `X-CSRF-Token` header on mutating requests. The token comes from `window.__TINYICE__.csrfToken`.
+
+**Request/Response format**: JSON in, JSON out. Errors return `{ "error": "message" }` with appropriate HTTP status.
+
+**Endpoint groups**:
+
+```
+Streams:
+  GET    /api/streams              → StreamInfo[]
+  POST   /api/streams              → create mount { mount, password, burstSize }
+  DELETE /api/streams/:mount       → remove mount
+  POST   /api/streams/:mount/kick  → kick source/listeners
+
+AutoDJ:
+  GET    /api/autodj               → AutoDJInfo[]
+  POST   /api/autodj               → create { mount, format, bitrate, musicDir }
+  PUT    /api/autodj/:mount        → update settings
+  DELETE /api/autodj/:mount        → remove
+  POST   /api/autodj/:mount/play   → play
+  POST   /api/autodj/:mount/pause  → pause
+  POST   /api/autodj/:mount/next   → skip to next
+  POST   /api/autodj/:mount/prev   → restart/previous
+  PUT    /api/autodj/:mount/shuffle → toggle shuffle
+  PUT    /api/autodj/:mount/loop    → toggle loop
+
+Playlist:
+  GET    /api/autodj/:mount/playlist      → PlaylistItem[]
+  POST   /api/autodj/:mount/playlist      → add items { files: string[] }
+  DELETE /api/autodj/:mount/playlist/:id  → remove item
+  PUT    /api/autodj/:mount/playlist/reorder → { ids: string[] }
+  POST   /api/autodj/:mount/playlist/clear  → clear all
+  GET    /api/autodj/:mount/playlist/saved  → saved playlist names
+  POST   /api/autodj/:mount/playlist/save   → { name: string }
+  POST   /api/autodj/:mount/playlist/load   → { name: string }
+
+Queue:
+  GET    /api/autodj/:mount/queue          → QueueItem[]
+  POST   /api/autodj/:mount/queue          → add to queue { file, position? }
+  DELETE /api/autodj/:mount/queue/:id      → remove from queue
+  PUT    /api/autodj/:mount/queue/reorder  → { ids: string[] }
+
+Library:
+  GET    /api/autodj/:mount/files?path=    → FileInfo[] (dir listing)
+  GET    /api/autodj/:mount/files/search?q= → FileInfo[] (search)
+
+Relays:
+  GET    /api/relays               → RelayInfo[]
+  POST   /api/relays               → add { url, mount, password }
+  DELETE /api/relays/:id           → remove
+  PUT    /api/relays/:id/toggle    → enable/disable
+
+Transcoders:
+  GET    /api/transcoders          → TranscoderInfo[]
+  POST   /api/transcoders         → add { inputMount, outputMount, format, bitrate }
+  DELETE /api/transcoders/:id     → remove
+
+Users:
+  GET    /api/users                → UserInfo[]
+  POST   /api/users                → add { username, password, role }
+  DELETE /api/users/:username      → remove
+  PUT    /api/users/:username      → update { password?, role? }
+
+Security:
+  GET    /api/security/bans        → BannedIP[]
+  POST   /api/security/bans        → add { ip, cidr? }
+  DELETE /api/security/bans/:ip    → unban
+  GET    /api/security/whitelist   → WhitelistedIP[]
+  POST   /api/security/whitelist   → add { ip, cidr? }
+  DELETE /api/security/whitelist/:ip → remove
+
+Branding:
+  GET    /api/branding             → BrandingConfig
+  PUT    /api/branding             → update { pageTitle, pageSubtitle, accentColor, landingMarkdown }
+  POST   /api/branding/logo        → upload logo (multipart)
+  DELETE /api/branding/logo        → remove custom logo
+
+Settings:
+  GET    /api/settings             → ServerConfig (safe subset)
+  PUT    /api/settings             → update config fields
+  POST   /api/settings/restart     → graceful restart (HTTPS/ACME changes)
+
+Stats:
+  GET    /api/stats                → full server stats (existing endpoint)
+  GET    /metrics                  → Prometheus (existing endpoint)
+```
+
+### SSE Event Contract
+
+Two endpoints (unchanged), but events now have typed `event:` fields:
+
+```
+GET /admin/events (authenticated)
+  event: stats       → { listeners, streams, bandwidth, uptime, goroutines, memory, gc }
+  event: stream      → { mount, title, artist, format, bitrate, listeners, health }
+  event: autodj      → { mount, state, currentTrack, position, duration, queue }
+  event: alert       → { type, message, severity }
+
+GET /events (public)
+  event: streams     → Array<{ mount, title, artist, format, bitrate, listeners, live }>
+  event: metadata    → { mount, title, artist }
+```
+
+Interval: 500ms for admin, 2s for public.
+
+## Branding & Customization
+
+### Landing Page Editor
+
+The landing page supports a customizable content section via Markdown. Accessed from `/admin/settings` under a "Branding" tab.
+
+**Editor component**: Split-pane markdown editor (left: editor, right: live preview). Uses a lightweight markdown editor component (e.g., `@uiw/react-md-editor` with Preact compat, or a simple `<textarea>` with preview toggle for smaller bundle).
+
+**Storage**: The markdown content is stored in the config file as `landing_markdown` field. Rendered client-side in the Landing page hero section below the headline/subtitle.
+
+**Default content**: Ships with a sensible default describing the server. Users can customize to add station info, schedule, rules, etc.
+
+### Branding Options (Admin → Settings → Branding)
+
+Configurable via the web UI without editing config files:
+
+```
+Page Title        [text input]     "My Radio Station"
+Page Subtitle     [text input]     "24/7 electronic music"
+Accent Color      [color picker]   #ff6600 (default)
+Logo              [file upload]    PNG/SVG, max 512KB, replaces the "Ti" mark
+Landing Content   [markdown editor] Custom landing page content
+Location          [text input]     "Berlin, Germany"
+Admin Email       [email input]    "admin@example.com"
+```
+
+**Accent color** propagates to CSS custom properties via `window.__TINYICE__.branding.accentColor`. The Preact app sets `--accent` dynamically on mount. All orange elements automatically adopt the custom color.
+
+**Logo upload**: Stored on disk alongside the config file. Served via `/branding/logo`. Falls back to the default "Ti" mark if no custom logo is set.
+
+### Config Schema Addition
+
+```go
+type BrandingConfig struct {
+    PageTitle       string `json:"page_title"`
+    PageSubtitle    string `json:"page_subtitle"`
+    AccentColor     string `json:"accent_color"`      // hex, default "#ff6600"
+    LogoPath        string `json:"logo_path"`          // path to uploaded logo
+    LandingMarkdown string `json:"landing_markdown"`   // markdown content
+    Location        string `json:"location"`
+    AdminEmail      string `json:"admin_email"`
+}
+```
+
+## Additional Page Designs
+
+### Streams Management (/admin/streams)
+
+**Header**: "Streams" title + "Add Mount" button (orange).
+
+**Mount list**: Table with columns: Status dot, Mount (Space Mono bold), Source (connected source IP or "No source"), Format, Listeners, Burst Size, Actions (kick source, kick listeners, remove).
+
+**Add Mount modal**: Mount path input, source password, burst size slider, format selector.
+
+### Relays (/admin/relays)
+
+**Header**: "Relays" title + "Add Relay" button.
+
+**Relay cards**: Each relay shows: upstream URL, local mount, connection status (connected/disconnected/reconnecting with colored dot), uptime, listener count, toggle switch to enable/disable, remove button.
+
+**Add Relay form**: Upstream URL, local mount path, password (optional), burst size.
+
+### Transcoders (/admin/transcoders)
+
+**Header**: "Transcoders" title + "Add Transcoder" button.
+
+**Transcoder cards**: Visual flow: Input mount → [format badge] → Output mount. Shows status, listener count per output. Toggle to enable/disable.
+
+**Add form**: Input mount selector, output mount path, format (MP3/Opus), bitrate slider.
+
+### Users (/admin/users)
+
+**Header**: "Users" title + "Add User" button.
+
+**User table**: Username, Role badge (superadmin=orange, admin=gray), Assigned Mounts (tags), Actions (edit, remove). Edit opens a slide-out panel with password change, role selector, mount assignment checkboxes.
+
+### Security (/admin/security)
+
+**Two sections**:
+
+1. **Banned IPs**: Table with IP/CIDR, ban reason (if any), timestamp, unban button. Add form at top.
+2. **Whitelisted IPs**: Same layout. "Whitelist bypasses all rate limiting and ban checks."
+
+**Auth log** (optional section): Recent authentication attempts showing IP, username, success/failure, timestamp. Sourced from the existing auth log file.
+
+## Error States
+
+All pages must handle:
+
+- **SSE disconnect**: Yellow banner "Connection lost — reconnecting..." with auto-retry (exponential backoff). Dashboard stats freeze with a "stale" indicator
+- **API error**: Toast notification (bottom-right) with error message, auto-dismiss after 5s. Red accent
+- **404 stream**: Player shows "Stream not found" with a link back to Explore
+- **Auth expired**: Redirect to `/login?expired=1` with a message "Session expired, please sign in again"
+- **Network offline**: Gray banner "You are offline" — persists until connectivity restored
+
+## Performance Budgets
+
+| Asset | Budget | Notes |
+|-------|--------|-------|
+| Admin JS bundle | <150KB gzip | Largest bundle (SPA with charts, drag-drop) |
+| Player JS bundle | <30KB gzip | Visualizer + audio + mode toggle |
+| Landing JS bundle | <15KB gzip | Mostly static with SSE for live data |
+| Developers JS bundle | <40KB gzip | Shiki is heavy — consider highlight.js |
+| Embed JS bundle | <8KB gzip | Absolute minimum |
+| CSS (all pages) | <15KB gzip | Tailwind tree-shaken |
+| Fonts (total) | <100KB gzip | Subset to Latin + used weights only |
+| Total embedded assets | <500KB gzip | Added to ~8MB Go binary |
+
+If Shiki exceeds the Developers budget, switch to `highlight.js` with only `typescript`, `javascript`, `bash`, and `json` language packs (~15KB vs ~200KB).
+
+Font subsetting: Use `unicode-range` and `font-display: swap`. Subset to Latin characters. Self-host all fonts (no CDN — contradicts zero-dependency deployment).
+
+## Accessibility Additions
+
+- Magnetic button effect disabled when `prefers-reduced-motion: reduce`
+- `cursor-reactive glow` throttled to 60fps via `requestAnimationFrame`, uses `will-change: background` for compositor promotion
+- View Transitions API: graceful fallback to instant navigation when unsupported (Firefox)
+- `surface-hover` resolves to `oklch(0.14 0 0)` (base 0.10 + 0.04)
+- Embed player: fluid width, recommended min-width 280px, height 80px
+- File browser in Studio supports `.mp3`, `.ogg`, `.opus`, `.flac`, `.wav` (extend `handlePlayerFiles` filter)
+
 ## Migration Strategy
 
 ### Phase 1: Foundation
