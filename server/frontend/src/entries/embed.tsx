@@ -1,3 +1,5 @@
+import '../globals.css'
 import { render } from 'preact'
-function App() { return <div>embed loading...</div> }
-render(<App />, document.getElementById('app')!)
+import { Embed } from '@/pages/Embed'
+
+render(<Embed />, document.getElementById('app')!)

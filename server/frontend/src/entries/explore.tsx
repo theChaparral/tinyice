@@ -1,3 +1,5 @@
+import '../globals.css'
 import { render } from 'preact'
-function App() { return <div>explore loading...</div> }
-render(<App />, document.getElementById('app')!)
+import { Explore } from '@/pages/Explore'
+
+render(<Explore />, document.getElementById('app')!)
