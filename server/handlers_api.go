@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/DatanoiseTV/tinyice/config"
-	"github.com/DatanoiseTV/tinyice/logger"
 	"github.com/DatanoiseTV/tinyice/relay"
 	"github.com/pion/webrtc/v4"
 )
@@ -414,17 +413,12 @@ func (s *Server) handleGoLive(w http.ResponseWriter, r *http.Request) {
 		s.sessionsMu.RUnlock()
 	}
 
-	data := map[string]interface{}{
-		"Config":    s.Config,
-		"User":      user,
-		"Version":   s.Version,
-		"CSRFToken": csrf,
+	pageData := s.BasePageData(csrf)
+	pageData["user"] = map[string]interface{}{
+		"username": user.Username,
+		"role":     user.Role,
 	}
-
-	w.Header().Set("Content-Type", "text/html")
-	if err := s.tmpl.ExecuteTemplate(w, "go_live.html", data); err != nil {
-		logger.L.Errorf("Go Live template error: %v", err)
-	}
+	s.shell.Render(w, "admin", "Go Live — "+s.Config.PageTitle, pageData)
 }
 
 func (s *Server) handleGoLiveChunk(w http.ResponseWriter, r *http.Request) {

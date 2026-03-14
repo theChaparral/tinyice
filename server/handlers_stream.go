@@ -2,10 +2,8 @@ package server
 
 import (
 	"fmt"
-	"html/template"
 	"net"
 	"net/http"
-	"os"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -13,9 +11,6 @@ import (
 	"github.com/DatanoiseTV/tinyice/config"
 	"github.com/DatanoiseTV/tinyice/logger"
 	"github.com/DatanoiseTV/tinyice/relay"
-	"github.com/gomarkdown/markdown"
-	"github.com/gomarkdown/markdown/html"
-	"github.com/gomarkdown/markdown/parser"
 )
 
 func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
@@ -376,37 +371,24 @@ func (s *Server) serveStreamData(w http.ResponseWriter, r *http.Request, stream 
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
-	md := ""
-	if data, err := os.ReadFile("LANDING.md"); err == nil {
-		md = string(data)
-	} else {
-		md = `# Welcome to TinyIce
-Explore our high-performance live streaming network. Discover new music, live shows, and community broadcasts from around the world.
-
-* **High Performance**: Built with zero-allocation broadcasting.
-* **Smart Recovery**: Automatic fallback and primary stream recovery.
-* **Ready to Play**: Interactive web players for every station.`
-	}
-
-	extensions := parser.CommonExtensions | parser.NoEmptyLineBeforeBlock
-	p := parser.NewWithExtensions(extensions)
-	doc := p.Parse([]byte(md))
-
-	htmlFlags := html.CommonFlags | html.HrefTargetBlank
-	opts := html.RendererOptions{Flags: htmlFlags}
-	renderer := html.NewRenderer(opts)
-
-	content := markdown.Render(doc, renderer)
-
-	w.Header().Set("Content-Type", "text/html")
-	data := map[string]interface{}{
-		"LandingContent": template.HTML(content),
-		"Config":         s.Config,
-	}
-	if err := s.tmpl.ExecuteTemplate(w, "index.html", data); err != nil {
-		if !strings.Contains(err.Error(), "broken pipe") {
-			logger.L.Errorf("Template error: %v", err)
+	// Build stream list for the landing page
+	allStreams := s.Relay.Snapshot()
+	var streamList []map[string]interface{}
+	for _, st := range allStreams {
+		if st.Visible {
+			streamList = append(streamList, map[string]interface{}{
+				"mount":     st.MountName,
+				"title":     st.CurrentSong,
+				"artist":    st.Name,
+				"format":    st.ContentType,
+				"bitrate":   st.Bitrate,
+				"listeners": st.ListenersCount,
+				"live":      st.SourceIP != "",
+			})
 		}
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 	}
+
+	pageData := s.BasePageData("")
+	pageData["streams"] = streamList
+	s.shell.Render(w, "landing", s.Config.PageTitle, pageData)
 }

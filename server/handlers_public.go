@@ -2,11 +2,7 @@ package server
 
 import (
 	"net/http"
-	"sort"
 	"strings"
-
-	"github.com/DatanoiseTV/tinyice/logger"
-	"github.com/DatanoiseTV/tinyice/relay"
 )
 
 func (s *Server) handlePlayer(w http.ResponseWriter, r *http.Request) {
@@ -29,17 +25,16 @@ func (s *Server) handlePlayer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/html")
-	data := map[string]interface{}{
-		"Stream": stream.Snapshot(),
-		"Config": s.Config,
-	}
-	if err := s.tmpl.ExecuteTemplate(w, "player.html", data); err != nil {
-		if !strings.Contains(err.Error(), "broken pipe") {
-			logger.L.Errorf("Template error: %v", err)
-		}
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-	}
+	snap := stream.Snapshot()
+	pageData := s.BasePageData("")
+	pageData["mount"] = mount
+	pageData["title"] = snap.CurrentSong
+	pageData["artist"] = snap.Name
+	pageData["format"] = snap.ContentType
+	pageData["bitrate"] = snap.Bitrate
+	pageData["listeners"] = snap.ListenersCount
+	pageData["hasWebRTC"] = true
+	s.shell.Render(w, "player", snap.Name+" — "+s.Config.PageTitle, pageData)
 }
 
 func (s *Server) handleWebRTCPlayer(w http.ResponseWriter, r *http.Request) {
@@ -48,20 +43,8 @@ func (s *Server) handleWebRTCPlayer(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/explore", http.StatusSeeOther)
 		return
 	}
-
-	stream, ok := s.Relay.GetStream(mount)
-	if !ok {
-		http.Error(w, "Stream not found", http.StatusNotFound)
-		return
-	}
-
-	data := map[string]interface{}{
-		"Stream": stream,
-		"Config": s.Config,
-	}
-	if err := s.tmpl.ExecuteTemplate(w, "webrtc_player.html", data); err != nil {
-		logger.L.Errorf("Template error: %v", err)
-	}
+	// Redirect to unified player with WebRTC mode
+	http.Redirect(w, r, "/player"+mount+"?mode=webrtc", http.StatusMovedPermanently)
 }
 
 func (s *Server) handleEmbed(w http.ResponseWriter, r *http.Request) {
@@ -84,37 +67,41 @@ func (s *Server) handleEmbed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/html")
+	snap := stream.Snapshot()
 	w.Header().Set("X-Frame-Options", "ALLOWALL")
-	data := map[string]interface{}{
-		"Stream": stream.Snapshot(),
-		"Config": s.Config,
-	}
-	if err := s.tmpl.ExecuteTemplate(w, "embed.html", data); err != nil {
-		logger.L.Errorf("Template error: %v", err)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-	}
+	pageData := s.BasePageData("")
+	pageData["mount"] = mount
+	pageData["title"] = snap.CurrentSong
+	pageData["artist"] = snap.Name
+	pageData["format"] = snap.ContentType
+	pageData["bitrate"] = snap.Bitrate
+	pageData["listeners"] = snap.ListenersCount
+	s.shell.Render(w, "embed", s.Config.PageTitle, pageData)
 }
 
 func (s *Server) handleExplore(w http.ResponseWriter, r *http.Request) {
 	allStreams := s.Relay.Snapshot()
-	var visibleStreams []relay.StreamStats
+	var streamList []map[string]interface{}
 	for _, st := range allStreams {
 		if st.Visible {
-			visibleStreams = append(visibleStreams, st)
+			streamList = append(streamList, map[string]interface{}{
+				"mount":     st.MountName,
+				"title":     st.CurrentSong,
+				"artist":    st.Name,
+				"format":    st.ContentType,
+				"bitrate":   st.Bitrate,
+				"listeners": st.ListenersCount,
+				"live":      st.SourceIP != "",
+			})
 		}
 	}
-	sort.Slice(visibleStreams, func(i, j int) bool {
-		return visibleStreams[i].ListenersCount > visibleStreams[j].ListenersCount
-	})
 
-	w.Header().Set("Content-Type", "text/html")
-	data := map[string]interface{}{
-		"Streams": visibleStreams,
-		"Config":  s.Config,
-	}
-	if err := s.tmpl.ExecuteTemplate(w, "explore.html", data); err != nil {
-		logger.L.Errorf("Template error: %v", err)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-	}
+	pageData := s.BasePageData("")
+	pageData["streams"] = streamList
+	s.shell.Render(w, "explore", "Explore — "+s.Config.PageTitle, pageData)
+}
+
+func (s *Server) handleDevelopers(w http.ResponseWriter, r *http.Request) {
+	pageData := s.BasePageData("")
+	s.shell.Render(w, "developers", "Developers — "+s.Config.PageTitle, pageData)
 }

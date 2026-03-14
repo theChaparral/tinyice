@@ -725,19 +725,12 @@ func (s *Server) handleAutoDJStudio(w http.ResponseWriter, r *http.Request) {
 		s.sessionsMu.RUnlock()
 	}
 
-	data := map[string]interface{}{
-		"Streamer":  streamer.GetStats(),
-		"CSRFToken": csrf,
-		"Config":    s.Config,
-		"User":      user,
-		"Version":   s.Version,
-		"Commit":    s.Commit,
+	pageData := s.BasePageData(csrf)
+	pageData["user"] = map[string]interface{}{
+		"username": user.Username,
+		"role":     user.Role,
 	}
-
-	w.Header().Set("Content-Type", "text/html")
-	if err := s.tmpl.ExecuteTemplate(w, "autodj_studio.html", data); err != nil {
-		logger.L.Errorf("Studio template error: %v", err)
-	}
+	s.shell.Render(w, "admin", "Studio — "+s.Config.PageTitle, pageData)
 }
 
 func (s *Server) handleUpdateAutoDJ(w http.ResponseWriter, r *http.Request) {

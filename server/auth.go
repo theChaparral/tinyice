@@ -298,8 +298,9 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		p := r.FormValue("password")
 
 		if err := s.checkAuthLimit(host); err != nil {
-			data := map[string]interface{}{"Error": err.Error(), "Config": s.Config}
-			s.tmpl.ExecuteTemplate(w, "login.html", data)
+			pageData := s.BasePageData("")
+			pageData["error"] = err.Error()
+			s.shell.Render(w, "login", "Login — "+s.Config.PageTitle, pageData)
 			return
 		}
 
@@ -307,8 +308,9 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		if !exists || !config.CheckPasswordHash(p, user.Password) {
 			s.recordAuthFailure(host)
 			s.logAuthFailed(u, r.RemoteAddr, "invalid credentials")
-			data := map[string]interface{}{"Error": "Invalid username or password", "Config": s.Config}
-			s.tmpl.ExecuteTemplate(w, "login.html", data)
+			pageData := s.BasePageData("")
+			pageData["error"] = "Invalid username or password"
+			s.shell.Render(w, "login", "Login — "+s.Config.PageTitle, pageData)
 			return
 		}
 
@@ -339,8 +341,8 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data := map[string]interface{}{"Config": s.Config}
-	s.tmpl.ExecuteTemplate(w, "login.html", data)
+	pageData := s.BasePageData("")
+	s.shell.Render(w, "login", "Login — "+s.Config.PageTitle, pageData)
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {

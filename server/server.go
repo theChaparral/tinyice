@@ -58,7 +58,8 @@ type Server struct {
 	WebRTCM     *relay.WebRTCManager     // WebRTC connection management
 	StreamerM   *relay.StreamerManager   // AutoDJ/streamer management
 	mpdServer   *relay.MPDServer         // MPD protocol server (optional)
-	tmpl        *template.Template       // HTML template for web interface
+	tmpl        *template.Template       // HTML template for web interface (legacy)
+	shell       *ShellRenderer           // New Preact frontend renderer
 	Version     string                   // TinyIce version
 	Commit      string                   // Git commit hash
 	httpServers []*http.Server           // Active HTTP servers
@@ -100,6 +101,7 @@ func NewServer(cfg *config.Config, authLog *zap.SugaredLogger, version, commit s
 		WebRTCM:      relay.NewWebRTCManager(r),
 		StreamerM:    relay.NewStreamerManager(r, cfg),
 		tmpl:         tmpl,
+		shell:        NewShellRenderer(),
 		Version:      version,
 		Commit:       commit,
 		startTime:    time.Now(),
@@ -185,6 +187,13 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/metrics", s.handleMetrics)
 	subFS, _ := fs.Sub(assetFS, "assets")
 	mux.Handle("/assets/", http.StripPrefix("/assets/", http.FileServer(http.FS(subFS))))
+
+	// New frontend static assets (Vite build output)
+	mux.Handle("/static/", http.StripPrefix("/static/", s.shell.FileServer()))
+
+	// Developer portal (new page)
+	mux.HandleFunc("/developers", s.handleDevelopers)
+
 	return mux
 }
 
