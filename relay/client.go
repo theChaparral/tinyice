@@ -5,6 +5,9 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math"
+	"math/rand"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -13,27 +16,74 @@ import (
 	"github.com/DatanoiseTV/tinyice/logger"
 )
 
+type backoff struct {
+	base    time.Duration
+	max     time.Duration
+	attempt int
+}
+
+func (b *backoff) next() time.Duration {
+	exp := math.Pow(2, float64(b.attempt))
+	delay := time.Duration(float64(b.base) * exp)
+	if delay > b.max {
+		delay = b.max
+	}
+	jitter := time.Duration(float64(delay) * (0.5 + rand.Float64()*0.5))
+	b.attempt++
+	return jitter
+}
+
+func (b *backoff) reset() {
+	b.attempt = 0
+}
+
+type RelayState int
+
+const (
+	RelayConnecting   RelayState = iota
+	RelayConnected
+	RelayReconnecting
+	RelayFailed
+)
+
 type RelayInstance struct {
-	URL       string
-	Mount     string
-	Password  string
-	BurstSize int
-	Visible   bool
-	cancel    context.CancelFunc
-	mu        sync.Mutex
-	Active    bool
+	URL            string
+	Mount          string
+	Password       string
+	BurstSize      int
+	Visible        bool
+	cancel         context.CancelFunc
+	mu             sync.Mutex
+	Active         bool
+	State          RelayState
+	LastConnected  time.Time
+	LastError      string
+	ReconnectCount int
 }
 
 type RelayManager struct {
-	instances map[string]*RelayInstance // key is mount
+	instances map[string]*RelayInstance
 	mu        sync.RWMutex
 	relay     *Relay
+	client    *http.Client
 }
 
 func NewRelayManager(r *Relay) *RelayManager {
 	return &RelayManager{
 		instances: make(map[string]*RelayInstance),
 		relay:     r,
+		client: &http.Client{
+			Timeout: 0,
+			Transport: &http.Transport{
+				DialContext: (&net.Dialer{
+					Timeout:   10 * time.Second,
+					KeepAlive: 30 * time.Second,
+				}).DialContext,
+				TLSHandshakeTimeout:   10 * time.Second,
+				ResponseHeaderTimeout: 15 * time.Second,
+				IdleConnTimeout:       90 * time.Second,
+			},
+		},
 	}
 }
 
@@ -103,17 +153,33 @@ func (inst *RelayInstance) Stop() {
 }
 
 func (rm *RelayManager) runRelay(ctx context.Context, inst *RelayInstance) {
+	bo := &backoff{base: 1 * time.Second, max: 60 * time.Second}
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		default:
+			inst.mu.Lock()
+			inst.State = RelayConnecting
+			inst.mu.Unlock()
+
 			rm.performPull(ctx, inst)
-			// Wait before retry
+
+			inst.mu.Lock()
+			wasConnected := inst.State == RelayConnected
+			inst.State = RelayReconnecting
+			inst.ReconnectCount++
+			inst.mu.Unlock()
+
+			if wasConnected {
+				bo.reset()
+			}
+
+			delay := bo.next()
 			select {
 			case <-ctx.Done():
 				return
-			case <-time.After(5 * time.Second):
+			case <-time.After(delay):
 			}
 		}
 	}
@@ -124,6 +190,9 @@ func (rm *RelayManager) performPull(ctx context.Context, inst *RelayInstance) {
 
 	req, err := http.NewRequestWithContext(ctx, "GET", inst.URL, nil)
 	if err != nil {
+		inst.mu.Lock()
+		inst.LastError = fmt.Sprintf("request creation failed: %v", err)
+		inst.mu.Unlock()
 		return
 	}
 
@@ -135,9 +204,12 @@ func (rm *RelayManager) performPull(ctx context.Context, inst *RelayInstance) {
 		req.SetBasicAuth("source", inst.Password)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := rm.client.Do(req)
 	if err != nil {
 		logger.L.Errorf("Relay connection failed: %v", err)
+		inst.mu.Lock()
+		inst.LastError = fmt.Sprintf("connection failed: %v", err)
+		inst.mu.Unlock()
 		return
 	}
 	defer resp.Body.Close()
@@ -148,6 +220,12 @@ func (rm *RelayManager) performPull(ctx context.Context, inst *RelayInstance) {
 	}
 
 	logger.L.Infow("Relay stream connected and pulling", "mount", inst.Mount)
+
+	inst.mu.Lock()
+	inst.State = RelayConnected
+	inst.LastConnected = time.Now()
+	inst.LastError = ""
+	inst.mu.Unlock()
 
 	stream := rm.relay.GetOrCreateStream(inst.Mount)
 	stream.SourceIP = "relay-pull"
