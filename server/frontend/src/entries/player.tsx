@@ -1,3 +1,5 @@
 import { render } from 'preact'
-function App() { return <div>player loading...</div> }
-render(<App />, document.getElementById('app')!)
+import '../globals.css'
+import { Player } from '@/pages/Player'
+
+render(<Player />, document.getElementById('app')!)
