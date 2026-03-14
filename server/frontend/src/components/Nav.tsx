@@ -22,7 +22,7 @@ export function Nav({ branding }: NavProps) {
         </a>
 
         {/* Nav links */}
-        <div class="flex items-center gap-6">
+        <div class="hidden sm:flex items-center gap-6">
           <a
             href="/explore"
             class="font-mono text-xs tracking-wider text-text-secondary hover:text-text-primary transition-colors"
