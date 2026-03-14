@@ -18,7 +18,7 @@ export function AdminLayout() {
   return (
     <div class="flex h-screen overflow-hidden">
       <Sidebar activePath={path} />
-      <main class="flex-1 overflow-y-auto ml-16">
+      <main class="flex-1 overflow-y-auto ml-[72px]">
         <Router onChange={(e) => setPath(e.url)}>
           <Route path="/admin" component={Dashboard} />
           <Route path="/admin/streams" component={Streams} />

@@ -1,95 +1,96 @@
-import { useState } from 'preact/hooks'
-
 interface SidebarItem {
   id: string
   label: string
   href: string
-  icon: string // SVG path d attribute
+  icon: string // SVG content (stroke-based)
 }
 
 const NAV_ITEMS: SidebarItem[] = [
-  { id: 'dashboard', label: 'Dashboard', href: '/admin', icon: 'M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z' },
-  { id: 'streams', label: 'Streams', href: '/admin/streams', icon: 'M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zM4 6h16v12H4V6zm6 5.5l-3 3h2v2h2v-2h2l-3-3z' },
-  { id: 'autodj', label: 'AutoDJ', href: '/admin/autodj', icon: 'M12 3v10.55A4 4 0 1014 17V7h4V3h-6zM10 19a2 2 0 110-4 2 2 0 010 4z' },
-  { id: 'golive', label: 'Go Live', href: '/admin/golive', icon: 'M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z' },
-  { id: 'relays', label: 'Relays', href: '/admin/relays', icon: 'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z' },
-  { id: 'transcoders', label: 'Transcoders', href: '/admin/transcoders', icon: 'M7 5h10v2h2V3c0-1.1-.9-2-2-2H7c-1.1 0-2 .9-2 2v4h2V5zm8 12H9v-2H7v4c0 1.1.9 2 2 2h6c1.1 0 2-.9 2-2v-4h-2v2zm5-7H4c-1.1 0-2 .9-2 2v2c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2v-2c0-1.1-.9-2-2-2z' },
-  { id: 'studio', label: 'Studio', href: '/admin/studio', icon: 'M12 3l.01 10.55c-.59-.34-1.27-.55-2.01-.55C7.79 13 6 14.79 6 17s1.79 4 4.01 4S14 19.21 14 17V7h4V3h-6zm-2 16c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z' },
+  { id: 'dashboard', label: 'Dashboard', href: '/admin',
+    icon: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>' },
+  { id: 'streams', label: 'Streams', href: '/admin/streams',
+    icon: '<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>' },
+  { id: 'autodj', label: 'AutoDJ', href: '/admin/autodj',
+    icon: '<circle cx="12" cy="12" r="10"/><polygon points="10,8 16,12 10,16"/>' },
+  { id: 'golive', label: 'Go Live', href: '/admin/golive',
+    icon: '<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/>' },
+  { id: 'relays', label: 'Relays', href: '/admin/relays',
+    icon: '<path d="M9 17H7A5 5 0 0 1 7 7h2"/><path d="M15 7h2a5 5 0 0 1 0 10h-2"/><line x1="8" y1="12" x2="16" y2="12"/>' },
+  { id: 'transcoders', label: 'Transcode', href: '/admin/transcoders',
+    icon: '<path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/>' },
+  { id: 'studio', label: 'Studio', href: '/admin/studio',
+    icon: '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>' },
 ]
 
 const BOTTOM_ITEMS: SidebarItem[] = [
-  { id: 'users', label: 'Users', href: '/admin/users', icon: 'M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z' },
-  { id: 'security', label: 'Security', href: '/admin/security', icon: 'M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zM12 17c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z' },
-  { id: 'settings', label: 'Settings', href: '/admin/settings', icon: 'M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.49.49 0 00-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.48.48 0 00-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 00-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1115.6 12 3.6 3.6 0 0112 15.6z' },
+  { id: 'users', label: 'Users', href: '/admin/users',
+    icon: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/>' },
+  { id: 'security', label: 'Security', href: '/admin/security',
+    icon: '<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>' },
+  { id: 'settings', label: 'Settings', href: '/admin/settings',
+    icon: '<circle cx="12" cy="12" r="3"/><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>' },
 ]
 
 interface SidebarProps {
   activePath?: string
-  /** @deprecated Use activePath instead */
-  active?: string
-  onNavigate?: (id: string) => void
 }
 
-export function Sidebar({ activePath, active, onNavigate }: SidebarProps) {
-  const [tooltip, setTooltip] = useState<string | null>(null)
-
-  const resolveActive = (item: SidebarItem): boolean => {
-    if (activePath) {
-      // Exact match for dashboard (/admin), prefix match for sub-pages
-      if (item.href === '/admin') return activePath === '/admin' || activePath === '/admin/'
-      return activePath.startsWith(item.href)
-    }
-    return (active ?? 'dashboard') === item.id
+export function Sidebar({ activePath }: SidebarProps) {
+  const isActive = (item: SidebarItem): boolean => {
+    if (!activePath) return false
+    if (item.href === '/admin') return activePath === '/admin' || activePath === '/admin/'
+    return activePath.startsWith(item.href)
   }
 
   const renderItem = (item: SidebarItem) => {
-    const isActive = resolveActive(item)
+    const active = isActive(item)
     return (
-      <div class="relative" key={item.id}>
-        <a
-          href={item.href}
-          onClick={() => onNavigate?.(item.id)}
-          onMouseEnter={() => setTooltip(item.id)}
-          onMouseLeave={() => setTooltip(null)}
-          class={`
-            w-10 h-10 rounded-lg flex items-center justify-center
-            transition-colors
-            ${isActive ? 'bg-accent/15 text-accent' : 'text-text-tertiary hover:text-text-secondary hover:bg-surface-hover'}
-          `}
-          aria-label={item.label}
-        >
-          <svg class="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
-            <path d={item.icon} />
-          </svg>
-        </a>
-
-        {/* Tooltip */}
-        {tooltip === item.id && (
-          <div class="absolute left-full top-1/2 -translate-y-1/2 ml-2 px-2 py-1 rounded bg-surface-overlay text-text-primary font-mono text-[10px] tracking-wider whitespace-nowrap z-50 pointer-events-none">
-            {item.label}
-          </div>
-        )}
-      </div>
+      <a
+        key={item.id}
+        href={item.href}
+        class={`
+          flex flex-col items-center gap-0.5 px-1 py-2 rounded-lg w-full
+          transition-colors text-center group
+          ${active
+            ? 'bg-accent/10 text-accent'
+            : 'text-text-tertiary hover:text-text-secondary hover:bg-surface-hover'
+          }
+        `}
+      >
+        <svg
+          class="w-[18px] h-[18px] shrink-0"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.5"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          dangerouslySetInnerHTML={{ __html: item.icon }}
+        />
+        <span class="font-mono text-[8px] tracking-[0.5px] leading-tight uppercase">
+          {item.label}
+        </span>
+      </a>
     )
   }
 
   return (
-    <aside class="fixed top-0 left-0 bottom-0 w-16 border-r border-border bg-surface-base flex flex-col items-center py-4 z-40">
+    <aside class="fixed top-0 left-0 bottom-0 w-[72px] border-r border-border bg-surface-base flex flex-col items-center py-3 z-40">
       {/* Logo */}
-      <a href="/admin" class="h-8 w-8 rounded bg-accent flex items-center justify-center mb-6">
-        <span class="font-mono text-xs font-bold text-surface-base leading-none">Ti</span>
+      <a href="/admin" class="w-9 h-9 rounded-lg bg-accent flex items-center justify-center mb-4 shadow-[0_0_12px_var(--color-accent-glow)]">
+        <span class="font-mono text-[11px] font-bold text-surface-base leading-none">Ti</span>
       </a>
 
       {/* Main nav */}
-      <div class="flex flex-col items-center gap-1 flex-1">
+      <div class="flex flex-col items-center gap-0.5 flex-1 w-full px-1.5 overflow-y-auto">
         {NAV_ITEMS.map(renderItem)}
       </div>
 
       {/* Divider */}
-      <div class="w-6 h-px bg-border my-2" />
+      <div class="w-8 h-px bg-border my-1.5" />
 
       {/* Bottom nav */}
-      <div class="flex flex-col items-center gap-1">
+      <div class="flex flex-col items-center gap-0.5 w-full px-1.5">
         {BOTTOM_ITEMS.map(renderItem)}
       </div>
     </aside>
