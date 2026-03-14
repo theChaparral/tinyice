@@ -5,7 +5,6 @@ import (
 	"embed"
 	"fmt"
 	"html/template"
-	"io/fs"
 	"net"
 	"net/http"
 	"os"
@@ -185,11 +184,9 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/events", s.handlePublicEvents)
 	mux.HandleFunc("/status-json.xsl", s.handleLegacyStats)
 	mux.HandleFunc("/metrics", s.handleMetrics)
-	subFS, _ := fs.Sub(assetFS, "assets")
-	mux.Handle("/assets/", http.StripPrefix("/assets/", http.FileServer(http.FS(subFS))))
-
-	// New frontend static assets (Vite build output)
-	mux.Handle("/static/", http.StripPrefix("/static/", s.shell.FileServer()))
+	// Serve frontend assets (Vite build output) at /assets/ — takes priority
+	// Falls back to legacy assets (logo, lucide, sortable) if not found in dist
+	mux.Handle("/assets/", http.StripPrefix("/assets/", s.shell.AssetHandler()))
 
 	// Developer portal (new page)
 	mux.HandleFunc("/developers", s.handleDevelopers)
