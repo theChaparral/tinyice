@@ -10,20 +10,7 @@ import { Security } from './Security'
 import { Settings } from './Settings'
 import { AutoDJ } from './AutoDJ'
 import { Studio } from './Studio'
-
-function Placeholder(name: string) {
-  return function Page() {
-    return (
-      <div class="p-7">
-        <div class="font-mono text-[10px] tracking-[2px] text-text-tertiary mb-1">{name.toUpperCase()}</div>
-        <h1 class="text-xl font-bold text-text-primary">{name}</h1>
-        <p class="text-text-tertiary mt-2 text-sm">Coming soon...</p>
-      </div>
-    )
-  }
-}
-
-const GoLivePage = Placeholder('Go Live')
+import { GoLive } from './GoLive'
 
 export function AdminLayout() {
   const [path, setPath] = useState(window.location.pathname)
@@ -36,7 +23,7 @@ export function AdminLayout() {
           <Route path="/admin" component={Dashboard} />
           <Route path="/admin/streams" component={Streams} />
           <Route path="/admin/autodj" component={AutoDJ} />
-          <Route path="/admin/golive" component={GoLivePage} />
+          <Route path="/admin/golive" component={GoLive} />
           <Route path="/admin/relays" component={Relays} />
           <Route path="/admin/transcoders" component={Transcoders} />
           <Route path="/admin/studio" component={Studio} />
