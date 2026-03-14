@@ -1,7 +1,13 @@
 import { useRef, useEffect } from 'preact/hooks'
 import { createVisualizer } from '@/lib/visualizer'
 
-export function Visualizer({ size = 260, getFreqData }: { size?: number; getFreqData: () => Uint8Array | null }) {
+interface VisualizerProps {
+  size?: number
+  getFreqData: () => Uint8Array | null
+  albumArt?: string | null
+}
+
+export function Visualizer({ size = 260, getFreqData, albumArt }: VisualizerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
   useEffect(() => {
@@ -17,16 +23,27 @@ export function Visualizer({ size = 260, getFreqData }: { size?: number; getFreq
       <canvas ref={canvasRef} style={{ width: size, height: size }} />
       {/* Vinyl center */}
       <div
-        class="absolute rounded-full bg-surface-raised border border-border flex flex-col items-center justify-center"
+        class="absolute rounded-full bg-surface-raised border border-border flex flex-col items-center justify-center overflow-hidden"
         style={{ inset: `${size * 0.22}px` }}
       >
-        {/* Groove lines */}
-        <div class="absolute rounded-full border border-[rgba(255,255,255,0.02)]" style={{ inset: '8px' }} />
-        <div class="absolute rounded-full border border-[rgba(255,255,255,0.015)]" style={{ inset: '16px' }} />
-        <div class="absolute rounded-full border border-[rgba(255,255,255,0.02)]" style={{ inset: '24px' }} />
-        {/* Center dot + label */}
-        <div class="w-2 h-2 rounded-full bg-[rgba(255,255,255,0.06)] mb-1.5" />
-        <span class="font-mono text-[7px] text-text-tertiary tracking-[1px]">TINYICE</span>
+        {albumArt ? (
+          <img
+            src={albumArt}
+            alt="Album art"
+            loading="lazy"
+            class="rounded-full object-cover w-full h-full absolute inset-0"
+          />
+        ) : (
+          <>
+            {/* Groove lines */}
+            <div class="absolute rounded-full border border-[rgba(255,255,255,0.02)]" style={{ inset: '8px' }} />
+            <div class="absolute rounded-full border border-[rgba(255,255,255,0.015)]" style={{ inset: '16px' }} />
+            <div class="absolute rounded-full border border-[rgba(255,255,255,0.02)]" style={{ inset: '24px' }} />
+            {/* Center dot + label */}
+            <div class="w-2 h-2 rounded-full bg-[rgba(255,255,255,0.06)] mb-1.5" />
+            <span class="font-mono text-[7px] text-text-tertiary tracking-[1px]">TINYICE</span>
+          </>
+        )}
       </div>
     </div>
   )

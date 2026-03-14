@@ -6,6 +6,7 @@ import { ModeToggle } from '@/components/ModeToggle'
 import { VolumeKnob } from '@/components/VolumeKnob'
 import { createSSE } from '@/lib/sse'
 import { connectAudio, getFrequencyData, resumeAudio } from '@/lib/audio'
+import { useAlbumArt } from '@/hooks/useAlbumArt'
 import type { PlayerData } from '@/types'
 
 const data = (window.__TINYICE__ ?? {}) as Partial<PlayerData>
@@ -20,6 +21,7 @@ const listeners = signal(data.listeners || 0)
 export function Player() {
   const audioRef = useRef<HTMLAudioElement>(null)
   const analyserRef = useRef<AnalyserNode | null>(null)
+  const albumArt = useAlbumArt(artist.value, title.value)
 
   const getFreqData = useCallback(() => {
     if (!analyserRef.current) return null
@@ -123,7 +125,7 @@ export function Player() {
       {/* Main content */}
       <main class="relative z-10 flex flex-col items-center gap-8">
         {/* Visualizer */}
-        <Visualizer size={260} getFreqData={getFreqData} />
+        <Visualizer size={260} getFreqData={getFreqData} albumArt={albumArt} />
 
         {/* Track info */}
         <div class="flex flex-col items-center gap-1.5 max-w-xs text-center">
