@@ -2,19 +2,21 @@
 
 ![TinyIce Logo](https://raw.githubusercontent.com/DatanoiseTV/tinyice/main/assets/logo.png?v=2)
 
-**Run it, and you've got a ready Icecast server in seconds.**
+**One binary. Pure audio.**
 
-> **Notice**: This is a side project. Use it at your own risk. While it implements security best practices, it has not undergone an independent audit.
+> High-performance Icecast-compatible streaming with WebRTC, AutoDJ, transcoding, and a world-class web interface. Deploy anywhere in seconds.
 
-TinyIce is a lightweight, high-performance, and secure Icecast2-compatible streaming server written in Go. It is designed to be self-contained, easy to deploy, and provides a modern web interface for both administrators and listeners.
+### Landing Page
+![Landing Page](assets/screenshots/landing.png)
 
-<img width="3023" height="1507" alt="image" src="https://github.com/user-attachments/assets/e789d5df-d530-4ff3-a4a2-d551ea0ffc11" />
-<img width="3024" height="1508" alt="image" src="https://github.com/user-attachments/assets/8da73f4a-27d8-4d7d-993c-9040a89a0c0d" />
-<img width="3023" height="1507" alt="image" src="https://github.com/user-attachments/assets/75010d65-f0ce-4ee0-8a92-7d04df54406a" />
-<img width="3023" height="1507" alt="image" src="https://github.com/user-attachments/assets/4fc8cb37-620c-4e24-ae07-300aff4a2fa9" />
-<img width="3027" height="1545" alt="image" src="https://github.com/user-attachments/assets/968c21ed-547e-4f19-a030-93d05a845a2b" />
-<img width="3027" height="1418" alt="image" src="https://github.com/user-attachments/assets/d531cf1c-1072-4cbc-adc5-c4e7be54e4a6" />
-<img width="3024" height="1852" alt="image" src="https://github.com/user-attachments/assets/d3278890-4f5f-4536-aa88-5fd19518ca3d" />
+### Admin Dashboard
+![Admin Dashboard](assets/screenshots/admin-dashboard.png)
+
+### AutoDJ Management
+![AutoDJ](assets/screenshots/admin-autodj.png)
+
+### Developer Portal
+![Developer Portal](assets/screenshots/developers.png)
 
 
 [![Go Report Card](https://goreportcard.com/badge/github.com/DatanoiseTV/tinyice)](https://goreportcard.com/report/github.com/DatanoiseTV/tinyice)
