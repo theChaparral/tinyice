@@ -2,6 +2,14 @@ import { Router, Route } from 'preact-router'
 import { useState } from 'preact/hooks'
 import { Sidebar } from '../../components/Sidebar'
 import { Dashboard } from './Dashboard'
+import { Streams } from './Streams'
+import { Relays } from './Relays'
+import { Transcoders } from './Transcoders'
+import { Users } from './Users'
+import { Security } from './Security'
+import { Settings } from './Settings'
+import { AutoDJ } from './AutoDJ'
+import { Studio } from './Studio'
 
 function Placeholder(name: string) {
   return function Page() {
@@ -15,15 +23,7 @@ function Placeholder(name: string) {
   }
 }
 
-const StreamsPage = Placeholder('Streams')
-const AutoDJPage = Placeholder('AutoDJ')
 const GoLivePage = Placeholder('Go Live')
-const RelaysPage = Placeholder('Relays')
-const TranscodersPage = Placeholder('Transcoders')
-const StudioPage = Placeholder('Studio')
-const UsersPage = Placeholder('Users')
-const SecurityPage = Placeholder('Security')
-const SettingsPage = Placeholder('Settings')
 
 export function AdminLayout() {
   const [path, setPath] = useState(window.location.pathname)
@@ -34,15 +34,15 @@ export function AdminLayout() {
       <main class="flex-1 overflow-y-auto ml-16">
         <Router onChange={(e) => setPath(e.url)}>
           <Route path="/admin" component={Dashboard} />
-          <Route path="/admin/streams" component={StreamsPage} />
-          <Route path="/admin/autodj" component={AutoDJPage} />
+          <Route path="/admin/streams" component={Streams} />
+          <Route path="/admin/autodj" component={AutoDJ} />
           <Route path="/admin/golive" component={GoLivePage} />
-          <Route path="/admin/relays" component={RelaysPage} />
-          <Route path="/admin/transcoders" component={TranscodersPage} />
-          <Route path="/admin/studio" component={StudioPage} />
-          <Route path="/admin/users" component={UsersPage} />
-          <Route path="/admin/security" component={SecurityPage} />
-          <Route path="/admin/settings" component={SettingsPage} />
+          <Route path="/admin/relays" component={Relays} />
+          <Route path="/admin/transcoders" component={Transcoders} />
+          <Route path="/admin/studio" component={Studio} />
+          <Route path="/admin/users" component={Users} />
+          <Route path="/admin/security" component={Security} />
+          <Route path="/admin/settings" component={Settings} />
         </Router>
       </main>
     </div>
