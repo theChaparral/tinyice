@@ -5,17 +5,61 @@ import { createSSE } from '@/lib/sse'
 import { EqBars } from '@/components/EqBars'
 import type { AutoDJEvent } from '@/types'
 
+// Matches the Go API response from /api/autodj
+interface AutoDJInstanceRaw {
+  name: string
+  mount: string
+  format: string
+  bitrate: number
+  state: number // 0=stopped, 1=playing, 2=paused
+  current_song: string
+  start_time: number
+  duration: number
+  playlist_pos: number
+  playlist_len: number
+  shuffle: boolean
+  loop: boolean
+  inject_metadata: boolean
+  visible: boolean
+  music_dir: string
+  enabled: boolean
+  mpd_enabled: boolean
+  mpd_port: string
+  last_playlist: string
+  queue: Array<{ id: string; file: string; title: string }> | null
+}
+
 interface AutoDJInstance {
+  name: string
   mount: string
   format: string
   bitrate: number
   state: 'playing' | 'paused' | 'stopped'
-  currentTrack: { title: string; artist: string; file: string }
-  position: number
+  currentSong: string
   duration: number
-  listeners: number
+  playlistLen: number
+  shuffle: boolean
+  loop: boolean
+  musicDir: string
   queue: string[]
-  trackCount: number
+}
+
+function mapInstance(raw: AutoDJInstanceRaw): AutoDJInstance {
+  const stateMap: Record<number, 'playing' | 'paused' | 'stopped'> = { 0: 'stopped', 1: 'playing', 2: 'paused' }
+  return {
+    name: raw.name,
+    mount: raw.mount,
+    format: raw.format,
+    bitrate: raw.bitrate,
+    state: stateMap[raw.state] ?? 'stopped',
+    currentSong: raw.current_song || '',
+    duration: raw.duration,
+    playlistLen: raw.playlist_len,
+    shuffle: raw.shuffle,
+    loop: raw.loop,
+    musicDir: raw.music_dir,
+    queue: (raw.queue ?? []).map(q => q.title || q.file),
+  }
 }
 
 const instances = signal<AutoDJInstance[]>([])
@@ -58,7 +102,8 @@ async function deleteAutoDJ(mount: string) {
 async function loadAutoDJ() {
   loading.value = true
   try {
-    instances.value = await api.get<AutoDJInstance[]>('/api/autodj')
+    const raw = await api.get<AutoDJInstanceRaw[]>('/api/autodj')
+    instances.value = raw.map(mapInstance)
   } catch {
     instances.value = []
   }
@@ -75,7 +120,7 @@ function InstanceCard({ inst }: { inst: AutoDJInstance }) {
   const isPlaying = inst.state === 'playing'
   const isPaused = inst.state === 'paused'
   const isStopped = inst.state === 'stopped'
-  const progress = inst.duration > 0 ? (inst.position / inst.duration) * 100 : 0
+  const progress = 0 // Position tracking requires SSE updates
 
   const handleTransport = (action: string) => {
     api.post(`/api/autodj/${encodeURIComponent(inst.mount)}/${action}`)
@@ -98,9 +143,9 @@ function InstanceCard({ inst }: { inst: AutoDJInstance }) {
           {inst.format} {inst.bitrate}kbps
         </span>
         <div class="ml-auto flex items-center gap-1.5">
-          <span class="text-2xl font-bold text-text-primary leading-none">{inst.listeners}</span>
+          <span class="text-2xl font-bold text-text-primary leading-none">{inst.playlistLen}</span>
           <span class="text-[9px] font-mono text-text-tertiary uppercase tracking-wider">
-            {inst.listeners === 1 ? 'listener' : 'listeners'}
+            tracks
           </span>
         </div>
       </div>
@@ -109,7 +154,7 @@ function InstanceCard({ inst }: { inst: AutoDJInstance }) {
       {isStopped ? (
         <div class="flex items-center justify-between py-4">
           <span class="text-sm text-text-tertiary">
-            Stopped &mdash; {inst.trackCount} tracks
+            Stopped &mdash; {inst.playlistLen} tracks
           </span>
           <button
             onClick={() => handleTransport('play')}
@@ -126,10 +171,10 @@ function InstanceCard({ inst }: { inst: AutoDJInstance }) {
           {/* Track info */}
           <div class="mb-3">
             <div class="text-sm font-medium text-text-primary truncate">
-              {inst.currentTrack.title || inst.currentTrack.file || 'Unknown'}
+              {inst.currentSong || 'Unknown'}
             </div>
             <div class="text-xs text-text-tertiary truncate">
-              {inst.currentTrack.artist || 'Unknown Artist'}
+              {inst.name}
             </div>
           </div>
 
@@ -142,7 +187,7 @@ function InstanceCard({ inst }: { inst: AutoDJInstance }) {
               />
             </div>
             <div class="flex justify-between mt-1">
-              <span class="font-mono text-[10px] text-text-tertiary">{formatTime(inst.position)}</span>
+              <span class="font-mono text-[10px] text-text-tertiary">{formatTime(0)}</span>
               <span class="font-mono text-[10px] text-text-tertiary">{formatTime(inst.duration)}</span>
             </div>
           </div>
@@ -256,10 +301,9 @@ export function AutoDJ() {
       )
     })
 
-    sse.on('stream', (evt) => {
-      instances.value = instances.value.map((inst) =>
-        inst.mount === evt.mount ? { ...inst, listeners: evt.listeners } : inst
-      )
+    sse.on('stream', () => {
+      // Stream events update listener counts — reload data
+      loadAutoDJ()
     })
 
     return () => sse.close()
