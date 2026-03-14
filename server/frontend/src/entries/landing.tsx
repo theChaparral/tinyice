@@ -1,4 +1,5 @@
 import '../globals.css'
 import { render } from 'preact'
-function App() { return <div>landing loading...</div> }
-render(<App />, document.getElementById('app')!)
+import { Landing } from '@/pages/Landing'
+
+render(<Landing />, document.getElementById('app')!)
