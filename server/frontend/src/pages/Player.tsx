@@ -8,7 +8,7 @@ import { createSSE } from '@/lib/sse'
 import { connectAudio, getFrequencyData, resumeAudio } from '@/lib/audio'
 import type { PlayerData } from '@/types'
 
-const data = window.__TINYICE__ as PlayerData
+const data = (window.__TINYICE__ ?? {}) as Partial<PlayerData>
 
 const playing = signal(false)
 const title = signal(data.title || 'Untitled')

@@ -4,7 +4,7 @@ import { EqBars } from '@/components/EqBars'
 import { createSSE } from '@/lib/sse'
 import type { PlayerData } from '@/types'
 
-const data = window.__TINYICE__ as PlayerData
+const data = (window.__TINYICE__ ?? {}) as Partial<PlayerData>
 const title = signal(data.title || '')
 const artist = signal(data.artist || '')
 const playing = signal(false)

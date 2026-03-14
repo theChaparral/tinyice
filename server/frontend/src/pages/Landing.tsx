@@ -5,7 +5,7 @@ import { StreamCard } from '@/components/StreamCard'
 import { createSSE } from '@/lib/sse'
 import type { LandingData, StreamInfo } from '@/types'
 
-const data = window.__TINYICE__ as LandingData
+const data = (window.__TINYICE__ ?? {}) as Partial<LandingData>
 const streams = signal<StreamInfo[]>(data.streams ?? [])
 
 export function Landing() {
@@ -56,7 +56,7 @@ export function Landing() {
       />
 
       {/* Nav */}
-      <Nav branding={data.branding} />
+      <Nav branding={data.branding ?? { logoUrl: null, accentColor: '#ff6600', landingMarkdown: '' }} />
 
       {/* Hero */}
       <main class="relative z-10 pt-14">

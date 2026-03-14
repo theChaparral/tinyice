@@ -5,7 +5,7 @@ import { StreamCard } from '@/components/StreamCard'
 import { createSSE } from '@/lib/sse'
 import type { LandingData, StreamInfo } from '@/types'
 
-const data = window.__TINYICE__ as LandingData
+const data = (window.__TINYICE__ ?? {}) as Partial<LandingData>
 const streams = signal<StreamInfo[]>(data.streams ?? [])
 const search = signal('')
 
@@ -46,7 +46,7 @@ export function Explore() {
 
   return (
     <div class="min-h-screen bg-surface-base">
-      <Nav branding={data.branding} />
+      <Nav branding={data.branding ?? { logoUrl: null, accentColor: '#ff6600', landingMarkdown: '' }} />
 
       <main class="relative z-10 pt-14">
         <div class="mx-auto max-w-7xl px-4 py-10">
