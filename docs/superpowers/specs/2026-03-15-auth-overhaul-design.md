@@ -88,6 +88,14 @@ Passkey credentials stored per-user in `tinyice.json`:
 - **Admin:** During onboarding wizard (step 3)
 - **All users:** Self-service from profile/settings page
 
+### Passkey Recovery
+- Passkey-only accounts are **not permitted** — every user must have a password set as a recovery fallback
+- If a user loses their passkey device, they log in with password and register a new passkey
+- Admin can remove a user's passkeys via the API as a last resort: `DELETE /api/users/{username}/passkeys`
+
+### Credential Storage Detail
+The spec stores a simplified view of passkey credentials. Implementation will serialize the full `webauthn.Credential` struct from `go-webauthn` as base64-encoded JSON in a `raw_credential` field, alongside the human-readable fields (`name`, `created_at`, `last_used`). This ensures no data loss between the library's internal representation and our storage.
+
 ### Endpoints
 | Method | Path | Purpose |
 |--------|------|---------|
@@ -123,7 +131,7 @@ Stored in `tinyice.json`:
       "name": "GitHub",
       "client_id": "...",
       "client_secret": "...",
-      "discovery_url": "https://token.actions.githubusercontent.com/.well-known/openid-configuration",
+      "discovery_url": "",
       "icon": "github",
       "enabled": true
     },
@@ -151,8 +159,20 @@ Ships with well-known presets for Google and GitHub. Admin can add any OIDC-comp
 6. **Email matches existing user's `linked_emails`:** Create session, log in
 7. **Email not linked to any user:** Create pending registration request
 
+### OIDC Security
+- **PKCE (Proof Key for Code Exchange):** All OIDC flows use PKCE (S256) for defense-in-depth against authorization code interception, per OAuth 2.1 recommendations.
+- **Nonce validation:** A random nonce is included in every authorization request and verified in the returned ID token to prevent token replay/injection.
+- **State parameter:** HMAC-signed with 10min expiry (existing design).
+
+### Account Linking
+Existing password-based users can link their OIDC email to enable social login:
+- **Self-service:** Authenticated users visit profile settings → "Link Account" → redirects through OIDC flow → email is added to `linked_emails`
+- **Admin-managed:** Admin can add/remove linked emails via the user management API
+- Endpoint: `POST /api/account/link/{provider}` (authed, initiates OIDC flow for linking)
+- Endpoint: `DELETE /api/account/link/{email}` (authed, removes linked email)
+
 ### GitHub Note
-GitHub is not a standard OIDC provider. Implementation will use GitHub's OAuth2 API (`https://github.com/login/oauth/authorize`) with a `/user` API call to get email, wrapped to present the same interface as OIDC providers.
+GitHub is not a standard OIDC provider. Implementation will use GitHub's OAuth2 API (`https://github.com/login/oauth/authorize`) with a `/user` API call to get email, wrapped to present the same interface as OIDC providers. The `discovery_url` field is unused for GitHub; the provider is identified by its `id: "github"` and uses hardcoded GitHub OAuth endpoints.
 
 ### Endpoints
 | Method | Path | Purpose |
@@ -186,6 +206,9 @@ GitHub is not a standard OIDC provider. Implementation will use GitHub's OAuth2 
 ### Storage
 Pending users stored in `tinyice.json` under `pending_users` array. On approval, moved to `users` map. On denial, removed.
 
+### Deduplication
+If the same email authenticates via OIDC while a pending request already exists, the existing request is updated (timestamp refreshed) rather than creating a duplicate. If the email was previously denied, a new request is created only if 24h have passed.
+
 ### Email Notification
 Optional SMTP configuration:
 ```json
@@ -217,7 +240,10 @@ When a new request comes in and SMTP is enabled, sends a simple text email to al
 2. **OIDC provider buttons** — dynamically rendered from configured providers (only shown if any configured)
 3. **Divider** — "or"
 4. **Username/password form** — existing form, always shown as fallback
-5. **"Request Access" link** — if OIDC providers are configured, link to a page explaining how to request access
+5. **"Request Access" link** — if OIDC providers are configured, shows text: "Don't have an account? Sign in with a provider above to request access." No separate page needed.
+
+### Denied Users
+When a denied user attempts OIDC login again, they see: "Your access request was denied. Contact the station administrator." They can re-request by clicking a "Request Again" button, which creates a new pending request (rate-limited to 1 per 24h per email).
 
 ### Data Injection
 Login page receives available auth methods via `window.__TINYICE__`:
@@ -270,17 +296,48 @@ Full updated `tinyice.json` structure (new fields marked with `// NEW`):
 }
 ```
 
+### Setup-to-Normal Transition
+On setup completion, the server sets `setup_complete = true` in config. A middleware on every request checks this flag:
+- If `!setup_complete` and path is not `/setup*` → redirect to `/setup`
+- If `setup_complete` and path is `/setup*` → return 404
+
+This avoids dynamic route registration and works with the standard `http.ServeMux`.
+
+### Config Write Safety
+All config mutations (passkey registration, OIDC provider changes, pending user approval) go through a `Server.saveConfig()` method protected by a `sync.Mutex`. This prevents concurrent write races. The method writes to a temp file and atomically renames to prevent corruption.
+
+### Existing Config Migration
+When loading a config that lacks the new fields, `setDefaults()` initializes them:
+- `setup_complete` defaults to `true` (existing deployments are already set up)
+- `passkeys`, `linked_emails` default to empty slices
+- `oidc_providers`, `pending_users` default to empty slices
+- `webauthn.rp_id` derived from `base_url` config field if set, otherwise `localhost`
+- `webauthn.rp_origins` derived from `base_url`, otherwise `["https://localhost:8443"]`
+- Top-level `admin_user`/`admin_password` remain for backward compat; `handleMigrations()` already copies them into the `users` map
+
+### Roles
+Available roles for approved users:
+- `superadmin` — full access, can manage users, providers, and settings
+- `admin` — can manage mounts and AutoDJ, cannot manage users or providers
+- `dj` — can stream to assigned mounts only (new role for OIDC users)
+
+OIDC-approved users default to `dj` unless the admin selects a different role during approval.
+
 ## 7. Security Considerations
 
 | Concern | Mitigation |
 |---------|------------|
-| Setup endpoint hijacking | Single-use token printed to console, required to access `/setup` |
+| Setup endpoint hijacking | Single-use token printed to console, validated with `crypto/subtle.ConstantTimeCompare` |
 | WebAuthn requires secure context | HTTPS or localhost only (browser-enforced) |
 | OIDC CSRF | State parameter with HMAC signature and 10min expiry |
+| OIDC code interception | PKCE (S256) on all authorization flows |
+| OIDC token replay | Nonce in authorization request, verified in ID token |
 | Passkey replay | Server-side challenge with 60s expiry, sign count verification |
-| Pending user spam | Rate limit OIDC callback per IP, admin can bulk-deny |
-| SMTP credential storage | Config file is mode 0600 (owner-only read) |
+| Pending user spam | Rate limit per IP + per provider + global cap on pending requests; 1 re-request per 24h per email |
+| OIDC/SMTP secrets in config | Stored plaintext in mode 0600 file (same trust model as TLS private keys). Future: support env var injection (`$ENV{VAR}` syntax) |
+| Concurrent config writes | `sync.Mutex`-protected writes with atomic file rename |
 | Session fixation | New session ID generated on every successful login |
+| OIDC logout | Local-only logout (session destroyed). No RP-initiated provider logout — keeps it simple, avoids provider-specific complexity |
 
 ## 8. New Dependencies
 
@@ -289,7 +346,7 @@ Full updated `tinyice.json` structure (new fields marked with `// NEW`):
 | `github.com/go-webauthn/webauthn` | WebAuthn/passkey ceremonies |
 | `github.com/coreos/go-oidc/v3` | OIDC discovery and token verification |
 | `golang.org/x/oauth2` | OAuth2 authorization flow |
-| `net/smtp` (stdlib) | Email notifications |
+| `github.com/wneessen/go-mail` | SMTP email notifications (modern TLS support) |
 | `github.com/google/uuid` | Pending user request IDs |
 
 ## 9. Files to Create/Modify
