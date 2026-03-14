@@ -1,3 +1,4 @@
 import { render } from 'preact'
-function App() { return <div>developers loading...</div> }
-render(<App />, document.getElementById('app')!)
+import '../globals.css'
+import { Developers } from '../pages/Developers'
+render(<Developers />, document.getElementById('app')!)
