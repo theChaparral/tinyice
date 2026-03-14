@@ -119,12 +119,38 @@ func (cb *CircularBuffer) ReadAt(start int64, p []byte) (int, int64, bool) {
 		n = available
 	}
 
-	// Handle wrap-around: if read would cross buffer boundary, limit to segment
+	// Handle wrap-around: if read would cross buffer boundary, read in two parts
 	if pos+n > cb.Size {
-		n = cb.Size - pos
+		firstPart := cb.Size - pos
+		copy(p, cb.Data[pos:pos+firstPart])
+		secondPart := n - firstPart
+		copy(p[firstPart:], cb.Data[0:secondPart])
+		return int(n), start + n, skipped
 	}
 
-	// Perform the actual read
+	// Perform the actual read (no wrap needed)
 	actual := copy(p, cb.Data[pos:pos+n])
 	return actual, start + int64(actual), skipped
+}
+
+// Available returns the number of bytes currently available in the buffer.
+// If the buffer has not yet been filled, it returns Head (total bytes written).
+// Once the buffer has been filled at least once, it returns the buffer Size.
+func (cb *CircularBuffer) Available() int64 {
+	cb.mu.RLock()
+	defer cb.mu.RUnlock()
+	if cb.Head < cb.Size {
+		return cb.Head
+	}
+	return cb.Size
+}
+
+// Reset zeroes the buffer contents and resets the write position to 0.
+func (cb *CircularBuffer) Reset() {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+	cb.Head = 0
+	for i := range cb.Data {
+		cb.Data[i] = 0
+	}
 }
