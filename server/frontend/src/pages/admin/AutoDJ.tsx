@@ -20,6 +20,50 @@ interface AutoDJInstance {
 
 const instances = signal<AutoDJInstance[]>([])
 const loading = signal(true)
+const showForm = signal(false)
+const formName = signal('')
+const formMount = signal('')
+const formMusicDir = signal('')
+const formFormat = signal('mp3')
+const formBitrate = signal(128)
+const formLoop = signal(true)
+const formInjectMetadata = signal(true)
+
+async function createAutoDJ() {
+  await api.post('/api/autodj', {
+    name: formName.value,
+    mount: formMount.value,
+    music_dir: formMusicDir.value,
+    format: formFormat.value,
+    bitrate: formBitrate.value,
+    loop: formLoop.value,
+    inject_metadata: formInjectMetadata.value,
+  })
+  showForm.value = false
+  formName.value = ''
+  formMount.value = ''
+  formMusicDir.value = ''
+  formFormat.value = 'mp3'
+  formBitrate.value = 128
+  formLoop.value = true
+  formInjectMetadata.value = true
+  loadAutoDJ()
+}
+
+async function deleteAutoDJ(mount: string) {
+  await api.del(`/api/autodj?mount=${encodeURIComponent(mount)}`)
+  loadAutoDJ()
+}
+
+async function loadAutoDJ() {
+  loading.value = true
+  try {
+    instances.value = await api.get<AutoDJInstance[]>('/api/autodj')
+  } catch {
+    instances.value = []
+  }
+  loading.value = false
+}
 
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60)
@@ -152,11 +196,14 @@ function InstanceCard({ inst }: { inst: AutoDJInstance }) {
             </a>
 
             <button
-              class="w-8 h-8 rounded-lg border border-border flex items-center justify-center text-text-tertiary hover:text-text-secondary hover:border-border-hover transition-colors"
-              aria-label="Settings"
+              onClick={() => deleteAutoDJ(inst.mount)}
+              class="w-8 h-8 rounded-lg border border-border flex items-center justify-center text-danger hover:border-danger/30 transition-colors"
+              aria-label="Delete AutoDJ"
+              title="Delete AutoDJ"
             >
-              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.49.49 0 00-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 00-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1115.6 12 3.6 3.6 0 0112 15.6z" />
+              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="3 6 5 6 21 6" />
+                <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
               </svg>
             </button>
           </div>
@@ -191,11 +238,7 @@ function InstanceCard({ inst }: { inst: AutoDJInstance }) {
 
 export function AutoDJ() {
   useEffect(() => {
-    loading.value = true
-    api.get<AutoDJInstance[]>('/api/autodj')
-      .then((data) => { instances.value = data })
-      .catch(() => { instances.value = [] })
-      .finally(() => { loading.value = false })
+    loadAutoDJ()
 
     const sse = createSSE('/events')
     sse.on('autodj', (evt: AutoDJEvent) => {
@@ -227,7 +270,10 @@ export function AutoDJ() {
       {/* Header */}
       <div class="flex items-center justify-between mb-6">
         <h1 class="text-xl font-bold text-text-primary font-heading">AutoDJ</h1>
-        <button class="h-9 px-4 rounded-lg bg-accent text-surface-base text-sm font-medium flex items-center gap-2 hover:shadow-[0_0_20px_rgba(255,102,0,0.3)] transition-shadow">
+        <button
+          onClick={() => { showForm.value = true }}
+          class="h-9 px-4 rounded-lg bg-accent text-surface-base text-sm font-medium flex items-center gap-2 hover:shadow-[0_0_20px_rgba(255,102,0,0.3)] transition-shadow"
+        >
           <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
             <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" />
           </svg>
@@ -261,6 +307,104 @@ export function AutoDJ() {
           {instances.value.map((inst) => (
             <InstanceCard key={inst.mount} inst={inst} />
           ))}
+        </div>
+      )}
+
+      {/* New AutoDJ Modal */}
+      {showForm.value && (
+        <div class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
+          <div class="bg-surface-raised border border-border rounded-xl p-6 w-full max-w-md">
+            <h2 class="text-lg font-bold text-text-primary mb-4">New AutoDJ</h2>
+            <div class="flex flex-col gap-3">
+              <div>
+                <label class="text-text-secondary text-xs font-mono tracking-wider uppercase mb-1.5 block">NAME</label>
+                <input
+                  type="text"
+                  value={formName.value}
+                  onInput={(e) => { formName.value = (e.target as HTMLInputElement).value }}
+                  placeholder="My AutoDJ"
+                  class="bg-[rgba(255,255,255,0.03)] border border-border rounded-lg px-4 py-2.5 text-text-primary font-mono text-sm focus:border-accent outline-none w-full"
+                />
+              </div>
+              <div>
+                <label class="text-text-secondary text-xs font-mono tracking-wider uppercase mb-1.5 block">MOUNT</label>
+                <input
+                  type="text"
+                  value={formMount.value}
+                  onInput={(e) => { formMount.value = (e.target as HTMLInputElement).value }}
+                  placeholder="/autodj"
+                  class="bg-[rgba(255,255,255,0.03)] border border-border rounded-lg px-4 py-2.5 text-text-primary font-mono text-sm focus:border-accent outline-none w-full"
+                />
+              </div>
+              <div>
+                <label class="text-text-secondary text-xs font-mono tracking-wider uppercase mb-1.5 block">MUSIC DIRECTORY</label>
+                <input
+                  type="text"
+                  value={formMusicDir.value}
+                  onInput={(e) => { formMusicDir.value = (e.target as HTMLInputElement).value }}
+                  placeholder="/path/to/music"
+                  class="bg-[rgba(255,255,255,0.03)] border border-border rounded-lg px-4 py-2.5 text-text-primary font-mono text-sm focus:border-accent outline-none w-full"
+                />
+              </div>
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <label class="text-text-secondary text-xs font-mono tracking-wider uppercase mb-1.5 block">FORMAT</label>
+                  <select
+                    value={formFormat.value}
+                    onChange={(e) => { formFormat.value = (e.target as HTMLSelectElement).value }}
+                    class="bg-[rgba(255,255,255,0.03)] border border-border rounded-lg px-4 py-2.5 text-text-primary font-mono text-sm focus:border-accent outline-none w-full"
+                  >
+                    <option value="mp3">MP3</option>
+                    <option value="opus">Opus</option>
+                    <option value="ogg">OGG</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="text-text-secondary text-xs font-mono tracking-wider uppercase mb-1.5 block">BITRATE (KBPS)</label>
+                  <input
+                    type="number"
+                    value={formBitrate.value}
+                    onInput={(e) => { formBitrate.value = parseInt((e.target as HTMLInputElement).value) || 0 }}
+                    class="bg-[rgba(255,255,255,0.03)] border border-border rounded-lg px-4 py-2.5 text-text-primary font-mono text-sm focus:border-accent outline-none w-full"
+                  />
+                </div>
+              </div>
+              <div class="flex items-center gap-6 mt-1">
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formLoop.value}
+                    onChange={(e) => { formLoop.value = (e.target as HTMLInputElement).checked }}
+                    class="accent-accent"
+                  />
+                  <span class="text-text-secondary text-xs font-mono tracking-wider uppercase">Loop</span>
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formInjectMetadata.value}
+                    onChange={(e) => { formInjectMetadata.value = (e.target as HTMLInputElement).checked }}
+                    class="accent-accent"
+                  />
+                  <span class="text-text-secondary text-xs font-mono tracking-wider uppercase">Inject Metadata</span>
+                </label>
+              </div>
+            </div>
+            <div class="flex justify-end gap-2 mt-6">
+              <button
+                onClick={() => { showForm.value = false }}
+                class="border border-border text-text-secondary font-mono text-xs px-5 py-2.5 rounded-lg hover:border-border-hover"
+              >
+                CANCEL
+              </button>
+              <button
+                onClick={createAutoDJ}
+                class="bg-accent text-surface-base font-mono font-bold text-xs tracking-wider px-5 py-2.5 rounded-lg"
+              >
+                CREATE
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
