@@ -8,7 +8,7 @@ interface NavProps {
 export function Nav({ branding }: NavProps) {
   return (
     <nav class="fixed top-0 inset-x-0 z-50 h-14 border-b border-border bg-surface-base/80 backdrop-blur-md">
-      <div class="mx-auto max-w-7xl h-full flex items-center justify-between px-4">
+      <div class="h-full flex items-center justify-between px-8 lg:px-16 xl:px-24">
         {/* Logo */}
         <a href="/" class="flex items-center gap-3">
           {branding?.logoUrl ? (

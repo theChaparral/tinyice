@@ -60,7 +60,7 @@ export function Landing() {
 
       {/* Hero */}
       <main class="relative z-10 pt-14">
-        <div class="mx-auto max-w-7xl px-4 py-20 lg:py-32">
+        <div class="mx-auto px-8 lg:px-16 xl:px-24 py-20 lg:py-32">
           <div class="flex flex-col lg:flex-row gap-12 lg:gap-20 items-start">
             {/* Left column */}
             <div class="flex flex-col gap-8 min-w-0 flex-1">
@@ -166,7 +166,7 @@ export function Landing() {
 
       {/* Footer */}
       <footer class="relative z-10 border-t border-border">
-        <div class="mx-auto max-w-7xl px-4 py-6 flex items-center justify-between">
+        <div class="px-8 lg:px-16 xl:px-24 py-6 flex items-center justify-between">
           <span class="font-mono text-[9px] tracking-widest text-text-tertiary/50 uppercase">
             TINYICE // PURE GO
           </span>

@@ -205,7 +205,7 @@ func (s *Server) isWhitelisted(ipStr string) bool {
 }
 
 func (s *Server) isCSRFSafe(r *http.Request) bool {
-	if r.Method != http.MethodPost {
+	if r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions {
 		return true
 	}
 
@@ -228,6 +228,9 @@ func (s *Server) isCSRFSafe(r *http.Request) bool {
 	}
 
 	providedToken := r.FormValue("csrf")
+	if providedToken == "" {
+		providedToken = r.Header.Get("X-CSRF-Token")
+	}
 	if providedToken != sess.CSRFToken {
 		logger.L.Warnf("CSRF Mismatch: provided=[%s] expected=[%s] remote=%s path=%s", providedToken, sess.CSRFToken, r.RemoteAddr, r.URL.Path)
 		return false
