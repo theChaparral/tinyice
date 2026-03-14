@@ -9,7 +9,9 @@
   },
   "dependencies": {
     "@preact/signals": "^2.8.2",
-    "preact": "^10.29.0"
+    "highlight.js": "^11.11.1",
+    "preact": "^10.29.0",
+    "preact-router": "^4.1.2"
   },
   "devDependencies": {
     "@preact/preset-vite": "^2.10.3",

@@ -1,3 +1,5 @@
 import { render } from 'preact'
-function App() { return <div>admin loading...</div> }
-render(<App />, document.getElementById('app')!)
+import '../globals.css'
+import { AdminLayout } from '../pages/admin/AdminLayout'
+
+render(<AdminLayout />, document.getElementById('app')!)
