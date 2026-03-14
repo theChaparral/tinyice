@@ -44,9 +44,10 @@ func (p *SimplePacer) Pace(duration time.Duration) {
 }
 
 type WebRTCManager struct {
-	api   *webrtc.API
-	relay *Relay
-	mu    sync.RWMutex
+	api     *webrtc.API
+	relay   *Relay
+	mu      sync.RWMutex
+	sources map[string]*webrtc.PeerConnection
 }
 
 func NewWebRTCManager(r *Relay) *WebRTCManager {
@@ -56,8 +57,9 @@ func NewWebRTCManager(r *Relay) *WebRTCManager {
 
 	api := webrtc.NewAPI(webrtc.WithSettingEngine(s))
 	return &WebRTCManager{
-		api:   api,
-		relay: r,
+		api:     api,
+		relay:   r,
+		sources: make(map[string]*webrtc.PeerConnection),
 	}
 }
 
@@ -136,6 +138,24 @@ func (wm *WebRTCManager) HandleSourceOffer(mount string, offer webrtc.SessionDes
 	if err != nil {
 		return nil, err
 	}
+
+	wm.mu.Lock()
+	if existing, ok := wm.sources[mount]; ok {
+		existing.Close()
+	}
+	wm.sources[mount] = peerConnection
+	wm.mu.Unlock()
+
+	peerConnection.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
+		logger.L.Infow("WebRTC Source: Connection state changed", "mount", mount, "state", state.String())
+		if state == webrtc.PeerConnectionStateFailed || state == webrtc.PeerConnectionStateClosed || state == webrtc.PeerConnectionStateDisconnected {
+			wm.mu.Lock()
+			if wm.sources[mount] == peerConnection {
+				delete(wm.sources, mount)
+			}
+			wm.mu.Unlock()
+		}
+	})
 
 	peerConnection.OnTrack(func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
 		logger.L.Infow("WebRTC Source: Received track", "track", track.ID(), "mount", mount)
@@ -296,4 +316,15 @@ func (wm *WebRTCManager) streamToTrack(pc *webrtc.PeerConnection, track *webrtc.
 			logger.L.Debugw("WebRTC: Sent 100 packets", "mount", stream.MountName)
 		}
 	}
+}
+
+func (wm *WebRTCManager) DisconnectSource(mount string) error {
+	wm.mu.Lock()
+	defer wm.mu.Unlock()
+	pc, ok := wm.sources[mount]
+	if !ok {
+		return fmt.Errorf("no WebRTC source for mount %s", mount)
+	}
+	delete(wm.sources, mount)
+	return pc.Close()
 }
