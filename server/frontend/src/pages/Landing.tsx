@@ -61,9 +61,9 @@ export function Landing() {
       {/* Hero */}
       <main class="relative z-10 pt-14">
         <div class="mx-auto max-w-7xl px-4 py-20 lg:py-32">
-          <div class="grid grid-cols-1 lg:grid-cols-2 gap-16 lg:gap-20 items-start">
+          <div class="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-16 lg:gap-20 items-start">
             {/* Left column */}
-            <div class="flex flex-col gap-8">
+            <div class="flex flex-col gap-8 min-w-0">
               {/* Category label */}
               <span class="font-mono text-xs tracking-widest text-accent">
                 — AUDIO STREAMING SERVER
@@ -125,7 +125,7 @@ export function Landing() {
             </div>
 
             {/* Right column */}
-            <div class="flex flex-col gap-4">
+            <div class="flex flex-col gap-4 min-w-0">
               {/* Live streams header */}
               <div class="flex items-center gap-2 mb-2">
                 {hasLive && (
