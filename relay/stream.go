@@ -310,7 +310,14 @@ func (s *Stream) Subscribe(id string, burstSize int) (int64, chan struct{}) {
 		} else if bestAlign >= validStart && bestAlign > 0 {
 			start = bestAlign
 		} else {
-			start = s.Buffer.Head // Fallback to now if nothing valid found
+			// No valid Ogg page boundaries found — fall back to burst-based offset
+			start = s.Buffer.Head - int64(burstSize)
+			if start < validStart {
+				start = validStart
+			}
+			if start < 0 {
+				start = 0
+			}
 		}
 	}
 

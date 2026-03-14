@@ -5,6 +5,24 @@ import (
 	"testing"
 )
 
+func TestSubscribeOggEmptyPageOffsetsFallsBackToBurst(t *testing.T) {
+	r := NewRelay(false, nil)
+	s := r.GetOrCreateStream("/ogg-test")
+	s.ContentType = "audio/ogg"
+	s.IsOggStream = true
+	s.Buffer.Write(make([]byte, 4096))
+
+	offset, _ := s.Subscribe("listener-1", 2048)
+
+	if offset >= s.Buffer.Head {
+		t.Fatalf("expected burst offset < Head(%d), got %d", s.Buffer.Head, offset)
+	}
+	expectedMin := s.Buffer.Head - 2048
+	if offset < expectedMin {
+		t.Fatalf("expected offset >= %d, got %d", expectedMin, offset)
+	}
+}
+
 func TestBroadcastAfterCloseNoPanic(t *testing.T) {
 	r := NewRelay(false, nil)
 	s := r.GetOrCreateStream("/test")
