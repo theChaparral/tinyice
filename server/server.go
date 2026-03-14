@@ -191,6 +191,158 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	// Developer portal (new page)
 	mux.HandleFunc("/developers", s.handleDevelopers)
 
+	// JSON REST API v2
+	mux.HandleFunc("/api/streams", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			s.apiGetStreams(w, r)
+		case http.MethodPost:
+			s.apiCreateStream(w, r)
+		case http.MethodDelete:
+			s.apiDeleteStream(w, r)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+	mux.HandleFunc("/api/streams/kick", s.apiKickStream)
+
+	mux.HandleFunc("/api/autodj", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			s.apiGetAutoDJ(w, r)
+		case http.MethodPost:
+			s.apiCreateAutoDJ(w, r)
+		case http.MethodDelete:
+			s.apiDeleteAutoDJ(w, r)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+	mux.HandleFunc("/api/autodj/play", s.apiAutoDJPlay)
+	mux.HandleFunc("/api/autodj/pause", s.apiAutoDJPause)
+	mux.HandleFunc("/api/autodj/next", s.apiAutoDJNext)
+	mux.HandleFunc("/api/autodj/shuffle", s.apiAutoDJShuffle)
+	mux.HandleFunc("/api/autodj/loop", s.apiAutoDJLoop)
+
+	mux.HandleFunc("/api/autodj/playlist", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			s.apiGetPlaylist(w, r)
+		case http.MethodPost:
+			s.apiAddToPlaylist(w, r)
+		case http.MethodDelete:
+			s.apiRemoveFromPlaylist(w, r)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+	mux.HandleFunc("/api/autodj/playlist/clear", s.apiClearPlaylist)
+	mux.HandleFunc("/api/autodj/playlist/reorder", s.apiReorderPlaylist)
+
+	mux.HandleFunc("/api/autodj/queue", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			s.apiGetQueue(w, r)
+		case http.MethodPost:
+			s.apiAddToQueue(w, r)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
+	mux.HandleFunc("/api/autodj/files", s.apiGetFiles)
+
+	mux.HandleFunc("/api/relays", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			s.apiGetRelays(w, r)
+		case http.MethodPost:
+			s.apiCreateRelay(w, r)
+		case http.MethodDelete:
+			s.apiDeleteRelay(w, r)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+	mux.HandleFunc("/api/relays/toggle", s.apiToggleRelay)
+
+	mux.HandleFunc("/api/transcoders", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			s.apiGetTranscoders(w, r)
+		case http.MethodPost:
+			s.apiCreateTranscoder(w, r)
+		case http.MethodDelete:
+			s.apiDeleteTranscoder(w, r)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
+	mux.HandleFunc("/api/users", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			s.apiGetUsers(w, r)
+		case http.MethodPost:
+			s.apiCreateUser(w, r)
+		case http.MethodPut:
+			s.apiUpdateUser(w, r)
+		case http.MethodDelete:
+			s.apiDeleteUser(w, r)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
+	mux.HandleFunc("/api/security/bans", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			s.apiGetBans(w, r)
+		case http.MethodPost:
+			s.apiAddBan(w, r)
+		case http.MethodDelete:
+			s.apiRemoveBan(w, r)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+	mux.HandleFunc("/api/security/whitelist", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			s.apiGetWhitelist(w, r)
+		case http.MethodPost:
+			s.apiAddWhitelist(w, r)
+		case http.MethodDelete:
+			s.apiRemoveWhitelist(w, r)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
+	mux.HandleFunc("/api/branding", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			s.apiGetBranding(w, r)
+		case http.MethodPut:
+			s.apiUpdateBranding(w, r)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
+	mux.HandleFunc("/api/settings", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			s.apiGetSettings(w, r)
+		case http.MethodPut:
+			s.apiUpdateSettings(w, r)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
+	mux.HandleFunc("/api/stats", s.apiGetStats)
+
 	return mux
 }
 
