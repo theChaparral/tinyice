@@ -95,6 +95,11 @@ type Config struct {
 	PageTitle    string `json:"page_title"`
 	PageSubtitle string `json:"page_subtitle"`
 
+	// Branding
+	AccentColor     string `json:"accent_color"`
+	LogoPath        string `json:"logo_path"`
+	LandingMarkdown string `json:"landing_markdown"`
+
 	// HTTPS Configuration
 	UseHTTPS         bool     `json:"use_https"`
 	AutoHTTPS        bool     `json:"auto_https"` // ACME
@@ -223,6 +228,9 @@ func (config *Config) setBasicDefaults() {
 	}
 	if config.PageSubtitle == "" {
 		config.PageSubtitle = "Live Streaming Server powered by Go"
+	}
+	if config.AccentColor == "" {
+		config.AccentColor = "#ff6600"
 	}
 	if config.HTTPSPort == "" {
 		config.HTTPSPort = "443"
