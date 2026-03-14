@@ -17,3 +17,4 @@ tmp_gomodcache/
 bin/
 .gemini/
 .antigravity/
+.worktrees/
