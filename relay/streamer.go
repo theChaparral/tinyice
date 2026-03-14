@@ -716,6 +716,11 @@ func (sm *StreamerManager) runStreamerLoop(ctx context.Context, s *Streamer) {
 				continue
 			}
 
+			if err := validateAudioFile(filePath); err != nil {
+				logger.L.Warnf("Streamer %s: Skipping invalid file %s: %v", s.Name, filePath, err)
+				continue
+			}
+
 			// Create a per-file context for skipping
 			fileCtx, fileCancel := context.WithCancel(ctx)
 			s.mu.Lock()
@@ -735,6 +740,37 @@ func (sm *StreamerManager) runStreamerLoop(ctx context.Context, s *Streamer) {
 		}
 	}
 }
+
+func validateAudioFile(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("file not accessible: %w", err)
+	}
+	if info.IsDir() {
+		return fmt.Errorf("path is a directory")
+	}
+	if info.Size() == 0 {
+		return fmt.Errorf("file is empty")
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("cannot open: %w", err)
+	}
+	defer f.Close()
+
+	header := make([]byte, 4)
+	if _, err := f.Read(header); err != nil {
+		return fmt.Errorf("cannot read header: %w", err)
+	}
+	if header[0] == 'I' && header[1] == 'D' && header[2] == '3' {
+		return nil
+	}
+	if header[0] == 0xFF && (header[1]&0xE0) == 0xE0 {
+		return nil
+	}
+	return fmt.Errorf("unrecognized audio format (header: %x)", header[:4])
+}
+
 func (sm *StreamerManager) streamFile(ctx context.Context, s *Streamer, path string, pos, id int) error {
 	f, err := os.Open(path)
 	if err != nil {
