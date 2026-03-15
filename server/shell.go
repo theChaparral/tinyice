@@ -106,11 +106,24 @@ func (s *Server) BrandingData() map[string]any {
 
 // BasePageData returns the common data injected into all pages.
 func (s *Server) BasePageData(csrfToken string) map[string]any {
+	var oidcProviders []map[string]string
+	for _, p := range s.Config.OIDCProviders {
+		if p.Enabled {
+			oidcProviders = append(oidcProviders, map[string]string{
+				"id": p.ID, "name": p.Name, "icon": p.Icon,
+			})
+		}
+	}
+
+	passkeysEnabled := s.webAuthn != nil
+
 	return map[string]any{
-		"csrfToken":    csrfToken,
-		"version":      s.Version,
-		"pageTitle":    s.Config.PageTitle,
-		"pageSubtitle": s.Config.PageSubtitle,
-		"branding":     s.BrandingData(),
+		"csrfToken":       csrfToken,
+		"version":         s.Version,
+		"pageTitle":       s.Config.PageTitle,
+		"pageSubtitle":    s.Config.PageSubtitle,
+		"branding":        s.BrandingData(),
+		"passkeysEnabled": passkeysEnabled,
+		"oidcProviders":   oidcProviders,
 	}
 }
