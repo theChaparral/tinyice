@@ -58,8 +58,12 @@ type Server struct {
 	Relay       *relay.Relay             // Core relay/streaming engine
 	RelayM      *relay.RelayManager      // Relay stream management
 	TranscoderM *relay.TranscoderManager // Transcoding management
+	HealthM     *relay.HealthMonitor      // Stream health monitoring
 	WebRTCM     *relay.WebRTCManager     // WebRTC connection management
 	StreamerM   *relay.StreamerManager   // AutoDJ/streamer management
+	RTMP        *relay.RTMPServer         // RTMP ingest server (optional)
+	SRT         *relay.SRTServer          // SRT ingest server (optional)
+	TenantM     *relay.TenantManager      // Multi-tenant management
 	mpdServer   *relay.MPDServer         // MPD protocol server (optional)
 	tmpl        *template.Template       // HTML template for web interface (legacy)
 	shell       *ShellRenderer           // New Preact frontend renderer
@@ -79,6 +83,11 @@ type Server struct {
 
 	scanAttempts   map[string]*scanAttempt
 	scanAttemptsMu sync.Mutex
+
+	hlsOutputs map[string]*relay.HLSOutput
+	hlsMu      sync.RWMutex
+	hlsCtx     context.Context
+	hlsCancel  context.CancelFunc
 
 	done chan struct{}
 
@@ -132,13 +141,26 @@ func NewServer(cfg *config.Config, authLog *zap.SugaredLogger, version, commit, 
 		AttestationPreference: protocol.PreferNoAttestation,
 	})
 
-	return &Server{
+	healthM := relay.NewHealthMonitor(r)
+	healthM.OnEvent(func(e relay.StreamHealthEvent) {
+		logger.L.Infow("Stream health event",
+			"mount", e.Mount,
+			"old_status", e.OldStatus.String(),
+			"new_status", e.NewStatus.String(),
+		)
+	})
+	hlsCtx, hlsCancel := context.WithCancel(context.Background())
+	srv := &Server{
 		Config:       cfg,
 		Relay:        r,
+		HealthM:      healthM,
 		RelayM:       relay.NewRelayManager(r),
 		TranscoderM:  relay.NewTranscoderManager(r),
 		WebRTCM:      relay.NewWebRTCManager(r),
 		StreamerM:    relay.NewStreamerManager(r, cfg),
+		RTMP:         relay.NewRTMPServer(r, cfg),
+		SRT:          relay.NewSRTServer(r, cfg),
+		TenantM:      relay.NewTenantManager(),
 		tmpl:         tmpl,
 		shell:        NewShellRenderer(),
 		Version:      version,
@@ -148,11 +170,19 @@ func NewServer(cfg *config.Config, authLog *zap.SugaredLogger, version, commit, 
 		sessions:     make(map[string]*session),
 		authAttempts: make(map[string]*authAttempt),
 		scanAttempts: make(map[string]*scanAttempt),
+		hlsOutputs:       make(map[string]*relay.HLSOutput),
+		hlsCtx:           hlsCtx,
+		hlsCancel:        hlsCancel,
 		done:             make(chan struct{}),
 		setupToken:       setupToken,
 		webAuthn:         wa,
 		webauthnSessions: make(map[string]*webauthn.SessionData),
 	}
+
+	// Ensure default tenant exists for backward compatibility
+	srv.TenantM.GetOrCreateDefaultTenant()
+
+	return srv
 }
 
 func (s *Server) setupRoutes() *http.ServeMux {
@@ -252,7 +282,21 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/player/", s.handlePlayer)
 	mux.HandleFunc("/player-webrtc/", s.handleWebRTCPlayer)
 	mux.HandleFunc("/embed/", s.handleEmbed)
-	mux.HandleFunc("/", s.handleRoot)
+	mux.HandleFunc("/api/tenants", s.handleListTenants)
+	mux.HandleFunc("/api/tenants/usage", s.handleTenantUsage)
+	// HLS routes (must be before the catch-all "/" handler)
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		if strings.HasSuffix(path, "/playlist.m3u8") {
+			s.handleHLSPlaylist(w, r)
+			return
+		}
+		if strings.HasSuffix(path, ".ts") && strings.Contains(path, "/segment-") {
+			s.handleHLSSegment(w, r)
+			return
+		}
+		s.handleRoot(w, r)
+	})
 	mux.HandleFunc("/events", s.handlePublicEvents)
 	mux.HandleFunc("/status-json.xsl", s.handleLegacyStats)
 	mux.HandleFunc("/metrics", s.handleMetrics)
@@ -437,6 +481,10 @@ func (s *Server) withSetupGuard(next http.Handler) http.Handler {
 func (s *Server) Shutdown(ctx context.Context) error {
 	logger.L.Info("Server shutting down gracefully...")
 
+	if s.hlsCancel != nil {
+		s.hlsCancel()
+	}
+
 	close(s.done)
 
 	s.Relay.DisconnectAllListeners()
@@ -446,6 +494,14 @@ func (s *Server) Shutdown(ctx context.Context) error {
 
 	for _, st := range s.StreamerM.GetStreamers() {
 		s.StreamerM.StopStreamer(st.OutputMount)
+	}
+
+	if s.RTMP != nil {
+		s.RTMP.Stop()
+	}
+
+	if s.SRT != nil {
+		s.SRT.Stop()
 	}
 
 	var wg sync.WaitGroup
@@ -528,12 +584,16 @@ func (s *Server) ReloadConfig(cfg *config.Config) {
 
 func (s *Server) Start() error {
 	mux := s.setupRoutes()
-	handler := s.withSetupGuard(mux)
+	var handler http.Handler = s.withSetupGuard(mux)
+	if s.Config.MultiTenant != nil && s.Config.MultiTenant.Enabled {
+		handler = s.withTenant(handler)
+	}
 
 	if s.Config.DirectoryListing {
 		go s.directoryReportingTask()
 	}
 	go s.statsRecordingTask()
+	go s.HealthM.Start(context.Background())
 
 	for _, rc := range s.Config.Relays {
 		if rc.Enabled {
@@ -568,6 +628,20 @@ func (s *Server) Start() error {
 			}
 		} else {
 			logger.L.Errorf("Failed to initialize AutoDJ %s: %v", adj.Name, err)
+		}
+	}
+
+	// Start RTMP server if enabled
+	if s.Config.Ingest != nil && s.Config.Ingest.RTMPEnabled {
+		if err := s.RTMP.Start(); err != nil {
+			logger.L.Errorf("Failed to start RTMP server: %v", err)
+		}
+	}
+
+	// Start SRT server if enabled
+	if s.Config.Ingest != nil && s.Config.Ingest.SRTEnabled {
+		if err := s.SRT.Start(); err != nil {
+			logger.L.Errorf("Failed to start SRT server: %v", err)
 		}
 	}
 

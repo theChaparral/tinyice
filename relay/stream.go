@@ -79,7 +79,8 @@ type Stream struct {
 	// Core streaming infrastructure
 	Buffer    *CircularBuffer          // Audio data buffer (typically 2MB)
 	listeners map[string]chan struct{} // Signal channels for connected listeners
-	mu        sync.RWMutex             // Mutex protecting all fields
+	mu     sync.RWMutex             // Mutex protecting all fields
+	closed int32                    // Atomic flag: 1 = stream closed
 }
 
 // IsOgg returns true if the stream is Ogg-based (Ogg/Vorbis, Ogg/Opus, etc).
@@ -128,6 +129,7 @@ func (s *Stream) IsOgg() bool {
 //	stream.Close()
 //	relay.RemoveStream("/live")
 func (s *Stream) Close() {
+	atomic.StoreInt32(&s.closed, 1)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for id, ch := range s.listeners {
@@ -178,6 +180,9 @@ func (s *Stream) DisconnectListeners() {
 //
 //	stream.Broadcast(audioChunk, relayInstance)
 func (s *Stream) Broadcast(data []byte, relay *Relay) {
+	if atomic.LoadInt32(&s.closed) == 1 {
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -305,7 +310,14 @@ func (s *Stream) Subscribe(id string, burstSize int) (int64, chan struct{}) {
 		} else if bestAlign >= validStart && bestAlign > 0 {
 			start = bestAlign
 		} else {
-			start = s.Buffer.Head // Fallback to now if nothing valid found
+			// No valid Ogg page boundaries found — fall back to burst-based offset
+			start = s.Buffer.Head - int64(burstSize)
+			if start < validStart {
+				start = validStart
+			}
+			if start < 0 {
+				start = 0
+			}
 		}
 	}
 
@@ -315,6 +327,16 @@ func (s *Stream) Subscribe(id string, burstSize int) (int64, chan struct{}) {
 	}
 
 	return start, ch
+}
+
+// SubscribeSafe is like Subscribe but returns false if the stream is already closed.
+// This prevents adding listeners to a closed stream.
+func (s *Stream) SubscribeSafe(id string, burstSize int) (int64, chan struct{}, bool) {
+	if atomic.LoadInt32(&s.closed) == 1 {
+		return 0, nil, false
+	}
+	offset, ch := s.Subscribe(id, burstSize)
+	return offset, ch, true
 }
 
 // Unsubscribe removes a listener

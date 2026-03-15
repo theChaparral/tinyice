@@ -109,6 +109,20 @@ type AutoDJConfig struct {
 	Visible        bool     `json:"visible"`
 }
 
+type IngestConfig struct {
+	RTMPEnabled bool   `json:"rtmp_enabled"`
+	RTMPPort    string `json:"rtmp_port"`
+	SRTEnabled  bool   `json:"srt_enabled"`
+	SRTPort     string `json:"srt_port"`
+	SRTLatency  int    `json:"srt_latency"` // ms
+}
+
+type MultiTenantConfig struct {
+	Enabled       bool   `json:"enabled"`
+	DefaultTenant string `json:"default_tenant"`
+	TenantStore   string `json:"tenant_store"` // "config", "database"
+}
+
 type Config struct {
 	BindHost              string            `json:"bind_host"`
 	Port                  string            `json:"port"`
@@ -167,8 +181,12 @@ type Config struct {
 	// Internal Streamer (AutoDJ)
 	AutoDJs []*AutoDJConfig `json:"autodjs"`
 
+	// Ingest (RTMP/SRT)
+	Ingest *IngestConfig `json:"ingest"`
+
 	// Multi-tenant
-	Users map[string]*User `json:"users"`
+	MultiTenant *MultiTenantConfig `json:"multi_tenant"`
+	Users       map[string]*User   `json:"users"`
 
 	// Auth: Setup & Onboarding
 	SetupComplete bool `json:"setup_complete"`
@@ -350,6 +368,19 @@ func (config *Config) initMapsAndArrays() {
 	}
 	if config.PendingUsers == nil {
 		config.PendingUsers = make([]*PendingUser, 0)
+	}
+	if config.Ingest == nil {
+		config.Ingest = &IngestConfig{
+			RTMPPort:   "1935",
+			SRTPort:    "9000",
+			SRTLatency: 120,
+		}
+	}
+	if config.MultiTenant == nil {
+		config.MultiTenant = &MultiTenantConfig{
+			DefaultTenant: "default",
+			TenantStore:   "config",
+		}
 	}
 }
 

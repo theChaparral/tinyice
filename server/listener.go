@@ -245,7 +245,7 @@ func (s *Server) dynamicHostPolicy(ctx context.Context, host string) error {
 	return fmt.Errorf("acme/autocert: host %q not configured in 'domains'", host)
 }
 
-func (s *Server) startHTTPS(mux http.Handler, addr string) error {
+func (s *Server) startHTTPS(handler http.Handler, addr string) error {
 	httpsAddr := net.JoinHostPort(s.Config.BindHost, s.Config.HTTPSPort)
 	if s.Config.AutoHTTPS {
 		if len(s.Config.Domains) == 0 {
@@ -268,7 +268,7 @@ func (s *Server) startHTTPS(mux http.Handler, addr string) error {
 
 	httpsSrv := &http.Server{
 		Addr:         httpsAddr,
-		Handler:      mux,
+		Handler:      handler,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 0,
 		IdleTimeout:  120 * time.Second,
@@ -282,7 +282,7 @@ func (s *Server) startHTTPS(mux http.Handler, addr string) error {
 		Addr: addr,
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.Method == "PUT" || r.Method == "SOURCE" {
-				mux.ServeHTTP(w, r)
+				handler.ServeHTTP(w, r)
 				return
 			}
 			if s.certManager != nil && strings.HasPrefix(r.URL.Path, "/.well-known/acme-challenge/") {
