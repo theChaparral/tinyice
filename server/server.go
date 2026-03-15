@@ -60,6 +60,7 @@ type Server struct {
 	StreamerM   *relay.StreamerManager   // AutoDJ/streamer management
 	RTMP        *relay.RTMPServer         // RTMP ingest server (optional)
 	SRT         *relay.SRTServer          // SRT ingest server (optional)
+	TenantM     *relay.TenantManager      // Multi-tenant management
 	mpdServer   *relay.MPDServer         // MPD protocol server (optional)
 	tmpl        *template.Template       // HTML template for web interface (legacy)
 	shell       *ShellRenderer           // New Preact frontend renderer
@@ -110,7 +111,7 @@ func NewServer(cfg *config.Config, authLog *zap.SugaredLogger, version, commit s
 		)
 	})
 	hlsCtx, hlsCancel := context.WithCancel(context.Background())
-	return &Server{
+	srv := &Server{
 		Config:       cfg,
 		Relay:        r,
 		HealthM:      healthM,
@@ -120,6 +121,7 @@ func NewServer(cfg *config.Config, authLog *zap.SugaredLogger, version, commit s
 		StreamerM:    relay.NewStreamerManager(r, cfg),
 		RTMP:         relay.NewRTMPServer(r, cfg),
 		SRT:          relay.NewSRTServer(r, cfg),
+		TenantM:      relay.NewTenantManager(),
 		tmpl:         tmpl,
 		shell:        NewShellRenderer(),
 		Version:      version,
@@ -134,6 +136,11 @@ func NewServer(cfg *config.Config, authLog *zap.SugaredLogger, version, commit s
 		hlsCancel:    hlsCancel,
 		done:         make(chan struct{}),
 	}
+
+	// Ensure default tenant exists for backward compatibility
+	srv.TenantM.GetOrCreateDefaultTenant()
+
+	return srv
 }
 
 func (s *Server) setupRoutes() *http.ServeMux {
@@ -204,6 +211,8 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/player/", s.handlePlayer)
 	mux.HandleFunc("/player-webrtc/", s.handleWebRTCPlayer)
 	mux.HandleFunc("/embed/", s.handleEmbed)
+	mux.HandleFunc("/api/tenants", s.handleListTenants)
+	mux.HandleFunc("/api/tenants/usage", s.handleTenantUsage)
 	// HLS routes (must be before the catch-all "/" handler)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
@@ -337,6 +346,11 @@ func (s *Server) ReloadConfig(cfg *config.Config) {
 func (s *Server) Start() error {
 	mux := s.setupRoutes()
 
+	var handler http.Handler = mux
+	if s.Config.MultiTenant != nil && s.Config.MultiTenant.Enabled {
+		handler = s.withTenant(mux)
+	}
+
 	if s.Config.DirectoryListing {
 		go s.directoryReportingTask()
 	}
@@ -397,11 +411,11 @@ func (s *Server) Start() error {
 
 	if s.Config.UseHTTPS {
 		addr := net.JoinHostPort(s.Config.BindHost, port)
-		return s.startHTTPS(mux, addr)
+		return s.startHTTPS(handler, addr)
 	}
 
 	srv := &http.Server{
-		Handler:      mux,
+		Handler:      handler,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 0,
 		IdleTimeout:  120 * time.Second,
