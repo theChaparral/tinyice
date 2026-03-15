@@ -5,13 +5,14 @@ go 1.25.1
 require (
 	github.com/bogem/id3v2/v2 v2.1.4
 	github.com/braheezy/shine-mp3 v0.1.0
+	github.com/datarhei/gosrt v0.10.0
 	github.com/dhowden/tag v0.0.0-20240417053706-3d75831295e8
 	github.com/glebarez/sqlite v1.11.0
-	github.com/gomarkdown/markdown v0.0.0-20260217112301-37c66b85d6ab
 	github.com/hajimehoshi/go-mp3 v0.3.4
 	github.com/kazzmir/opus-go v1.2.1
 	github.com/pion/webrtc/v4 v4.2.8
-	github.com/sirupsen/logrus v1.9.4
+	github.com/yutopp/go-flv v0.3.1
+	github.com/yutopp/go-rtmp v0.0.7
 	go.uber.org/zap v1.27.1
 	golang.org/x/crypto v0.48.0
 	golang.org/x/sys v0.41.0
@@ -19,6 +20,7 @@ require (
 )
 
 require (
+	github.com/benburkert/openpgp v0.0.0-20160410205803-c2471f86866c // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/glebarez/go-sqlite v1.22.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
@@ -45,10 +47,9 @@ require (
 	github.com/pion/turn/v4 v4.1.4 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
+	github.com/sirupsen/logrus v1.9.4 // indirect
 	github.com/wlynxg/anet v0.0.5 // indirect
 	github.com/yutopp/go-amf0 v0.1.0 // indirect
-	github.com/yutopp/go-flv v0.3.1 // indirect
-	github.com/yutopp/go-rtmp v0.0.7 // indirect
 	go.uber.org/multierr v1.10.0 // indirect
 	golang.org/x/net v0.50.0 // indirect
 	golang.org/x/text v0.34.0 // indirect

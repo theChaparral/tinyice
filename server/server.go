@@ -59,6 +59,7 @@ type Server struct {
 	WebRTCM     *relay.WebRTCManager     // WebRTC connection management
 	StreamerM   *relay.StreamerManager   // AutoDJ/streamer management
 	RTMP        *relay.RTMPServer         // RTMP ingest server (optional)
+	SRT         *relay.SRTServer          // SRT ingest server (optional)
 	mpdServer   *relay.MPDServer         // MPD protocol server (optional)
 	tmpl        *template.Template       // HTML template for web interface (legacy)
 	shell       *ShellRenderer           // New Preact frontend renderer
@@ -118,6 +119,7 @@ func NewServer(cfg *config.Config, authLog *zap.SugaredLogger, version, commit s
 		WebRTCM:      relay.NewWebRTCManager(r),
 		StreamerM:    relay.NewStreamerManager(r, cfg),
 		RTMP:         relay.NewRTMPServer(r, cfg),
+		SRT:          relay.NewSRTServer(r, cfg),
 		tmpl:         tmpl,
 		shell:        NewShellRenderer(),
 		Version:      version,
@@ -250,6 +252,10 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		s.RTMP.Stop()
 	}
 
+	if s.SRT != nil {
+		s.SRT.Stop()
+	}
+
 	var wg sync.WaitGroup
 	for _, srv := range s.httpServers {
 		wg.Add(1)
@@ -377,6 +383,13 @@ func (s *Server) Start() error {
 	if s.Config.Ingest != nil && s.Config.Ingest.RTMPEnabled {
 		if err := s.RTMP.Start(); err != nil {
 			logger.L.Errorf("Failed to start RTMP server: %v", err)
+		}
+	}
+
+	// Start SRT server if enabled
+	if s.Config.Ingest != nil && s.Config.Ingest.SRTEnabled {
+		if err := s.SRT.Start(); err != nil {
+			logger.L.Errorf("Failed to start SRT server: %v", err)
 		}
 	}
 
