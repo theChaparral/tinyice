@@ -22,6 +22,7 @@ export default defineConfig({
         developers: resolve(__dirname, 'src/entries/developers.html'),
         login: resolve(__dirname, 'src/entries/login.html'),
         admin: resolve(__dirname, 'src/entries/admin.html'),
+        setup: resolve(__dirname, 'src/entries/setup.html'),
       },
     },
   },
