@@ -202,8 +202,21 @@ func (s *Server) listenWithReuse(network, address string) (net.Listener, error) 
 	return &BannedListener{ln, s}, nil
 }
 
+// checkPortInUse probes whether another process is already listening on the given port.
+// With SO_REUSEPORT, binding will succeed even if another instance is running, which
+// causes requests to be randomly split between instances. This check warns the user.
+func checkPortInUse(port string) {
+	conn, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", port), 500*time.Millisecond)
+	if err == nil {
+		conn.Close()
+		logger.L.Warnf("WARNING: Another process is already listening on port %s. Requests will be split between instances (SO_REUSEPORT). Kill the other instance to avoid issues.", port)
+		fmt.Printf("\n  ⚠ WARNING: Port %s is already in use by another process.\n  Requests will be randomly split between instances.\n  Run: kill $(lsof -ti :%s) to stop the other instance.\n\n", port, port)
+	}
+}
+
 // buildListeners returns one listener per usable network family for the given port.
 func (s *Server) buildListeners(port string) ([]net.Listener, error) {
+	checkPortInUse(port)
 	host := s.Config.BindHost
 
 	if host != "" && host != "0.0.0.0" && host != "::" {

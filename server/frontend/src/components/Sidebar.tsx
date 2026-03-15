@@ -95,6 +95,20 @@ export function Sidebar({ activePath }: SidebarProps) {
       <div class="flex flex-col items-center gap-0.5 w-full px-1.5">
         {BOTTOM_ITEMS.map(renderItem)}
       </div>
+
+      {/* Logout */}
+      <div class="w-8 h-px bg-border my-1.5" />
+      <a
+        href="/logout"
+        class="flex flex-col items-center gap-0.5 px-1 py-2 rounded-lg w-full mx-1.5 transition-colors text-center text-text-tertiary hover:text-danger hover:bg-danger/10"
+      >
+        <svg class="w-[18px] h-[18px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+          <polyline points="16 17 21 12 16 7" />
+          <line x1="21" y1="12" x2="9" y2="12" />
+        </svg>
+        <span class="font-mono text-[8px] tracking-[0.5px] leading-tight uppercase">Logout</span>
+      </a>
     </aside>
   )
 }

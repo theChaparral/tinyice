@@ -11,13 +11,13 @@ import { PlaylistItem as PlaylistItemComp } from '@/components/PlaylistItem'
 import { FileItem } from '@/components/FileItem'
 import type { PlaylistItem, FileInfo, AutoDJEvent } from '@/types'
 
-// Read mount from URL query param
+// Read mount from URL query param — must be called when component renders, not at module load
 function getMount(): string {
   const params = new URLSearchParams(window.location.search)
   return params.get('mount') || '/live'
 }
 
-const mount = getMount()
+let mount = getMount()
 
 // State signals
 const state = signal<'playing' | 'paused' | 'stopped'>('stopped')
@@ -82,7 +82,7 @@ function totalDuration(items: PlaylistItem[]): string {
   return h > 0 ? `${h}h ${m}m` : `${m}m`
 }
 
-const mountEncoded = encodeURIComponent(mount)
+let mountEncoded = encodeURIComponent(mount)
 
 function fetchLibrary(path: string) {
   libraryPath.value = path
@@ -104,6 +104,10 @@ function fetchQueue() {
 }
 
 export function Studio() {
+  // Re-read mount from URL on every render (SPA client-side navigation)
+  mount = getMount()
+  mountEncoded = encodeURIComponent(mount)
+
   useEffect(() => {
     fetchLibrary('')
     fetchPlaylist()

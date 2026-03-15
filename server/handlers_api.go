@@ -171,9 +171,52 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
+		// Send as unnamed event for legacy clients
 		if _, err := fmt.Fprintf(w, "data: %s\n\n", payload); err != nil {
 			return err
 		}
+
+		// Also send named events for the new Preact frontend
+		var full map[string]interface{}
+		json.Unmarshal(payload, &full)
+
+		// stats event
+		statsJSON, _ := json.Marshal(map[string]interface{}{
+			"listeners":  full["total_listeners"],
+			"streams":    full["total_sources"],
+			"bandwidth":  full["bytes_out"],
+			"uptime":     int(time.Since(s.startTime).Seconds()),
+			"goroutines": full["goroutines"],
+			"memory":     full["heap_alloc"],
+			"gc":         full["num_gc"],
+		})
+		fmt.Fprintf(w, "event: stats\ndata: %s\n\n", statsJSON)
+
+		// stream events
+		if streams, ok := full["streams"].([]interface{}); ok {
+			for _, st := range streams {
+				stMap := st.(map[string]interface{})
+				streamJSON, _ := json.Marshal(map[string]interface{}{
+					"mount":     stMap["mount"],
+					"format":    stMap["content_type"],
+					"bitrate":   stMap["bitrate"],
+					"listeners": stMap["listeners"],
+					"health":    stMap["health"],
+					"title":     stMap["song"],
+					"artist":    "",
+				})
+				fmt.Fprintf(w, "event: stream\ndata: %s\n\n", streamJSON)
+			}
+		}
+
+		// autodj events
+		if streamers, ok := full["streamers"].([]interface{}); ok {
+			for _, st := range streamers {
+				stJSON, _ := json.Marshal(st)
+				fmt.Fprintf(w, "event: autodj\ndata: %s\n\n", stJSON)
+			}
+		}
+
 		flusher.Flush()
 		return nil
 	}

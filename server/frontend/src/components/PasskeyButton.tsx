@@ -14,7 +14,7 @@ export function PasskeyButton() {
       if (!beginRes.ok) throw new Error('Failed to start passkey login')
       const data = await beginRes.json()
 
-      const credential = await startAuthentication(data.publicKey)
+      const credential = await startAuthentication({ optionsJSON: data.publicKey })
 
       const finishRes = await fetch(`/api/passkey/login/finish?challengeKey=${encodeURIComponent(data.challengeKey)}`, {
         method: 'POST',

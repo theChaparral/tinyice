@@ -80,7 +80,7 @@ export function Setup() {
       if (!beginRes.ok) throw new Error('Failed to start registration')
       const options = await beginRes.json()
 
-      const credential = await startRegistration(options)
+      const credential = await startRegistration({ optionsJSON: options.publicKey ?? options })
 
       const finishRes = await fetch('/api/passkey/register/finish?name=Setup+Passkey', {
         method: 'POST',

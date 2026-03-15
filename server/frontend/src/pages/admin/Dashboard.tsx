@@ -138,21 +138,19 @@ export function Dashboard() {
             ))}
           </div>
         </div>
-        {/* Simulated area chart */}
+        {/* Listener traffic chart */}
         <div class="h-32 flex items-end gap-px">
-          {Array.from({ length: 48 }, (_, i) => {
-            const height = Math.max(
-              4,
-              Math.sin(i * 0.3) * 30 + 40 + Math.random() * 20
-            )
-            return (
-              <div
-                key={i}
-                class="flex-1 rounded-t bg-accent/20 transition-all duration-300"
-                style={{ height: `${height}%` }}
-              />
-            )
-          })}
+          {stats.value.listeners > 0 ? Array.from({ length: 48 }, (_, i) => (
+            <div
+              key={i}
+              class="flex-1 rounded-t bg-accent/20 transition-all duration-300"
+              style={{ height: `${Math.max(4, (i === 47 ? stats.value.listeners : 0) * 10)}%` }}
+            />
+          )) : (
+            <div class="flex-1 flex items-center justify-center text-text-tertiary text-xs font-mono">
+              No listener data yet
+            </div>
+          )}
         </div>
         <div class="flex justify-between mt-2">
           <span class="font-mono text-[9px] text-text-tertiary">

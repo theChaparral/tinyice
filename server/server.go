@@ -286,6 +286,30 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/api/tenants/usage", s.handleTenantUsage)
 	// HLS routes (must be before the catch-all "/" handler)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		// Setup mode guard: redirect everything to /setup except setup/assets paths
+		if !s.Config.SetupComplete {
+			path := r.URL.Path
+			if path == "/setup" || strings.HasPrefix(path, "/setup/") {
+				// Let the registered setup handlers handle these
+				if path == "/setup" {
+					s.handleSetup(w, r)
+				} else if path == "/setup/verify-token" {
+					s.handleSetupVerifyToken(w, r)
+				} else if path == "/setup/complete" {
+					s.handleSetupComplete(w, r)
+				} else {
+					http.NotFound(w, r)
+				}
+				return
+			}
+			if strings.HasPrefix(path, "/assets/") || strings.HasPrefix(path, "/api/passkey/") {
+				// Allow through for assets and passkey API during setup
+			} else {
+				http.Redirect(w, r, "/setup", http.StatusTemporaryRedirect)
+				return
+			}
+		}
+
 		path := r.URL.Path
 		if strings.HasSuffix(path, "/playlist.m3u8") {
 			s.handleHLSPlaylist(w, r)
@@ -367,6 +391,100 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	})
 
 	mux.HandleFunc("/api/autodj/files", s.apiGetFiles)
+	// Handle /api/autodj/{mount}/... paths (frontend uses path-based mount routing)
+	// The frontend sends mount names URL-encoded (e.g. %2Fdemo for /demo),
+	// so we use RawPath to preserve the encoding before splitting.
+	mux.HandleFunc("/api/autodj/", func(w http.ResponseWriter, r *http.Request) {
+		rawPath := r.URL.RawPath
+		if rawPath == "" {
+			rawPath = r.URL.Path
+		}
+		path := strings.TrimPrefix(rawPath, "/api/autodj/")
+
+		// Find the action by looking for known suffixes
+		// Path format: {encoded-mount}/{action} e.g. "%2Fdemo/files" or "bob/playlist/add"
+		var mount, action string
+		actionSuffixes := []string{
+			"/playlist/add", "/playlist/remove", "/playlist/clear",
+			"/playlist/reorder", "/playlist/playnext",
+			"/files", "/playlist", "/queue",
+			"/play", "/pause", "/next", "/shuffle", "/loop",
+			"/metadata", "/volume",
+		}
+		for _, suffix := range actionSuffixes {
+			if strings.HasSuffix(path, suffix) {
+				encodedMount := strings.TrimSuffix(path, suffix)
+				// URL-decode the mount name
+				decoded, err := url.PathUnescape(encodedMount)
+				if err != nil {
+					decoded = encodedMount
+				}
+				// Ensure mount starts with /
+				if !strings.HasPrefix(decoded, "/") {
+					decoded = "/" + decoded
+				}
+				mount = decoded
+				action = strings.TrimPrefix(suffix, "/")
+				break
+			}
+		}
+		if mount == "" {
+			http.NotFound(w, r)
+			return
+		}
+
+		// Inject mount as query param for existing handlers
+		q := r.URL.Query()
+		q.Set("mount", mount)
+		r.URL.RawQuery = q.Encode()
+
+		switch action {
+		case "files":
+			s.apiGetFiles(w, r)
+		case "playlist":
+			switch r.Method {
+			case http.MethodGet:
+				s.apiGetPlaylist(w, r)
+			case http.MethodPost:
+				s.apiAddToPlaylist(w, r)
+			case http.MethodDelete:
+				s.apiRemoveFromPlaylist(w, r)
+			}
+		case "playlist/add":
+			s.apiAddToPlaylist(w, r)
+		case "playlist/remove":
+			s.apiRemoveFromPlaylist(w, r)
+		case "playlist/clear":
+			s.apiClearPlaylist(w, r)
+		case "playlist/reorder":
+			s.apiReorderPlaylist(w, r)
+		case "playlist/playnext":
+			s.apiAddToQueue(w, r) // playnext adds to front of queue
+		case "queue":
+			switch r.Method {
+			case http.MethodGet:
+				s.apiGetQueue(w, r)
+			case http.MethodPost:
+				s.apiAddToQueue(w, r)
+			}
+		case "play":
+			s.apiAutoDJPlay(w, r)
+		case "pause":
+			s.apiAutoDJPause(w, r)
+		case "next":
+			s.apiAutoDJNext(w, r)
+		case "shuffle":
+			s.apiAutoDJShuffle(w, r)
+		case "loop":
+			s.apiAutoDJLoop(w, r)
+		case "metadata":
+			s.handlePlayerMetadata(w, r)
+		case "volume":
+			s.handlePlayerMetadata(w, r) // volume handled by player handler
+		default:
+			http.NotFound(w, r)
+		}
+	})
 
 	mux.HandleFunc("/api/relays", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -468,6 +586,7 @@ func (s *Server) withSetupGuard(next http.Handler) http.Handler {
 		if !s.Config.SetupComplete {
 			path := r.URL.Path
 			if path == "/setup" || strings.HasPrefix(path, "/setup/") || strings.HasPrefix(path, "/assets/") {
+				logger.L.Debugw("setupGuard: allowing through", "path", path)
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -584,7 +703,10 @@ func (s *Server) ReloadConfig(cfg *config.Config) {
 
 func (s *Server) Start() error {
 	mux := s.setupRoutes()
-	var handler http.Handler = s.withSetupGuard(mux)
+	// Setup guard is handled inside the "/" catch-all handler since it intercepts all routes.
+	// The withSetupGuard middleware is not used because the "/" handler in Go's ServeMux
+	// catches routes before they reach more specific handlers when registered as a catch-all.
+	var handler http.Handler = mux
 	if s.Config.MultiTenant != nil && s.Config.MultiTenant.Enabled {
 		handler = s.withTenant(handler)
 	}

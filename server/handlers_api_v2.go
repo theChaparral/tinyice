@@ -544,13 +544,29 @@ func (s *Server) apiAddToPlaylist(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Mount string   `json:"mount"`
 		Files []string `json:"files"`
+		Path  string   `json:"path"`
+		Paths []string `json:"paths"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		jsonError(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	streamer := s.StreamerM.GetStreamer(body.Mount)
+	// Support frontend format: path (single) or paths (array) alongside files
+	if body.Path != "" {
+		body.Files = append(body.Files, body.Path)
+	}
+	if len(body.Paths) > 0 {
+		body.Files = append(body.Files, body.Paths...)
+	}
+
+	// Fall back to query param for mount if not in body
+	mount := body.Mount
+	if mount == "" {
+		mount = r.URL.Query().Get("mount")
+	}
+
+	streamer := s.StreamerM.GetStreamer(mount)
 	if streamer == nil {
 		jsonError(w, "Streamer not found", http.StatusNotFound)
 		return
@@ -558,9 +574,13 @@ func (s *Server) apiAddToPlaylist(w http.ResponseWriter, r *http.Request) {
 
 	musicDir := streamer.GetMusicDir()
 	for _, file := range body.Files {
+		// If path is relative (not absolute), resolve it relative to music dir
+		if !filepath.IsAbs(file) {
+			file = filepath.Join(musicDir, file)
+		}
 		fullPath, err := s.validatePathInMusicDir(musicDir, file)
 		if err != nil {
-			logger.L.Warnw("Security: Blocked playlist addition", "path", file, "mount", body.Mount, "error", err)
+			logger.L.Warnw("Security: Blocked playlist addition", "path", file, "mount", mount, "error", err)
 			continue
 		}
 		info, err := os.Stat(fullPath)

@@ -40,6 +40,7 @@ var (
 	pidFile     = flag.String("pid-file", "", "Path to PID file")
 	authLogFile = flag.String("auth-log-file", "", "Path to separate authentication audit log")
 	autoupdate  = flag.Bool("autoupdate", false, "Enable automatic updates and zero-downtime hot swapping")
+	forceSetup  = flag.Bool("force-setup", false, "Force setup wizard even if config already has an admin password")
 )
 
 func generateRandomString(n int) string {
@@ -110,6 +111,11 @@ func main() {
 	cfg, err := config.LoadConfig(*configPath)
 	if err != nil {
 		logger.L.Fatalf("Failed to load config: %v", err)
+	}
+
+	// Force-setup overrides the migration that auto-sets SetupComplete
+	if setupToken != "" {
+		cfg.SetupComplete = false
 	}
 
 	if handleCommands(cfg) {
@@ -423,6 +429,22 @@ func ensureConfigExists() string {
 		fmt.Println("  You will need this token to complete setup.")
 		fmt.Println("**************************************************")
 
+		return setupToken
+	}
+
+	if *forceSetup {
+		logger.L.Infow("Force-setup mode enabled — resetting setup state", "path", *configPath)
+		setupToken := generateRandomString(32)
+		fmt.Println("**************************************************")
+		fmt.Println("  FORCE-SETUP MODE")
+		fmt.Println("")
+		fmt.Printf("  Open your browser and navigate to:\n")
+		fmt.Printf("    http://localhost:8000/setup\n")
+		fmt.Println("")
+		fmt.Printf("  Setup Token: %s\n", setupToken)
+		fmt.Println("")
+		fmt.Println("  You will need this token to complete setup.")
+		fmt.Println("**************************************************")
 		return setupToken
 	}
 

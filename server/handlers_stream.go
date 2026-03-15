@@ -27,7 +27,25 @@ func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 		s.handlePLS(w, r)
 		return
 	}
-	if r.Method == "GET" && r.URL.Path != "/" && r.URL.Path != "/favicon.ico" && r.URL.Path != "/admin" && !strings.HasPrefix(r.URL.Path, "/player") {
+	// Known app paths — serve the appropriate page, not a stream listener
+	path := r.URL.Path
+	if strings.HasPrefix(path, "/admin") {
+		// All /admin/* paths serve the admin SPA shell
+		s.handleAdmin(w, r)
+		return
+	}
+
+	// Only treat as stream listener if it's not a known app route
+	appPrefixes := []string{"/login", "/logout", "/setup", "/auth/", "/api/", "/explore", "/developers", "/assets/", "/events", "/player", "/embed/", "/webrtc"}
+	isAppRoute := path == "/" || path == "/favicon.ico"
+	for _, prefix := range appPrefixes {
+		if strings.HasPrefix(path, prefix) || path == prefix {
+			isAppRoute = true
+			break
+		}
+	}
+
+	if r.Method == "GET" && !isAppRoute {
 		s.handleListener(w, r)
 		return
 	}
