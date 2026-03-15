@@ -229,6 +229,23 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/api/passkey/login/begin", s.handlePasskeyLoginBegin)
 	mux.HandleFunc("/api/passkey/login/finish", s.handlePasskeyLoginFinish)
 	mux.HandleFunc("/api/passkey", s.handlePasskeyDelete)
+
+	// OIDC / OAuth2 endpoints
+	mux.HandleFunc("/auth/", func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimPrefix(r.URL.Path, "/auth/")
+		if strings.HasSuffix(path, "/callback") {
+			s.handleOIDCCallback(w, r)
+		} else {
+			s.handleOIDCRedirect(w, r)
+		}
+	})
+	mux.HandleFunc("/api/oidc/providers", s.handleOIDCProvidersList)
+
+	// Pending user management
+	mux.HandleFunc("/api/pending-users", s.handleGetPendingUsers)
+	mux.HandleFunc("/api/pending-users/approve", s.handleApprovePendingUser)
+	mux.HandleFunc("/api/pending-users/deny", s.handleDenyPendingUser)
+
 	mux.HandleFunc("/explore", s.handleExplore)
 	mux.HandleFunc("/webrtc/offer", s.handleWebRTCOffer)
 	mux.HandleFunc("/webrtc/source-offer", s.handleWebRTCSourceOffer)
