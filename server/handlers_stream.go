@@ -296,6 +296,9 @@ func (s *Server) serveStreamData(w http.ResponseWriter, r *http.Request, stream 
 	bytesSentSinceMeta := 0
 	lastSong := ""
 
+	consecutiveSkips := 0
+	maxConsecutiveSkips := 5
+
 	for {
 		select {
 		case <-s.done:
@@ -323,6 +326,14 @@ func (s *Server) serveStreamData(w http.ResponseWriter, r *http.Request, stream 
 
 				n, next, skipped := stream.Buffer.ReadAt(offset, buf[:readLimit])
 				if skipped && stream.IsOggStream {
+					consecutiveSkips++
+					if consecutiveSkips >= maxConsecutiveSkips {
+						logger.L.Warnw("Slow listener disconnected (ogg sync skip)",
+							"id", id, "mount", currentMount,
+							"consecutive_skips", consecutiveSkips,
+						)
+						return false
+					}
 					offset = relay.FindNextPageBoundary(stream.Buffer.Data, stream.Buffer.Size, stream.Buffer.Head, next)
 					continue
 				}
@@ -331,6 +342,16 @@ func (s *Server) serveStreamData(w http.ResponseWriter, r *http.Request, stream 
 				}
 				if skipped {
 					atomic.AddInt64(&stream.BytesDropped, next-offset)
+					consecutiveSkips++
+					if consecutiveSkips >= maxConsecutiveSkips {
+						logger.L.Warnw("Slow listener disconnected",
+							"id", id, "mount", currentMount,
+							"consecutive_skips", consecutiveSkips,
+						)
+						return false
+					}
+				} else {
+					consecutiveSkips = 0
 				}
 				offset = next
 
