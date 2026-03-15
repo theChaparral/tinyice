@@ -54,6 +54,7 @@ type Server struct {
 	Relay       *relay.Relay             // Core relay/streaming engine
 	RelayM      *relay.RelayManager      // Relay stream management
 	TranscoderM *relay.TranscoderManager // Transcoding management
+	HealthM     *relay.HealthMonitor      // Stream health monitoring
 	WebRTCM     *relay.WebRTCManager     // WebRTC connection management
 	StreamerM   *relay.StreamerManager   // AutoDJ/streamer management
 	mpdServer   *relay.MPDServer         // MPD protocol server (optional)
@@ -92,9 +93,18 @@ func NewServer(cfg *config.Config, authLog *zap.SugaredLogger, version, commit s
 	}
 
 	r := relay.NewRelay(cfg.LowLatencyMode, hm)
+	healthM := relay.NewHealthMonitor(r)
+	healthM.OnEvent(func(e relay.StreamHealthEvent) {
+		logger.L.Infow("Stream health event",
+			"mount", e.Mount,
+			"old_status", e.OldStatus.String(),
+			"new_status", e.NewStatus.String(),
+		)
+	})
 	return &Server{
 		Config:       cfg,
 		Relay:        r,
+		HealthM:      healthM,
 		RelayM:       relay.NewRelayManager(r),
 		TranscoderM:  relay.NewTranscoderManager(r),
 		WebRTCM:      relay.NewWebRTCManager(r),
@@ -293,6 +303,7 @@ func (s *Server) Start() error {
 		go s.directoryReportingTask()
 	}
 	go s.statsRecordingTask()
+	go s.HealthM.Start(context.Background())
 
 	for _, rc := range s.Config.Relays {
 		if rc.Enabled {
