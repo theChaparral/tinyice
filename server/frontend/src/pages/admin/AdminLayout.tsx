@@ -11,6 +11,7 @@ import { Settings } from './Settings'
 import { AutoDJ } from './AutoDJ'
 import { Studio } from './Studio'
 import { GoLive } from './GoLive'
+import { PendingUsers } from './PendingUsers'
 
 export function AdminLayout() {
   const [path, setPath] = useState(window.location.pathname)
@@ -29,6 +30,7 @@ export function AdminLayout() {
           <Route path="/admin/studio" component={Studio} />
           <Route path="/admin/users" component={Users} />
           <Route path="/admin/security" component={Security} />
+          <Route path="/admin/pending" component={PendingUsers} />
           <Route path="/admin/settings" component={Settings} />
         </Router>
       </main>

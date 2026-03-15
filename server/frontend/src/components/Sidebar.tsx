@@ -25,6 +25,8 @@ const NAV_ITEMS: SidebarItem[] = [
 const BOTTOM_ITEMS: SidebarItem[] = [
   { id: 'users', label: 'Users', href: '/admin/users',
     icon: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/>' },
+  { id: 'pending', label: 'Pending', href: '/admin/pending',
+    icon: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M20 8l-4 4 4 4"/>' },
   { id: 'security', label: 'Security', href: '/admin/security',
     icon: '<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>' },
   { id: 'settings', label: 'Settings', href: '/admin/settings',
