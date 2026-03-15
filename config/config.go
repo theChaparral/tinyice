@@ -72,6 +72,12 @@ type IngestConfig struct {
 	SRTLatency  int    `json:"srt_latency"` // ms
 }
 
+type MultiTenantConfig struct {
+	Enabled       bool   `json:"enabled"`
+	DefaultTenant string `json:"default_tenant"`
+	TenantStore   string `json:"tenant_store"` // "config", "database"
+}
+
 type Config struct {
 	BindHost              string            `json:"bind_host"`
 	Port                  string            `json:"port"`
@@ -134,7 +140,8 @@ type Config struct {
 	Ingest *IngestConfig `json:"ingest"`
 
 	// Multi-tenant
-	Users map[string]*User `json:"users"`
+	MultiTenant *MultiTenantConfig `json:"multi_tenant"`
+	Users       map[string]*User   `json:"users"`
 }
 
 func (c *Config) IsWhitelisted(ip string) bool {
@@ -299,6 +306,12 @@ func (config *Config) initMapsAndArrays() {
 			RTMPPort:   "1935",
 			SRTPort:    "9000",
 			SRTLatency: 120,
+		}
+	}
+	if config.MultiTenant == nil {
+		config.MultiTenant = &MultiTenantConfig{
+			DefaultTenant: "default",
+			TenantStore:   "config",
 		}
 	}
 }
