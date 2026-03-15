@@ -10,13 +10,58 @@ import (
 const (
 	RoleSuperAdmin = "superadmin"
 	RoleAdmin      = "admin"
+	RoleDJ         = "dj"
 )
 
+type PasskeyCredential struct {
+	ID            string `json:"id"`
+	RawCredential string `json:"raw_credential"`
+	Name          string `json:"name"`
+	CreatedAt     string `json:"created_at"`
+	LastUsed      string `json:"last_used"`
+}
+
+type OIDCProvider struct {
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	ClientID     string `json:"client_id"`
+	ClientSecret string `json:"client_secret"`
+	DiscoveryURL string `json:"discovery_url"`
+	Icon         string `json:"icon"`
+	Enabled      bool   `json:"enabled"`
+}
+
+type PendingUser struct {
+	ID          string `json:"id"`
+	Email       string `json:"email"`
+	Name        string `json:"name"`
+	Provider    string `json:"provider"`
+	RequestedAt string `json:"requested_at"`
+	DeniedAt    string `json:"denied_at,omitempty"`
+}
+
+type SMTPConfig struct {
+	Enabled  bool   `json:"enabled"`
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+	From     string `json:"from"`
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+type WebAuthnConfig struct {
+	RPID      string   `json:"rp_id"`
+	RPName    string   `json:"rp_name"`
+	RPOrigins []string `json:"rp_origins"`
+}
+
 type User struct {
-	Username string            `json:"username"`
-	Password string            `json:"password"` // Hashed
-	Role     string            `json:"role"`
-	Mounts   map[string]string `json:"mounts"` // Backward compatibility
+	Username     string               `json:"username"`
+	Password     string               `json:"password"`
+	Role         string               `json:"role"`
+	Mounts       map[string]string    `json:"mounts"`
+	Passkeys     []*PasskeyCredential `json:"passkeys,omitempty"`
+	LinkedEmails []string             `json:"linked_emails,omitempty"`
 }
 
 type RelayConfig struct {
@@ -124,6 +169,19 @@ type Config struct {
 
 	// Multi-tenant
 	Users map[string]*User `json:"users"`
+
+	// Auth: Setup & Onboarding
+	SetupComplete bool `json:"setup_complete"`
+
+	// Auth: OIDC
+	OIDCProviders []*OIDCProvider `json:"oidc_providers,omitempty"`
+	PendingUsers  []*PendingUser  `json:"pending_users,omitempty"`
+
+	// Auth: WebAuthn
+	WebAuthn *WebAuthnConfig `json:"webauthn,omitempty"`
+
+	// Auth: Email Notifications
+	SMTP *SMTPConfig `json:"smtp,omitempty"`
 }
 
 func (c *Config) IsWhitelisted(ip string) bool {
@@ -244,6 +302,10 @@ func (config *Config) setBasicDefaults() {
 	if config.ChecksumURL == "" {
 		config.ChecksumURL = "https://github.com/DatanoiseTV/tinyice/releases/latest/download/checksums.txt"
 	}
+	// Existing configs are already set up
+	if config.AdminPassword != "" && !config.SetupComplete {
+		config.SetupComplete = true
+	}
 }
 
 func (config *Config) initMapsAndArrays() {
@@ -283,6 +345,12 @@ func (config *Config) initMapsAndArrays() {
 	if config.AutoDJs == nil {
 		config.AutoDJs = make([]*AutoDJConfig, 0)
 	}
+	if config.OIDCProviders == nil {
+		config.OIDCProviders = make([]*OIDCProvider, 0)
+	}
+	if config.PendingUsers == nil {
+		config.PendingUsers = make([]*PendingUser, 0)
+	}
 }
 
 func (config *Config) handleMigrations() {
@@ -306,5 +374,9 @@ func (c *Config) SaveConfig() error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(c.ConfigPath, data, 0600)
+	tmpPath := c.ConfigPath + ".tmp"
+	if err := os.WriteFile(tmpPath, data, 0600); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, c.ConfigPath)
 }
