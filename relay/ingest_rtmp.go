@@ -100,6 +100,13 @@ type rtmpHandler struct {
 	mount   string
 	stream  *Stream
 	started time.Time
+
+	// Video support
+	videoStream *Stream // separate video stream
+	videoMount  string  // e.g., "/live/video"
+	sps         []byte  // cached SPS NALU
+	pps         []byte  // cached PPS NALU
+	naluLenSize int     // AVCC NALU length size (usually 4)
 }
 
 // OnServe is called when the connection is established.
@@ -145,6 +152,13 @@ func (h *rtmpHandler) OnPublish(_ *rtmp.StreamContext, timestamp uint32, cmd *rt
 	h.stream.SourceIP = h.conn.RemoteAddr().String()
 	h.stream.ContentType = "audio/mpeg" // default, may be updated on first audio data
 	h.started = time.Now()
+
+	// Create a separate video stream
+	h.videoMount = mount + "/video"
+	h.videoStream = h.relay.GetOrCreateStream(h.videoMount)
+	h.videoStream.SourceIP = h.conn.RemoteAddr().String()
+	h.videoStream.ContentType = "video/h264"
+	h.videoStream.Buffer = NewCircularBuffer(8 * 1024 * 1024) // 8MB for video
 
 	logger.L.Infow("RTMP: Publishing started",
 		"mount", mount,
@@ -194,12 +208,104 @@ func (h *rtmpHandler) OnAudio(timestamp uint32, payload io.Reader) error {
 	return nil
 }
 
-// OnVideo handles incoming video data — silently discards it.
+// OnVideo handles incoming video data from the RTMP stream.
 func (h *rtmpHandler) OnVideo(timestamp uint32, payload io.Reader) error {
-	// Video support will be added in a future phase.
-	// Drain the reader to avoid blocking the connection.
-	_, _ = io.ReadAll(payload)
+	if h.videoStream == nil {
+		_, _ = io.ReadAll(payload)
+		return nil
+	}
+
+	var videoTag flvtag.VideoData
+	if err := flvtag.DecodeVideoData(payload, &videoTag); err != nil {
+		return err
+	}
+
+	data, err := io.ReadAll(videoTag.Data)
+	if err != nil {
+		return err
+	}
+
+	if len(data) == 0 {
+		return nil
+	}
+
+	// Handle AVC (H.264)
+	if videoTag.CodecID == flvtag.CodecIDAVC {
+		switch videoTag.AVCPacketType {
+		case flvtag.AVCPacketTypeSequenceHeader:
+			// Parse AVCDecoderConfigurationRecord to extract SPS/PPS
+			h.parseAVCConfig(data)
+			return nil
+		case flvtag.AVCPacketTypeNALU:
+			// Convert AVCC to Annex B and broadcast
+			if h.naluLenSize == 0 {
+				h.naluLenSize = 4
+			}
+			annexB := AVCCToAnnexB(data, h.naluLenSize)
+			if len(annexB) == 0 {
+				return nil
+			}
+
+			// Check for keyframe and record in buffer
+			if ContainsKeyframe(annexB) {
+				h.videoStream.Buffer.RecordKeyframe(h.videoStream.Buffer.Head)
+			}
+
+			h.videoStream.Broadcast(annexB, h.relay)
+		}
+	}
+
 	return nil
+}
+
+// parseAVCConfig extracts SPS/PPS from AVCDecoderConfigurationRecord.
+func (h *rtmpHandler) parseAVCConfig(data []byte) {
+	if len(data) < 8 {
+		return
+	}
+	// AVCDecoderConfigurationRecord structure:
+	// [0] configurationVersion
+	// [1] AVCProfileIndication
+	// [2] profile_compatibility
+	// [3] AVCLevelIndication
+	// [4] lengthSizeMinusOne (lower 2 bits) + reserved
+	h.naluLenSize = int(data[4]&0x03) + 1
+
+	// [5] numOfSPS (lower 5 bits)
+	numSPS := int(data[5] & 0x1F)
+	offset := 6
+
+	for i := 0; i < numSPS && offset+2 <= len(data); i++ {
+		spsLen := int(data[offset])<<8 | int(data[offset+1])
+		offset += 2
+		if offset+spsLen <= len(data) {
+			h.sps = make([]byte, spsLen)
+			copy(h.sps, data[offset:offset+spsLen])
+			offset += spsLen
+		}
+	}
+
+	// numOfPPS
+	if offset < len(data) {
+		numPPS := int(data[offset])
+		offset++
+		for i := 0; i < numPPS && offset+2 <= len(data); i++ {
+			ppsLen := int(data[offset])<<8 | int(data[offset+1])
+			offset += 2
+			if offset+ppsLen <= len(data) {
+				h.pps = make([]byte, ppsLen)
+				copy(h.pps, data[offset:offset+ppsLen])
+				offset += ppsLen
+			}
+		}
+	}
+
+	logger.L.Infow("RTMP: Parsed AVC config",
+		"mount", h.mount,
+		"sps_len", len(h.sps),
+		"pps_len", len(h.pps),
+		"nalu_len_size", h.naluLenSize,
+	)
 }
 
 // OnClose is called when the connection is closed.
@@ -211,6 +317,9 @@ func (h *rtmpHandler) OnClose() {
 			"duration", time.Since(h.started),
 		)
 		h.relay.RemoveStream(h.mount)
+	}
+	if h.videoMount != "" {
+		h.relay.RemoveStream(h.videoMount)
 	}
 }
 
