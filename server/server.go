@@ -58,6 +58,7 @@ type Server struct {
 	HealthM     *relay.HealthMonitor      // Stream health monitoring
 	WebRTCM     *relay.WebRTCManager     // WebRTC connection management
 	StreamerM   *relay.StreamerManager   // AutoDJ/streamer management
+	RTMP        *relay.RTMPServer         // RTMP ingest server (optional)
 	mpdServer   *relay.MPDServer         // MPD protocol server (optional)
 	tmpl        *template.Template       // HTML template for web interface (legacy)
 	shell       *ShellRenderer           // New Preact frontend renderer
@@ -116,6 +117,7 @@ func NewServer(cfg *config.Config, authLog *zap.SugaredLogger, version, commit s
 		TranscoderM:  relay.NewTranscoderManager(r),
 		WebRTCM:      relay.NewWebRTCManager(r),
 		StreamerM:    relay.NewStreamerManager(r, cfg),
+		RTMP:         relay.NewRTMPServer(r, cfg),
 		tmpl:         tmpl,
 		shell:        NewShellRenderer(),
 		Version:      version,
@@ -244,6 +246,10 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		s.StreamerM.StopStreamer(st.OutputMount)
 	}
 
+	if s.RTMP != nil {
+		s.RTMP.Stop()
+	}
+
 	var wg sync.WaitGroup
 	for _, srv := range s.httpServers {
 		wg.Add(1)
@@ -364,6 +370,13 @@ func (s *Server) Start() error {
 			}
 		} else {
 			logger.L.Errorf("Failed to initialize AutoDJ %s: %v", adj.Name, err)
+		}
+	}
+
+	// Start RTMP server if enabled
+	if s.Config.Ingest != nil && s.Config.Ingest.RTMPEnabled {
+		if err := s.RTMP.Start(); err != nil {
+			logger.L.Errorf("Failed to start RTMP server: %v", err)
 		}
 	}
 
