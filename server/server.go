@@ -7,6 +7,7 @@ import (
 	"html/template"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,6 +17,8 @@ import (
 	"github.com/DatanoiseTV/tinyice/config"
 	"github.com/DatanoiseTV/tinyice/logger"
 	"github.com/DatanoiseTV/tinyice/relay"
+	"github.com/go-webauthn/webauthn/protocol"
+	"github.com/go-webauthn/webauthn/webauthn"
 	"go.uber.org/zap"
 	"golang.org/x/crypto/acme/autocert"
 )
@@ -81,6 +84,10 @@ type Server struct {
 
 	configMu   sync.Mutex // protects config writes
 	setupToken string     // single-use token for first-run setup (empty = setup complete)
+
+	webAuthn         *webauthn.WebAuthn
+	webauthnSessions map[string]*webauthn.SessionData
+	webauthnMu       sync.Mutex
 }
 
 func NewServer(cfg *config.Config, authLog *zap.SugaredLogger, version, commit, setupToken string) *Server {
@@ -96,6 +103,35 @@ func NewServer(cfg *config.Config, authLog *zap.SugaredLogger, version, commit, 
 	}
 
 	r := relay.NewRelay(cfg.LowLatencyMode, hm)
+
+	// Initialize WebAuthn
+	var wa *webauthn.WebAuthn
+	rpID := "localhost"
+	rpName := "TinyIce"
+	rpOrigins := []string{"http://localhost:8000"}
+	if cfg.WebAuthn != nil {
+		if cfg.WebAuthn.RPID != "" {
+			rpID = cfg.WebAuthn.RPID
+		}
+		if cfg.WebAuthn.RPName != "" {
+			rpName = cfg.WebAuthn.RPName
+		}
+		if len(cfg.WebAuthn.RPOrigins) > 0 {
+			rpOrigins = cfg.WebAuthn.RPOrigins
+		}
+	} else if cfg.BaseURL != "" {
+		if u, err := url.Parse(cfg.BaseURL); err == nil {
+			rpID = u.Hostname()
+			rpOrigins = []string{cfg.BaseURL}
+		}
+	}
+	wa, _ = webauthn.New(&webauthn.Config{
+		RPID:                  rpID,
+		RPDisplayName:         rpName,
+		RPOrigins:             rpOrigins,
+		AttestationPreference: protocol.PreferNoAttestation,
+	})
+
 	return &Server{
 		Config:       cfg,
 		Relay:        r,
@@ -112,8 +148,10 @@ func NewServer(cfg *config.Config, authLog *zap.SugaredLogger, version, commit, 
 		sessions:     make(map[string]*session),
 		authAttempts: make(map[string]*authAttempt),
 		scanAttempts: make(map[string]*scanAttempt),
-		done:         make(chan struct{}),
-		setupToken:   setupToken,
+		done:             make(chan struct{}),
+		setupToken:       setupToken,
+		webAuthn:         wa,
+		webauthnSessions: make(map[string]*webauthn.SessionData),
 	}
 }
 
@@ -184,6 +222,13 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/setup", s.handleSetup)
 	mux.HandleFunc("/setup/verify-token", s.handleSetupVerifyToken)
 	mux.HandleFunc("/setup/complete", s.handleSetupComplete)
+
+	// Passkey (WebAuthn) endpoints
+	mux.HandleFunc("/api/passkey/register/begin", s.handlePasskeyRegisterBegin)
+	mux.HandleFunc("/api/passkey/register/finish", s.handlePasskeyRegisterFinish)
+	mux.HandleFunc("/api/passkey/login/begin", s.handlePasskeyLoginBegin)
+	mux.HandleFunc("/api/passkey/login/finish", s.handlePasskeyLoginFinish)
+	mux.HandleFunc("/api/passkey", s.handlePasskeyDelete)
 	mux.HandleFunc("/explore", s.handleExplore)
 	mux.HandleFunc("/webrtc/offer", s.handleWebRTCOffer)
 	mux.HandleFunc("/webrtc/source-offer", s.handleWebRTCSourceOffer)
