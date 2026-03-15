@@ -36,6 +36,12 @@ type CircularBuffer struct {
 	Size int64        // Maximum size of the buffer in bytes
 	Head int64        // Current write position (absolute, monotonically increasing)
 	mu   sync.RWMutex // Mutex for thread-safe operations
+
+	// Keyframe tracking for video streams
+	keyframes  []int64 // Circular list of absolute offsets where keyframes start
+	kfHead     int     // Next write position in keyframes
+	kfCount    int     // Number of valid entries
+	kfCapacity int     // Max tracked keyframes
 }
 
 // NewCircularBuffer creates a new CircularBuffer with the specified size.
@@ -153,4 +159,57 @@ func (cb *CircularBuffer) Reset() {
 	for i := range cb.Data {
 		cb.Data[i] = 0
 	}
+}
+
+// Keyframe tracking for video streams
+// These fields track absolute offsets where keyframes (IDR frames for H.264) start,
+// allowing new video listeners to begin playback at the nearest keyframe.
+
+// RecordKeyframe records a keyframe at the given absolute offset.
+func (cb *CircularBuffer) RecordKeyframe(offset int64) {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+	if cb.keyframes == nil {
+		cb.kfCapacity = 64
+		cb.keyframes = make([]int64, cb.kfCapacity)
+	}
+	cb.keyframes[cb.kfHead] = offset
+	cb.kfHead = (cb.kfHead + 1) % cb.kfCapacity
+	if cb.kfCount < cb.kfCapacity {
+		cb.kfCount++
+	}
+}
+
+// NearestKeyframe returns the absolute offset of the nearest keyframe
+// at or before the given offset that is still within the valid buffer range.
+// Returns -1 if no valid keyframe is found.
+func (cb *CircularBuffer) NearestKeyframe(offset int64) int64 {
+	cb.mu.RLock()
+	defer cb.mu.RUnlock()
+
+	validStart := cb.Head - cb.Size
+	if validStart < 0 {
+		validStart = 0
+	}
+
+	best := int64(-1)
+	for i := 0; i < cb.kfCount; i++ {
+		idx := (cb.kfHead - cb.kfCount + i + cb.kfCapacity) % cb.kfCapacity
+		kf := cb.keyframes[idx]
+		if kf >= validStart && kf <= offset && kf > best {
+			best = kf
+		}
+	}
+	return best
+}
+
+// LatestKeyframe returns the most recent keyframe offset, or -1.
+func (cb *CircularBuffer) LatestKeyframe() int64 {
+	cb.mu.RLock()
+	defer cb.mu.RUnlock()
+	if cb.kfCount == 0 {
+		return -1
+	}
+	idx := (cb.kfHead - 1 + cb.kfCapacity) % cb.kfCapacity
+	return cb.keyframes[idx]
 }

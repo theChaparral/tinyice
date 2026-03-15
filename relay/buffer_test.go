@@ -140,6 +140,56 @@ func TestAvailable(t *testing.T) {
 	}
 }
 
+func TestKeyframeIndex(t *testing.T) {
+	buf := NewCircularBuffer(1024)
+	buf.Write(make([]byte, 500))
+
+	buf.RecordKeyframe(0)
+	buf.RecordKeyframe(100)
+	buf.RecordKeyframe(300)
+
+	// Nearest keyframe at or before offset 250 should be 100
+	kf := buf.NearestKeyframe(250)
+	if kf != 100 {
+		t.Fatalf("expected keyframe at 100, got %d", kf)
+	}
+
+	// Nearest keyframe at or before offset 300 should be 300
+	kf = buf.NearestKeyframe(300)
+	if kf != 300 {
+		t.Fatalf("expected keyframe at 300, got %d", kf)
+	}
+
+	// Latest keyframe should be 300
+	kf = buf.LatestKeyframe()
+	if kf != 300 {
+		t.Fatalf("expected latest keyframe at 300, got %d", kf)
+	}
+}
+
+func TestKeyframeIndexEmpty(t *testing.T) {
+	buf := NewCircularBuffer(1024)
+	if buf.NearestKeyframe(100) != -1 {
+		t.Fatal("expected -1 for empty keyframe index")
+	}
+	if buf.LatestKeyframe() != -1 {
+		t.Fatal("expected -1 for empty keyframe index")
+	}
+}
+
+func TestKeyframeIndexExpiry(t *testing.T) {
+	buf := NewCircularBuffer(100) // small buffer
+	buf.Write(make([]byte, 200))  // head=200, valid range [100, 200)
+
+	buf.RecordKeyframe(50)  // expired (before valid range)
+	buf.RecordKeyframe(150) // valid
+
+	kf := buf.NearestKeyframe(200)
+	if kf != 150 {
+		t.Fatalf("expected 150 (expired keyframe at 50 should be ignored), got %d", kf)
+	}
+}
+
 func TestReset(t *testing.T) {
 	cb := NewCircularBuffer(8)
 	cb.Write([]byte("ABCDEFGH"))
