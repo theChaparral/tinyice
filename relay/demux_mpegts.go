@@ -3,7 +3,9 @@ package relay
 // TSDemuxer extracts elementary stream data from MPEG-TS packets.
 type TSDemuxer struct {
 	audioPID    uint16
+	videoPID    uint16
 	onAudioData func(data []byte, pts int64)
+	onVideoData func(data []byte, pts int64, isKeyframe bool)
 	patParsed   bool
 	pmtParsed   bool
 	pmtPID      uint16
@@ -17,6 +19,11 @@ func NewTSDemuxer() *TSDemuxer {
 // OnAudio registers a callback for extracted audio data.
 func (d *TSDemuxer) OnAudio(fn func(data []byte, pts int64)) {
 	d.onAudioData = fn
+}
+
+// OnVideo registers a callback for extracted video data.
+func (d *TSDemuxer) OnVideo(fn func(data []byte, pts int64, isKeyframe bool)) {
+	d.onVideoData = fn
 }
 
 // Feed processes raw MPEG-TS data (must be aligned to 188-byte packets).
@@ -78,6 +85,27 @@ func (d *TSDemuxer) processPacket(pkt []byte) {
 				d.onAudioData(audioData, pts)
 			}
 		}
+	case pid == d.videoPID && d.videoPID != 0: // Video
+		if d.onVideoData != nil {
+			videoData := payload
+			var pts int64
+			if payloadStart && len(payload) > 13 {
+				if payload[0] == 0x00 && payload[1] == 0x00 && payload[2] == 0x01 {
+					headerDataLen := int(payload[8])
+					if payload[7]&0x80 != 0 && headerDataLen >= 5 {
+						pts = decodePTS(payload[9:14])
+					}
+					pesHeaderEnd := 9 + headerDataLen
+					if pesHeaderEnd < len(payload) {
+						videoData = payload[pesHeaderEnd:]
+					}
+				}
+			}
+			if len(videoData) > 0 {
+				isKeyframe := ContainsKeyframe(videoData)
+				d.onVideoData(videoData, pts, isKeyframe)
+			}
+		}
 	}
 }
 
@@ -129,11 +157,18 @@ func (d *TSDemuxer) parsePMT(payload []byte, payloadStart bool) {
 		// Audio stream types: 0x03 = MP3, 0x04 = MP3, 0x0F = AAC, 0x11 = AAC-LATM
 		if streamType == 0x03 || streamType == 0x04 || streamType == 0x0F || streamType == 0x11 {
 			d.audioPID = esPID
-			d.pmtParsed = true
-			return
+		}
+
+		// Video stream types: 0x1B = H.264, 0x24 = H.265
+		if streamType == 0x1B || streamType == 0x24 {
+			d.videoPID = esPID
 		}
 
 		offset += 5 + esInfoLen
+	}
+
+	if d.audioPID != 0 || d.videoPID != 0 {
+		d.pmtParsed = true
 	}
 }
 
