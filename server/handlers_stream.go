@@ -221,6 +221,9 @@ func (s *Server) handleListener(w http.ResponseWriter, r *http.Request) {
 	recoveryTicker := time.NewTicker(10 * time.Second)
 	defer recoveryTicker.Stop()
 
+	var primaryFirstSeen time.Time
+	const fallbackHysteresis = 30 * time.Second
+
 	for {
 		select {
 		case <-s.done:
@@ -230,8 +233,19 @@ func (s *Server) handleListener(w http.ResponseWriter, r *http.Request) {
 
 		if mount != originalMount {
 			if _, ok := s.Relay.GetStream(originalMount); ok {
-				logger.L.Infow("Primary stream returned, recovering from fallback", "mount", originalMount)
-				mount = originalMount
+				if primaryFirstSeen.IsZero() {
+					primaryFirstSeen = time.Now()
+				}
+				if time.Since(primaryFirstSeen) >= fallbackHysteresis {
+					logger.L.Infow("Primary stream stable, recovering from fallback",
+						"mount", originalMount,
+						"stable_for", time.Since(primaryFirstSeen),
+					)
+					mount = originalMount
+					primaryFirstSeen = time.Time{}
+				}
+			} else {
+				primaryFirstSeen = time.Time{}
 			}
 		}
 
@@ -267,6 +281,11 @@ func (s *Server) handleListener(w http.ResponseWriter, r *http.Request) {
 		}
 
 		w.Header().Set("Content-Type", stream.ContentType)
+		if mount != originalMount {
+			w.Header().Set("X-Stream-Status", "fallback")
+		} else {
+			w.Header().Set("X-Stream-Status", "primary")
+		}
 		if flusher != nil {
 			flusher.Flush()
 		}
