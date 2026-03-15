@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -77,6 +78,11 @@ type Server struct {
 	scanAttempts   map[string]*scanAttempt
 	scanAttemptsMu sync.Mutex
 
+	hlsOutputs map[string]*relay.HLSOutput
+	hlsMu      sync.RWMutex
+	hlsCtx     context.Context
+	hlsCancel  context.CancelFunc
+
 	done chan struct{}
 }
 
@@ -101,6 +107,7 @@ func NewServer(cfg *config.Config, authLog *zap.SugaredLogger, version, commit s
 			"new_status", e.NewStatus.String(),
 		)
 	})
+	hlsCtx, hlsCancel := context.WithCancel(context.Background())
 	return &Server{
 		Config:       cfg,
 		Relay:        r,
@@ -118,6 +125,9 @@ func NewServer(cfg *config.Config, authLog *zap.SugaredLogger, version, commit s
 		sessions:     make(map[string]*session),
 		authAttempts: make(map[string]*authAttempt),
 		scanAttempts: make(map[string]*scanAttempt),
+		hlsOutputs:   make(map[string]*relay.HLSOutput),
+		hlsCtx:       hlsCtx,
+		hlsCancel:    hlsCancel,
 		done:         make(chan struct{}),
 	}
 }
@@ -190,7 +200,19 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/player/", s.handlePlayer)
 	mux.HandleFunc("/player-webrtc/", s.handleWebRTCPlayer)
 	mux.HandleFunc("/embed/", s.handleEmbed)
-	mux.HandleFunc("/", s.handleRoot)
+	// HLS routes (must be before the catch-all "/" handler)
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		if strings.HasSuffix(path, "/playlist.m3u8") {
+			s.handleHLSPlaylist(w, r)
+			return
+		}
+		if strings.HasSuffix(path, ".ts") && strings.Contains(path, "/segment-") {
+			s.handleHLSSegment(w, r)
+			return
+		}
+		s.handleRoot(w, r)
+	})
 	mux.HandleFunc("/events", s.handlePublicEvents)
 	mux.HandleFunc("/status-json.xsl", s.handleLegacyStats)
 	mux.HandleFunc("/metrics", s.handleMetrics)
@@ -206,6 +228,10 @@ func (s *Server) setupRoutes() *http.ServeMux {
 
 func (s *Server) Shutdown(ctx context.Context) error {
 	logger.L.Info("Server shutting down gracefully...")
+
+	if s.hlsCancel != nil {
+		s.hlsCancel()
+	}
 
 	close(s.done)
 
