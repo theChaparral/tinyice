@@ -293,6 +293,34 @@ func (s *Server) getSourcePassword(mount string) (string, bool) {
 	return s.Config.DefaultSourcePassword, s.Config.DefaultSourcePassword != ""
 }
 
+// createSession generates a new session for the given user and sets the sid cookie.
+// Returns the CSRF token for the new session.
+func (s *Server) createSession(w http.ResponseWriter, r *http.Request, user *config.User) string {
+	b := make([]byte, 32)
+	rand.Read(b)
+	sid := hex.EncodeToString(b)
+
+	cb := make([]byte, 32)
+	rand.Read(cb)
+	csrf := hex.EncodeToString(cb)
+
+	s.sessionsMu.Lock()
+	s.sessions[sid] = &session{User: user, CSRFToken: csrf}
+	s.sessionsMu.Unlock()
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     "sid",
+		Value:    sid,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   r.TLS != nil,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   86400 * 7,
+	})
+
+	return csrf
+}
+
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	host, _, _ := net.SplitHostPort(r.RemoteAddr)
 
@@ -301,6 +329,10 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		p := r.FormValue("password")
 
 		if err := s.checkAuthLimit(host); err != nil {
+			if r.Header.Get("Accept") == "application/json" {
+				jsonError(w, err.Error(), http.StatusUnauthorized)
+				return
+			}
 			pageData := s.BasePageData("")
 			pageData["error"] = err.Error()
 			s.shell.Render(w, "login", "Login — "+s.Config.PageTitle, pageData)
@@ -311,6 +343,10 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		if !exists || !config.CheckPasswordHash(p, user.Password) {
 			s.recordAuthFailure(host)
 			s.logAuthFailed(u, r.RemoteAddr, "invalid credentials")
+			if r.Header.Get("Accept") == "application/json" {
+				jsonError(w, "Invalid username or password", http.StatusUnauthorized)
+				return
+			}
 			pageData := s.BasePageData("")
 			pageData["error"] = "Invalid username or password"
 			s.shell.Render(w, "login", "Login — "+s.Config.PageTitle, pageData)
@@ -318,28 +354,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.recordAuthSuccess(host)
-		b := make([]byte, 32)
-		rand.Read(b)
-		sid := hex.EncodeToString(b)
-
-		cb := make([]byte, 32)
-		rand.Read(cb)
-		csrf := hex.EncodeToString(cb)
-
-		s.sessionsMu.Lock()
-		s.sessions[sid] = &session{User: user, CSRFToken: csrf}
-		s.sessionsMu.Unlock()
-
-		http.SetCookie(w, &http.Cookie{
-			Name:     "sid",
-			Value:    sid,
-			Path:     "/",
-			HttpOnly: true,
-			Secure:   r.TLS != nil,
-			SameSite: http.SameSiteLaxMode,
-			MaxAge:   86400 * 7,
-		})
-
+		s.createSession(w, r, user)
 		http.Redirect(w, r, "/admin", http.StatusSeeOther)
 		return
 	}

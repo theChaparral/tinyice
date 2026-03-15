@@ -245,7 +245,7 @@ func (s *Server) dynamicHostPolicy(ctx context.Context, host string) error {
 	return fmt.Errorf("acme/autocert: host %q not configured in 'domains'", host)
 }
 
-func (s *Server) startHTTPS(mux *http.ServeMux, addr string) error {
+func (s *Server) startHTTPS(mux http.Handler, addr string) error {
 	httpsAddr := net.JoinHostPort(s.Config.BindHost, s.Config.HTTPSPort)
 	if s.Config.AutoHTTPS {
 		if len(s.Config.Domains) == 0 {

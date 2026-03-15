@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -77,9 +78,12 @@ type Server struct {
 	scanAttemptsMu sync.Mutex
 
 	done chan struct{}
+
+	configMu   sync.Mutex // protects config writes
+	setupToken string     // single-use token for first-run setup (empty = setup complete)
 }
 
-func NewServer(cfg *config.Config, authLog *zap.SugaredLogger, version, commit string) *Server {
+func NewServer(cfg *config.Config, authLog *zap.SugaredLogger, version, commit, setupToken string) *Server {
 	tmpl := template.New("base")
 	tmpl, err := tmpl.ParseFS(templateFS, "templates/*.html")
 	if err != nil {
@@ -109,6 +113,7 @@ func NewServer(cfg *config.Config, authLog *zap.SugaredLogger, version, commit s
 		authAttempts: make(map[string]*authAttempt),
 		scanAttempts: make(map[string]*scanAttempt),
 		done:         make(chan struct{}),
+		setupToken:   setupToken,
 	}
 }
 
@@ -174,6 +179,11 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/admin/insights", s.handleInsights)
 	mux.HandleFunc("/login", s.handleLogin)
 	mux.HandleFunc("/logout", s.handleLogout)
+
+	// Setup wizard endpoints
+	mux.HandleFunc("/setup", s.handleSetup)
+	mux.HandleFunc("/setup/verify-token", s.handleSetupVerifyToken)
+	mux.HandleFunc("/setup/complete", s.handleSetupComplete)
 	mux.HandleFunc("/explore", s.handleExplore)
 	mux.HandleFunc("/webrtc/offer", s.handleWebRTCOffer)
 	mux.HandleFunc("/webrtc/source-offer", s.handleWebRTCSourceOffer)
@@ -346,6 +356,22 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	return mux
 }
 
+// withSetupGuard wraps a handler to enforce setup mode.
+func (s *Server) withSetupGuard(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !s.Config.SetupComplete {
+			path := r.URL.Path
+			if path == "/setup" || strings.HasPrefix(path, "/setup/") || strings.HasPrefix(path, "/assets/") {
+				next.ServeHTTP(w, r)
+				return
+			}
+			http.Redirect(w, r, "/setup", http.StatusTemporaryRedirect)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func (s *Server) Shutdown(ctx context.Context) error {
 	logger.L.Info("Server shutting down gracefully...")
 
@@ -440,6 +466,7 @@ func (s *Server) ReloadConfig(cfg *config.Config) {
 
 func (s *Server) Start() error {
 	mux := s.setupRoutes()
+	handler := s.withSetupGuard(mux)
 
 	if s.Config.DirectoryListing {
 		go s.directoryReportingTask()
@@ -486,11 +513,11 @@ func (s *Server) Start() error {
 
 	if s.Config.UseHTTPS {
 		addr := net.JoinHostPort(s.Config.BindHost, port)
-		return s.startHTTPS(mux, addr)
+		return s.startHTTPS(handler, addr)
 	}
 
 	srv := &http.Server{
-		Handler:      mux,
+		Handler:      handler,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 0,
 		IdleTimeout:  120 * time.Second,

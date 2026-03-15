@@ -105,7 +105,7 @@ func main() {
 	}
 	defer os.Remove(actualPidFile)
 
-	ensureConfigExists()
+	setupToken := ensureConfigExists()
 
 	cfg, err := config.LoadConfig(*configPath)
 	if err != nil {
@@ -139,7 +139,7 @@ func main() {
 		cfg.AutoUpdate = true
 	}
 
-	srv := server.NewServer(cfg, authLogger, Version, Commit)
+	srv := server.NewServer(cfg, authLogger, Version, Commit, setupToken)
 
 	// Start Updater if enabled
 	if cfg.AutoUpdate {
@@ -389,35 +389,15 @@ func handleDaemonMode() {
 	}
 }
 
-func ensureConfigExists() {
+func ensureConfigExists() string {
 	if _, err := os.Stat(*configPath); os.IsNotExist(err) {
-		logger.L.Info("Config file not found, generating secure defaults...")
+		logger.L.Info("Config file not found — starting in setup mode...")
 
-		defaultSourcePass := generateRandomString(12)
-		liveMountPass := generateRandomString(12)
-		adminPass := generateRandomString(12)
-
-		hDefaultSource, _ := config.HashPassword(defaultSourcePass)
-		hLiveMount, _ := config.HashPassword(liveMountPass)
-		hAdmin, _ := config.HashPassword(adminPass)
+		setupToken := generateRandomString(32)
 
 		defaultCfg := config.Config{
-			BindHost:              *bindHost,
-			Port:                  "8000",
-			DefaultSourcePassword: hDefaultSource,
-			Mounts: map[string]string{
-				"/live": hLiveMount,
-			},
-			AdminUser:     "admin",
-			AdminPassword: hAdmin,
-			Users: map[string]*config.User{
-				"admin": {
-					Username: "admin",
-					Password: hAdmin,
-					Role:     config.RoleSuperAdmin,
-					Mounts:   make(map[string]string),
-				},
-			},
+			BindHost:     *bindHost,
+			Port:         "8000",
 			HostName:     "localhost",
 			Location:     "Earth",
 			AdminEmail:   "admin@localhost",
@@ -429,21 +409,25 @@ func ensureConfigExists() {
 
 		data, _ := json.MarshalIndent(defaultCfg, "", "    ")
 		if err := os.WriteFile(*configPath, data, 0600); err != nil {
-			logger.L.Fatalf("Failed to create secure config: %v", err)
+			logger.L.Fatalf("Failed to create config: %v", err)
 		}
 
 		fmt.Println("**************************************************")
-		fmt.Println("  FIRST RUN: SECURE CREDENTIALS GENERATED")
-		fmt.Printf("  Admin User:      admin\n")
-		fmt.Printf("  Admin Password:  %s\n", adminPass)
-		fmt.Printf("  Default Source Pass: %s\n", defaultSourcePass)
-		fmt.Printf("  Mount /live Pass:    %s\n", liveMountPass)
-		fmt.Println("  Stored in:", *configPath)
+		fmt.Println("  FIRST RUN: SETUP MODE")
+		fmt.Println("")
+		fmt.Printf("  Open your browser and navigate to:\n")
+		fmt.Printf("    http://localhost:8000/setup\n")
+		fmt.Println("")
+		fmt.Printf("  Setup Token: %s\n", setupToken)
+		fmt.Println("")
+		fmt.Println("  You will need this token to complete setup.")
 		fmt.Println("**************************************************")
-	} else {
-		logger.L.Infow("Starting TinyIce with existing configuration", "path", *configPath)
-		fmt.Printf("Note: To reset all credentials, run: rm %s && ./tinyice\n", *configPath)
+
+		return setupToken
 	}
+
+	logger.L.Infow("Starting TinyIce with existing configuration", "path", *configPath)
+	return ""
 }
 
 func runEventLoop(srv *server.Server, sigs chan os.Signal) {
