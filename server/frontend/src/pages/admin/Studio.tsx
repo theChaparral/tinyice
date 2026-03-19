@@ -251,26 +251,12 @@ export function Studio() {
   }, [])
 
   const handleSavePlaylist = useCallback(() => {
-    const csrf = (window as any).__TINYICE__?.csrfToken ?? ''
-    const form = new FormData()
-    form.append('mount', currentMount.value)
-    fetch('/admin/player/save-playlist', {
-      method: 'POST',
-      headers: { 'X-CSRF-Token': csrf },
-      body: form,
-    })
+    api.post(`/api/autodj/${enc()}/playlist/save`)
   }, [])
 
   const handleLoadPlaylist = useCallback(() => {
-    const csrf = (window as any).__TINYICE__?.csrfToken ?? ''
-    const form = new FormData()
-    form.append('mount', currentMount.value)
-    form.append('file', '')
-    fetch('/admin/player/load-playlist', {
-      method: 'POST',
-      headers: { 'X-CSRF-Token': csrf },
-      body: form,
-    }).then(() => fetchPlaylist())
+    api.post(`/api/autodj/${enc()}/playlist/load`)
+      .then(() => fetchPlaylist())
   }, [])
 
   const handleFolderClick = useCallback((file: FileInfo) => {
