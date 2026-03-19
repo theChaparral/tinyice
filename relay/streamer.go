@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -41,7 +42,9 @@ type Streamer struct {
 	InjectMetadata bool
 	Visible        bool
 	MPDPassword    string
-	LastPlaylist   string
+	LastPlaylist        string
+	SongCommand         string
+	SongCommandTimeout  int
 
 	relay  *Relay
 	cancel context.CancelFunc
@@ -486,6 +489,51 @@ func (s *Streamer) signalStateChange() {
 	}
 }
 
+func (s *Streamer) execSongCommand() (string, error) {
+	if s.SongCommand == "" {
+		return "", fmt.Errorf("no song command configured")
+	}
+
+	timeout := s.SongCommandTimeout
+	if timeout <= 0 {
+		timeout = 5
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "sh", "-c", s.SongCommand)
+	cmd.Dir = s.MusicDir
+
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("song command failed: %w", err)
+	}
+
+	filePath := strings.TrimSpace(string(output))
+	if filePath == "" {
+		return "", fmt.Errorf("song command returned empty output")
+	}
+
+	// Take only the first line
+	if idx := strings.IndexByte(filePath, '\n'); idx >= 0 {
+		filePath = filePath[:idx]
+	}
+	filePath = strings.TrimSpace(filePath)
+
+	// Resolve relative paths against music dir
+	if !filepath.IsAbs(filePath) {
+		filePath = filepath.Join(s.MusicDir, filePath)
+	}
+
+	// Validate the file exists and is a supported audio format
+	if err := validateAudioFile(filePath); err != nil {
+		return "", fmt.Errorf("song command returned invalid file %q: %w", filePath, err)
+	}
+
+	return filePath, nil
+}
+
 type StreamerStats struct {
 	Name           string
 	Mount          string
@@ -536,7 +584,7 @@ func (s *Streamer) GetStats() StreamerStats {
 	}
 }
 
-func (sm *StreamerManager) StartStreamer(name, mount, musicDir string, loop bool, format string, bitrate int, injectMetadata bool, initialPlaylistPaths []string, mpdEnabled bool, mpdPort, mpdPassword string, visible bool, lastPlaylist string) (*Streamer, error) {
+func (sm *StreamerManager) StartStreamer(name, mount, musicDir string, loop bool, format string, bitrate int, injectMetadata bool, initialPlaylistPaths []string, mpdEnabled bool, mpdPort, mpdPassword string, visible bool, lastPlaylist string, songCommand string, songCommandTimeout int) (*Streamer, error) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
@@ -566,8 +614,10 @@ func (sm *StreamerManager) StartStreamer(name, mount, musicDir string, loop bool
 		InjectMetadata:    injectMetadata,
 		Visible:           visible,
 		MPDPassword:       mpdPassword,
-		LastPlaylist:      lastPlaylist,
-		relay:             sm.relay,
+		LastPlaylist:       lastPlaylist,
+		SongCommand:        songCommand,
+		SongCommandTimeout: songCommandTimeout,
+		relay:              sm.relay,
 		cancel:            cancel,
 		titleCache:        make(map[string]string),
 		NextID:            nextID, // Start NextID after initial playlist
@@ -687,8 +737,41 @@ func (sm *StreamerManager) runStreamerLoop(ctx context.Context, s *Streamer) {
 				s.Queue = s.Queue[1:]
 				fileID = -1 // Queue items don't have an ID from the playlist
 				filePos = -1
+			} else if s.SongCommand != "" {
+				// 2. External song command (unlock during exec to avoid blocking)
+				s.mu.Unlock()
+				if path, err := s.execSongCommand(); err == nil {
+					filePath = path
+					fileID = -1
+					filePos = -1
+				} else {
+					logger.L.Warnf("Streamer %s: Song command error, falling back to playlist: %v", s.Name, err)
+				}
+				s.mu.Lock()
+				// If command failed, try playlist as fallback
+				if filePath == "" && len(s.Playlist) > 0 {
+					if s.Shuffle {
+						s.CurrentPos = rand.Intn(len(s.Playlist))
+					} else {
+						if s.CurrentPos >= len(s.Playlist) {
+							if s.Loop {
+								s.CurrentPos = 0
+							} else {
+								s.State = StateStopped
+								s.mu.Unlock()
+								continue
+							}
+						}
+					}
+					filePath = s.Playlist[s.CurrentPos].Path
+					fileID = s.Playlist[s.CurrentPos].ID
+					filePos = s.CurrentPos
+					if !s.Shuffle {
+						s.CurrentPos++
+					}
+				}
 			} else if len(s.Playlist) > 0 {
-				// 2. Handle Shuffle or Sequential Playlist
+				// 3. Normal playlist selection
 				if s.Shuffle {
 					s.CurrentPos = rand.Intn(len(s.Playlist))
 				} else {

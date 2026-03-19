@@ -118,7 +118,9 @@ type AutoDJConfig struct {
 	MPDEnabled     bool     `json:"mpd_enabled"`
 	MPDPort        string   `json:"mpd_port"`
 	MPDPassword    string   `json:"mpd_password"`
-	Visible        bool     `json:"visible"`
+	Visible            bool     `json:"visible"`
+	SongCommand        string   `json:"song_command"`
+	SongCommandTimeout int      `json:"song_command_timeout"`
 }
 
 type IngestConfig struct {
