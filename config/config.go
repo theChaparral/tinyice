@@ -64,6 +64,18 @@ type User struct {
 	LinkedEmails []string             `json:"linked_emails,omitempty"`
 }
 
+type APIToken struct {
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	TokenHash  string `json:"token_hash"`
+	Username   string `json:"username"`
+	Role       string `json:"role"`
+	CreatedAt  string `json:"created_at"`
+	LastUsedAt string `json:"last_used_at"`
+	LastUsedIP string `json:"last_used_ip"`
+	ExpiresAt  string `json:"expires_at"`
+}
+
 type RelayConfig struct {
 	URL       string `json:"url"`      // e.g. http://master:8000/stream
 	Mount     string `json:"mount"`    // Local mount point
@@ -187,6 +199,7 @@ type Config struct {
 	// Multi-tenant
 	MultiTenant *MultiTenantConfig `json:"multi_tenant"`
 	Users       map[string]*User   `json:"users"`
+	APITokens   []*APIToken        `json:"api_tokens,omitempty"`
 
 	// Auth: Setup & Onboarding
 	SetupComplete bool `json:"setup_complete"`
