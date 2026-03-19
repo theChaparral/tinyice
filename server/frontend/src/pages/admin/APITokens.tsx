@@ -2,6 +2,21 @@ import { signal } from '@preact/signals'
 import { useEffect } from 'preact/hooks'
 import { api } from '../../lib/api'
 
+const copied = signal(false)
+
+function fallbackCopy(text: string) {
+  const textarea = document.createElement('textarea')
+  textarea.value = text
+  textarea.style.position = 'fixed'
+  textarea.style.opacity = '0'
+  document.body.appendChild(textarea)
+  textarea.select()
+  document.execCommand('copy')
+  document.body.removeChild(textarea)
+  copied.value = true
+  setTimeout(() => { copied.value = false }, 2000)
+}
+
 interface TokenInfo {
   id: number
   name: string
@@ -231,16 +246,34 @@ export function APITokens() {
                 {createdToken.value}
               </code>
               <button
-                onClick={() => { navigator.clipboard.writeText(createdToken.value!) }}
-                class="border border-border text-text-secondary font-mono text-xs px-4 py-2.5 rounded-lg hover:border-border-hover shrink-0"
+                onClick={() => {
+                  const token = createdToken.value
+                  if (!token) return
+                  if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(token).then(() => {
+                      copied.value = true
+                      setTimeout(() => { copied.value = false }, 2000)
+                    }).catch(() => {
+                      // Fallback for non-secure contexts
+                      fallbackCopy(token)
+                    })
+                  } else {
+                    fallbackCopy(token)
+                  }
+                }}
+                class={`border font-mono text-xs px-4 py-2.5 rounded-lg shrink-0 transition-colors ${
+                  copied.value
+                    ? 'border-green-500/30 text-green-400'
+                    : 'border-border text-text-secondary hover:border-border-hover'
+                }`}
               >
-                COPY
+                {copied.value ? 'COPIED' : 'COPY'}
               </button>
             </div>
 
             <div class="flex justify-end">
               <button
-                onClick={() => { createdToken.value = null; createdName.value = '' }}
+                onClick={() => { createdToken.value = null; createdName.value = ''; copied.value = false }}
                 class="bg-accent text-surface-base font-mono font-bold text-xs tracking-[1px] px-4 py-2.5 rounded-lg"
               >
                 DONE
