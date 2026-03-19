@@ -2,6 +2,7 @@ package server
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"net"
@@ -129,7 +130,61 @@ func (s *Server) recordScanAttempt(ip, path string) {
 	}
 }
 
+func hashToken(raw string) string {
+	h := sha256.Sum256([]byte(raw))
+	return hex.EncodeToString(h[:])
+}
+
+func generateToken() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return "ti_" + hex.EncodeToString(b), nil
+}
+
+func (s *Server) touchToken(tok *config.APIToken, remoteAddr string) {
+	tok.LastUsedAt = time.Now().Format(time.RFC3339)
+	if host, _, err := net.SplitHostPort(remoteAddr); err == nil {
+		tok.LastUsedIP = host
+	}
+	s.tokenSaveMu.Lock()
+	if s.tokenSaveTimer == nil {
+		s.tokenSaveTimer = time.AfterFunc(60*time.Second, func() {
+			s.Config.SaveConfig()
+			s.tokenSaveMu.Lock()
+			s.tokenSaveTimer = nil
+			s.tokenSaveMu.Unlock()
+		})
+	}
+	s.tokenSaveMu.Unlock()
+}
+
 func (s *Server) checkAuth(r *http.Request) (*config.User, bool) {
+	// Bearer token auth
+	if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
+		raw := strings.TrimPrefix(auth, "Bearer ")
+		hash := hashToken(raw)
+		for _, tok := range s.Config.APITokens {
+			if tok.TokenHash == hash {
+				// Check expiry
+				if tok.ExpiresAt != "" {
+					if exp, err := time.Parse(time.RFC3339, tok.ExpiresAt); err == nil && time.Now().After(exp) {
+						return nil, false
+					}
+				}
+				user, exists := s.Config.Users[tok.Username]
+				if !exists {
+					return nil, false
+				}
+				// Update last-used tracking (debounced save)
+				s.touchToken(tok, r.RemoteAddr)
+				return user, true
+			}
+		}
+		return nil, false
+	}
+
 	if cookie, err := r.Cookie("sid"); err == nil {
 		s.sessionsMu.RLock()
 		sess, ok := s.sessions[cookie.Value]
@@ -205,18 +260,27 @@ func (s *Server) isWhitelisted(ipStr string) bool {
 }
 
 func (s *Server) isCSRFSafe(r *http.Request) bool {
-	if r.Method != http.MethodPost {
+	if r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions {
+		return true
+	}
+
+	// JSON API endpoints are inherently CSRF-safe: the Content-Type: application/json
+	// header cannot be sent cross-origin without a CORS preflight, and we don't set
+	// permissive CORS headers. Session auth still applies via checkAuth.
+	if strings.HasPrefix(r.URL.Path, "/api/") &&
+		strings.Contains(r.Header.Get("Content-Type"), "application/json") {
+		return true
+	}
+
+	// Also allow multipart uploads to /api/ (e.g. logo upload)
+	if strings.HasPrefix(r.URL.Path, "/api/") &&
+		strings.Contains(r.Header.Get("Content-Type"), "multipart/form-data") {
 		return true
 	}
 
 	cookie, err := r.Cookie("sid")
 	if err != nil {
 		return true
-	}
-
-	origin := r.Header.Get("Origin")
-	if origin == "" {
-		origin = r.Header.Get("Referer")
 	}
 
 	s.sessionsMu.RLock()
@@ -228,6 +292,9 @@ func (s *Server) isCSRFSafe(r *http.Request) bool {
 	}
 
 	providedToken := r.FormValue("csrf")
+	if providedToken == "" {
+		providedToken = r.Header.Get("X-CSRF-Token")
+	}
 	if providedToken != sess.CSRFToken {
 		logger.L.Warnf("CSRF Mismatch: provided=[%s] expected=[%s] remote=%s path=%s", providedToken, sess.CSRFToken, r.RemoteAddr, r.URL.Path)
 		return false
@@ -290,6 +357,34 @@ func (s *Server) getSourcePassword(mount string) (string, bool) {
 	return s.Config.DefaultSourcePassword, s.Config.DefaultSourcePassword != ""
 }
 
+// createSession generates a new session for the given user and sets the sid cookie.
+// Returns the CSRF token for the new session.
+func (s *Server) createSession(w http.ResponseWriter, r *http.Request, user *config.User) string {
+	b := make([]byte, 32)
+	rand.Read(b)
+	sid := hex.EncodeToString(b)
+
+	cb := make([]byte, 32)
+	rand.Read(cb)
+	csrf := hex.EncodeToString(cb)
+
+	s.sessionsMu.Lock()
+	s.sessions[sid] = &session{User: user, CSRFToken: csrf}
+	s.sessionsMu.Unlock()
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     "sid",
+		Value:    sid,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   r.TLS != nil,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   86400 * 7,
+	})
+
+	return csrf
+}
+
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	host, _, _ := net.SplitHostPort(r.RemoteAddr)
 
@@ -298,8 +393,13 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		p := r.FormValue("password")
 
 		if err := s.checkAuthLimit(host); err != nil {
-			data := map[string]interface{}{"Error": err.Error(), "Config": s.Config}
-			s.tmpl.ExecuteTemplate(w, "login.html", data)
+			if r.Header.Get("Accept") == "application/json" {
+				jsonError(w, err.Error(), http.StatusUnauthorized)
+				return
+			}
+			pageData := s.BasePageData("")
+			pageData["error"] = err.Error()
+			s.shell.Render(w, "login", "Login — "+s.Config.PageTitle, pageData)
 			return
 		}
 
@@ -307,40 +407,24 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		if !exists || !config.CheckPasswordHash(p, user.Password) {
 			s.recordAuthFailure(host)
 			s.logAuthFailed(u, r.RemoteAddr, "invalid credentials")
-			data := map[string]interface{}{"Error": "Invalid username or password", "Config": s.Config}
-			s.tmpl.ExecuteTemplate(w, "login.html", data)
+			if r.Header.Get("Accept") == "application/json" {
+				jsonError(w, "Invalid username or password", http.StatusUnauthorized)
+				return
+			}
+			pageData := s.BasePageData("")
+			pageData["error"] = "Invalid username or password"
+			s.shell.Render(w, "login", "Login — "+s.Config.PageTitle, pageData)
 			return
 		}
 
 		s.recordAuthSuccess(host)
-		b := make([]byte, 32)
-		rand.Read(b)
-		sid := hex.EncodeToString(b)
-
-		cb := make([]byte, 32)
-		rand.Read(cb)
-		csrf := hex.EncodeToString(cb)
-
-		s.sessionsMu.Lock()
-		s.sessions[sid] = &session{User: user, CSRFToken: csrf}
-		s.sessionsMu.Unlock()
-
-		http.SetCookie(w, &http.Cookie{
-			Name:     "sid",
-			Value:    sid,
-			Path:     "/",
-			HttpOnly: true,
-			Secure:   r.TLS != nil,
-			SameSite: http.SameSiteLaxMode,
-			MaxAge:   86400 * 7,
-		})
-
+		s.createSession(w, r, user)
 		http.Redirect(w, r, "/admin", http.StatusSeeOther)
 		return
 	}
 
-	data := map[string]interface{}{"Config": s.Config}
-	s.tmpl.ExecuteTemplate(w, "login.html", data)
+	pageData := s.BasePageData("")
+	s.shell.Render(w, "login", "Login — "+s.Config.PageTitle, pageData)
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {

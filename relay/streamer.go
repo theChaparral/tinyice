@@ -68,6 +68,7 @@ type Streamer struct {
 	NextID              int
 	PlaylistVersion     uint32
 	idleCh              chan string
+	stateCh             chan struct{}
 }
 
 type StreamerManager struct {
@@ -89,6 +90,7 @@ func (s *Streamer) Play() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.State = StatePlaying
+	s.signalStateChange()
 }
 
 func (s *Streamer) Next() {
@@ -107,6 +109,7 @@ func (s *Streamer) TogglePlay() {
 	} else {
 		s.State = StatePlaying
 	}
+	s.signalStateChange()
 }
 
 func (s *Streamer) ToggleShuffle() {
@@ -140,6 +143,7 @@ func (s *Streamer) Stop() {
 	if s.fileCancel != nil {
 		s.fileCancel()
 	}
+	s.signalStateChange()
 }
 
 func (s *Streamer) Restart() {
@@ -475,6 +479,13 @@ func (s *Streamer) broadcastIdle(subsystem string) {
 	}
 }
 
+func (s *Streamer) signalStateChange() {
+	select {
+	case s.stateCh <- struct{}{}:
+	default:
+	}
+}
+
 type StreamerStats struct {
 	Name           string
 	Mount          string
@@ -564,6 +575,7 @@ func (sm *StreamerManager) StartStreamer(name, mount, musicDir string, loop bool
 		CurrentPlayingID:  -1,
 		PlaylistVersion:   1,
 		idleCh:            make(chan string, 10),
+		stateCh:           make(chan struct{}, 1),
 	}
 
 	if mpdEnabled && mpdPort != "" {
@@ -656,8 +668,12 @@ func (sm *StreamerManager) runStreamerLoop(ctx context.Context, s *Streamer) {
 			return
 		default:
 			if s.State != StatePlaying {
-				time.Sleep(100 * time.Millisecond)
-				continue
+				select {
+				case <-ctx.Done():
+					return
+				case <-s.stateCh:
+					continue
+				}
 			}
 
 			s.mu.Lock()
@@ -700,6 +716,11 @@ func (sm *StreamerManager) runStreamerLoop(ctx context.Context, s *Streamer) {
 				continue
 			}
 
+			if err := validateAudioFile(filePath); err != nil {
+				logger.L.Warnf("Streamer %s: Skipping invalid file %s: %v", s.Name, filePath, err)
+				continue
+			}
+
 			// Create a per-file context for skipping
 			fileCtx, fileCancel := context.WithCancel(ctx)
 			s.mu.Lock()
@@ -719,6 +740,37 @@ func (sm *StreamerManager) runStreamerLoop(ctx context.Context, s *Streamer) {
 		}
 	}
 }
+
+func validateAudioFile(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("file not accessible: %w", err)
+	}
+	if info.IsDir() {
+		return fmt.Errorf("path is a directory")
+	}
+	if info.Size() == 0 {
+		return fmt.Errorf("file is empty")
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("cannot open: %w", err)
+	}
+	defer f.Close()
+
+	header := make([]byte, 4)
+	if _, err := f.Read(header); err != nil {
+		return fmt.Errorf("cannot read header: %w", err)
+	}
+	if header[0] == 'I' && header[1] == 'D' && header[2] == '3' {
+		return nil
+	}
+	if header[0] == 0xFF && (header[1]&0xE0) == 0xE0 {
+		return nil
+	}
+	return fmt.Errorf("unrecognized audio format (header: %x)", header[:4])
+}
+
 func (sm *StreamerManager) streamFile(ctx context.Context, s *Streamer, path string, pos, id int) error {
 	f, err := os.Open(path)
 	if err != nil {

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/DatanoiseTV/tinyice/config"
@@ -55,23 +54,13 @@ func (s *Server) handleAdmin(w http.ResponseWriter, r *http.Request) {
 		s.sessionsMu.RUnlock()
 	}
 
-	w.Header().Set("Content-Type", "text/html")
-	data := map[string]interface{}{
-		"Streams":        streams,
-		"Config":         s.Config,
-		"User":           user,
-		"Mounts":         allMounts,
-		"FallbackMounts": s.Config.FallbackMounts,
-		"CSRFToken":      csrf,
-		"Streamers":      s.StreamerM.GetStreamers(),
-		"Version":        s.Version,
-		"Commit":         s.Commit,
+	pageData := s.BasePageData(csrf)
+	pageData["user"] = map[string]interface{}{
+		"username": user.Username,
+		"role":     user.Role,
 	}
-	if err := s.tmpl.ExecuteTemplate(w, "admin.html", data); err != nil {
-		if !strings.Contains(err.Error(), "broken pipe") {
-			logger.L.Errorf("Template error: %v", err)
-		}
-	}
+	pageData["mounts"] = allMounts
+	s.shell.Render(w, "admin", "Admin — "+s.Config.PageTitle, pageData)
 }
 
 func (s *Server) handleUpdateFallback(w http.ResponseWriter, r *http.Request) {

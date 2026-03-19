@@ -10,13 +10,70 @@ import (
 const (
 	RoleSuperAdmin = "superadmin"
 	RoleAdmin      = "admin"
+	RoleDJ         = "dj"
 )
 
+type PasskeyCredential struct {
+	ID            string `json:"id"`
+	RawCredential string `json:"raw_credential"`
+	Name          string `json:"name"`
+	CreatedAt     string `json:"created_at"`
+	LastUsed      string `json:"last_used"`
+}
+
+type OIDCProvider struct {
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	ClientID     string `json:"client_id"`
+	ClientSecret string `json:"client_secret"`
+	DiscoveryURL string `json:"discovery_url"`
+	Icon         string `json:"icon"`
+	Enabled      bool   `json:"enabled"`
+}
+
+type PendingUser struct {
+	ID          string `json:"id"`
+	Email       string `json:"email"`
+	Name        string `json:"name"`
+	Provider    string `json:"provider"`
+	RequestedAt string `json:"requested_at"`
+	DeniedAt    string `json:"denied_at,omitempty"`
+}
+
+type SMTPConfig struct {
+	Enabled  bool   `json:"enabled"`
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+	From     string `json:"from"`
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+type WebAuthnConfig struct {
+	RPID      string   `json:"rp_id"`
+	RPName    string   `json:"rp_name"`
+	RPOrigins []string `json:"rp_origins"`
+}
+
 type User struct {
-	Username string            `json:"username"`
-	Password string            `json:"password"` // Hashed
-	Role     string            `json:"role"`
-	Mounts   map[string]string `json:"mounts"` // Backward compatibility
+	Username     string               `json:"username"`
+	Password     string               `json:"password"`
+	Role         string               `json:"role"`
+	Mounts       map[string]string    `json:"mounts"`
+	Passkeys     []*PasskeyCredential `json:"passkeys,omitempty"`
+	LinkedEmails []string             `json:"linked_emails,omitempty"`
+}
+
+type APIToken struct {
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	TokenHash  string `json:"token_hash"`
+	Username   string `json:"username"`
+	Role       string `json:"role"`
+	CreatedAt  string `json:"created_at"`
+	LastUsedAt string `json:"last_used_at"`
+	LastUsedIP string `json:"last_used_ip"`
+	ExpiresAt  string `json:"expires_at"`
 }
 
 type RelayConfig struct {
@@ -64,6 +121,20 @@ type AutoDJConfig struct {
 	Visible        bool     `json:"visible"`
 }
 
+type IngestConfig struct {
+	RTMPEnabled bool   `json:"rtmp_enabled"`
+	RTMPPort    string `json:"rtmp_port"`
+	SRTEnabled  bool   `json:"srt_enabled"`
+	SRTPort     string `json:"srt_port"`
+	SRTLatency  int    `json:"srt_latency"` // ms
+}
+
+type MultiTenantConfig struct {
+	Enabled       bool   `json:"enabled"`
+	DefaultTenant string `json:"default_tenant"`
+	TenantStore   string `json:"tenant_store"` // "config", "database"
+}
+
 type Config struct {
 	BindHost              string            `json:"bind_host"`
 	Port                  string            `json:"port"`
@@ -95,6 +166,11 @@ type Config struct {
 	PageTitle    string `json:"page_title"`
 	PageSubtitle string `json:"page_subtitle"`
 
+	// Branding
+	AccentColor     string `json:"accent_color"`
+	LogoPath        string `json:"logo_path"`
+	LandingMarkdown string `json:"landing_markdown"`
+
 	// HTTPS Configuration
 	UseHTTPS         bool     `json:"use_https"`
 	AutoHTTPS        bool     `json:"auto_https"` // ACME
@@ -117,8 +193,26 @@ type Config struct {
 	// Internal Streamer (AutoDJ)
 	AutoDJs []*AutoDJConfig `json:"autodjs"`
 
+	// Ingest (RTMP/SRT)
+	Ingest *IngestConfig `json:"ingest"`
+
 	// Multi-tenant
-	Users map[string]*User `json:"users"`
+	MultiTenant *MultiTenantConfig `json:"multi_tenant"`
+	Users       map[string]*User   `json:"users"`
+	APITokens   []*APIToken        `json:"api_tokens,omitempty"`
+
+	// Auth: Setup & Onboarding
+	SetupComplete bool `json:"setup_complete"`
+
+	// Auth: OIDC
+	OIDCProviders []*OIDCProvider `json:"oidc_providers,omitempty"`
+	PendingUsers  []*PendingUser  `json:"pending_users,omitempty"`
+
+	// Auth: WebAuthn
+	WebAuthn *WebAuthnConfig `json:"webauthn,omitempty"`
+
+	// Auth: Email Notifications
+	SMTP *SMTPConfig `json:"smtp,omitempty"`
 }
 
 func (c *Config) IsWhitelisted(ip string) bool {
@@ -224,6 +318,9 @@ func (config *Config) setBasicDefaults() {
 	if config.PageSubtitle == "" {
 		config.PageSubtitle = "Live Streaming Server powered by Go"
 	}
+	if config.AccentColor == "" {
+		config.AccentColor = "#ff6600"
+	}
 	if config.HTTPSPort == "" {
 		config.HTTPSPort = "443"
 	}
@@ -235,6 +332,10 @@ func (config *Config) setBasicDefaults() {
 	}
 	if config.ChecksumURL == "" {
 		config.ChecksumURL = "https://github.com/DatanoiseTV/tinyice/releases/latest/download/checksums.txt"
+	}
+	// Existing configs are already set up
+	if config.AdminPassword != "" && !config.SetupComplete {
+		config.SetupComplete = true
 	}
 }
 
@@ -275,6 +376,25 @@ func (config *Config) initMapsAndArrays() {
 	if config.AutoDJs == nil {
 		config.AutoDJs = make([]*AutoDJConfig, 0)
 	}
+	if config.OIDCProviders == nil {
+		config.OIDCProviders = make([]*OIDCProvider, 0)
+	}
+	if config.PendingUsers == nil {
+		config.PendingUsers = make([]*PendingUser, 0)
+	}
+	if config.Ingest == nil {
+		config.Ingest = &IngestConfig{
+			RTMPPort:   "1935",
+			SRTPort:    "9000",
+			SRTLatency: 120,
+		}
+	}
+	if config.MultiTenant == nil {
+		config.MultiTenant = &MultiTenantConfig{
+			DefaultTenant: "default",
+			TenantStore:   "config",
+		}
+	}
 }
 
 func (config *Config) handleMigrations() {
@@ -298,5 +418,9 @@ func (c *Config) SaveConfig() error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(c.ConfigPath, data, 0600)
+	tmpPath := c.ConfigPath + ".tmp"
+	if err := os.WriteFile(tmpPath, data, 0600); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, c.ConfigPath)
 }

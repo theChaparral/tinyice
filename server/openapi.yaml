@@ -1,0 +1,1820 @@
+openapi: 3.0.3
+info:
+  title: TinyIce API
+  description: |
+    REST API for TinyIce audio streaming server.
+
+    ## Authentication
+    Two authentication methods are supported:
+
+    **Session cookie** — Log in via `POST /login` to get a `sid` session cookie.
+
+    **Bearer token** — Create an API token in the admin panel (`/admin/tokens`) and pass it
+    as `Authorization: Bearer ti_...` header. Tokens can have optional expiry dates and
+    track last-used time/IP.
+
+    No CSRF tokens are needed for JSON API requests — the `Content-Type: application/json`
+    header provides implicit CSRF protection since it triggers a CORS preflight for
+    cross-origin requests.
+
+    ## Real-time Updates
+    Use the SSE endpoint `GET /events` for real-time metadata, stream status, and
+    listener count updates without polling.
+  version: "2.0"
+  license:
+    name: MIT
+
+servers:
+  - url: /
+    description: This server
+
+tags:
+  - name: Auth
+    description: Authentication and session management
+  - name: Streams
+    description: Manage stream mount points
+  - name: AutoDJ
+    description: Automated DJ / streamer instances
+  - name: Playlist
+    description: AutoDJ playlist management
+  - name: Queue
+    description: AutoDJ play-next queue
+  - name: Library
+    description: Browse music files
+  - name: Relays
+    description: Relay pull connections from upstream servers
+  - name: Transcoders
+    description: Live audio transcoding between formats
+  - name: Users
+    description: User account management
+  - name: Pending Users
+    description: OIDC pending user approval
+  - name: Security
+    description: IP bans and whitelist
+  - name: Branding
+    description: Server branding, logo, and appearance
+  - name: Settings
+    description: Server configuration
+  - name: Stats
+    description: Server statistics and metrics
+  - name: Tenants
+    description: Multi-tenant management
+  - name: Streaming
+    description: Listener and source connections
+  - name: WebRTC
+    description: WebRTC signaling for source and listener connections
+
+paths:
+  # ── Auth ─────────────────────────────────────────────────
+  /login:
+    post:
+      tags: [Auth]
+      summary: Log in
+      description: Authenticate with username and password. Returns a session cookie.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username:
+                  type: string
+                password:
+                  type: string
+      responses:
+        "200":
+          description: Login successful, session cookie set
+        "401":
+          description: Invalid credentials
+
+  /logout:
+    get:
+      tags: [Auth]
+      summary: Log out
+      description: Destroy session and redirect to landing page.
+      responses:
+        "302":
+          description: Redirect to /
+
+  /api/passkey/register/begin:
+    post:
+      tags: [Auth]
+      summary: Begin passkey registration
+      security:
+        - session: []
+        - bearer: []
+      responses:
+        "200":
+          description: WebAuthn registration options
+
+  /api/passkey/register/finish:
+    post:
+      tags: [Auth]
+      summary: Complete passkey registration
+      security:
+        - session: []
+        - bearer: []
+      parameters:
+        - name: challengeKey
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Passkey registered
+
+  /api/passkey/login/begin:
+    post:
+      tags: [Auth]
+      summary: Begin passkey login
+      responses:
+        "200":
+          description: WebAuthn authentication options
+
+  /api/passkey/login/finish:
+    post:
+      tags: [Auth]
+      summary: Complete passkey login
+      parameters:
+        - name: challengeKey
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Login successful, session cookie set
+
+  /api/oidc/providers:
+    get:
+      tags: [Auth]
+      summary: List OIDC providers
+      description: Returns available OAuth2/OIDC login providers (GitHub, Google, etc.).
+      responses:
+        "200":
+          description: Array of provider objects
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    name:
+                      type: string
+                    icon_url:
+                      type: string
+
+  # ── API Tokens ────────────────────────────────────────────
+  /api/tokens:
+    get:
+      tags: [Auth]
+      summary: List API tokens
+      description: Superadmins see all tokens; other users see only their own. Never returns raw token values.
+      security:
+        - session: []
+        - bearer: []
+      responses:
+        "200":
+          description: Array of token metadata
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    name:
+                      type: string
+                    username:
+                      type: string
+                    created_at:
+                      type: string
+                      format: date-time
+                    last_used_at:
+                      type: string
+                      format: date-time
+                      description: Empty if never used
+                    last_used_ip:
+                      type: string
+                    expires_at:
+                      type: string
+                      format: date-time
+                      description: Empty if no expiry
+                    prefix:
+                      type: string
+                      description: "Truncated token prefix for identification (e.g. ti_a1b2...)"
+    post:
+      tags: [Auth]
+      summary: Create API token
+      description: |
+        Creates a new API token. The raw token value is returned ONCE in the response
+        and cannot be retrieved later — store it securely.
+      security:
+        - session: []
+        - bearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  description: Human-readable label for the token
+                  example: CI/CD Pipeline
+                expires_at:
+                  type: string
+                  format: date-time
+                  description: Optional expiry (RFC3339). Omit or empty for no expiry.
+      responses:
+        "200":
+          description: Token created — raw token included (shown only once)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  token:
+                    type: string
+                    description: "Raw token (ti_...) — save this, it won't be shown again"
+                  name:
+                    type: string
+    delete:
+      tags: [Auth]
+      summary: Revoke API token
+      description: Only the token owner or a superadmin can delete a token.
+      security:
+        - session: []
+        - bearer: []
+      parameters:
+        - name: id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Token revoked
+        "404":
+          description: Token not found
+
+  # ── Streams ───────────────────────────────────────────────
+  /api/streams:
+    get:
+      tags: [Streams]
+      summary: List all streams
+      description: |
+        Returns all stream mounts the authenticated user has access to.
+        Includes both active streams (with a connected source) and configured-but-offline mounts.
+        Offline mounts have `live: false` and empty `source_ip`.
+      security:
+        - session: []
+        - bearer: []
+      responses:
+        "200":
+          description: Array of stream info objects
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Stream"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [Streams]
+      summary: Create a stream mount
+      security:
+        - session: []
+        - bearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mount, password]
+              properties:
+                mount:
+                  type: string
+                  description: Mount path (will be prefixed with / if missing)
+                  example: /live
+                password:
+                  type: string
+                  description: Source password for this mount
+                  example: secret123
+      responses:
+        "200":
+          description: Mount created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          description: Mount already taken
+    delete:
+      tags: [Streams]
+      summary: Delete a stream mount
+      security:
+        - session: []
+        - bearer: []
+      parameters:
+        - name: mount
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Mount deleted
+
+  /api/streams/kick:
+    post:
+      tags: [Streams]
+      summary: Kick source or listeners
+      description: Disconnect the source client or all listeners from a mount.
+      security:
+        - session: []
+        - bearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mount]
+              properties:
+                mount:
+                  type: string
+                type:
+                  type: string
+                  enum: [source, listeners]
+                  default: source
+                  description: What to kick — the source encoder or all listeners
+      responses:
+        "200":
+          description: OK
+
+  # ── AutoDJ ────────────────────────────────────────────────
+  /api/autodj:
+    get:
+      tags: [AutoDJ]
+      summary: List AutoDJ instances
+      security:
+        - session: []
+        - bearer: []
+      responses:
+        "200":
+          description: Array of AutoDJ instances with playback state
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AutoDJ"
+    post:
+      tags: [AutoDJ]
+      summary: Create AutoDJ instance
+      description: Creates a new AutoDJ, starts it, scans the music directory, and begins playback.
+      security:
+        - session: []
+        - bearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, mount, music_dir]
+              properties:
+                name:
+                  type: string
+                  example: My Station
+                mount:
+                  type: string
+                  example: /radio
+                music_dir:
+                  type: string
+                  description: Absolute path to music directory on server
+                  example: /home/music
+                format:
+                  type: string
+                  enum: [mp3, opus, ogg]
+                  default: mp3
+                bitrate:
+                  type: integer
+                  default: 128
+                loop:
+                  type: boolean
+                  default: true
+                inject_metadata:
+                  type: boolean
+                  default: true
+                visible:
+                  type: boolean
+                  default: false
+                  description: Show on public explore/landing pages
+      responses:
+        "200":
+          description: AutoDJ created and started
+        "400":
+          $ref: "#/components/responses/BadRequest"
+    delete:
+      tags: [AutoDJ]
+      summary: Delete AutoDJ instance
+      security:
+        - session: []
+        - bearer: []
+      parameters:
+        - name: mount
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: AutoDJ stopped and deleted
+        "404":
+          description: AutoDJ not found
+
+  /api/autodj/play:
+    post:
+      tags: [AutoDJ]
+      summary: Start / resume playback
+      security:
+        - session: []
+        - bearer: []
+      parameters:
+        - name: mount
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Playing
+        "404":
+          description: Streamer not found
+
+  /api/autodj/pause:
+    post:
+      tags: [AutoDJ]
+      summary: Pause playback
+      security:
+        - session: []
+        - bearer: []
+      parameters:
+        - name: mount
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Paused
+
+  /api/autodj/next:
+    post:
+      tags: [AutoDJ]
+      summary: Skip to next track
+      security:
+        - session: []
+        - bearer: []
+      parameters:
+        - name: mount
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Skipped
+
+  /api/autodj/shuffle:
+    post:
+      tags: [AutoDJ]
+      summary: Toggle shuffle mode
+      security:
+        - session: []
+        - bearer: []
+      parameters:
+        - name: mount
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Shuffle toggled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  shuffle:
+                    type: boolean
+
+  /api/autodj/loop:
+    post:
+      tags: [AutoDJ]
+      summary: Toggle loop mode
+      security:
+        - session: []
+        - bearer: []
+      parameters:
+        - name: mount
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Loop toggled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  loop:
+                    type: boolean
+
+  # ── Playlist ──────────────────────────────────────────────
+  /api/autodj/playlist:
+    get:
+      tags: [Playlist]
+      summary: Get playlist
+      security:
+        - session: []
+        - bearer: []
+      parameters:
+        - name: mount
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Playlist items with metadata
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PlaylistItem"
+    post:
+      tags: [Playlist]
+      summary: Add files to playlist
+      description: Add one or more files. Directories are recursively scanned for audio files.
+      security:
+        - session: []
+        - bearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                mount:
+                  type: string
+                path:
+                  type: string
+                  description: Single file/directory path (relative to music dir)
+                paths:
+                  type: array
+                  items:
+                    type: string
+                  description: Multiple file paths
+      responses:
+        "200":
+          description: Files added and playlist saved
+    delete:
+      tags: [Playlist]
+      summary: Remove track from playlist
+      security:
+        - session: []
+        - bearer: []
+      parameters:
+        - name: mount
+          in: query
+          schema:
+            type: string
+        - name: id
+          in: query
+          schema:
+            type: integer
+            description: Track index in playlist
+      responses:
+        "200":
+          description: Track removed
+
+  /api/autodj/playlist/clear:
+    post:
+      tags: [Playlist]
+      summary: Clear entire playlist
+      security:
+        - session: []
+        - bearer: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                mount:
+                  type: string
+      responses:
+        "200":
+          description: Playlist cleared
+
+  /api/autodj/playlist/reorder:
+    post:
+      tags: [Playlist]
+      summary: Reorder playlist item
+      security:
+        - session: []
+        - bearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mount, from, to]
+              properties:
+                mount:
+                  type: string
+                from:
+                  type: integer
+                  description: Source index
+                to:
+                  type: integer
+                  description: Destination index
+      responses:
+        "200":
+          description: Item reordered
+
+  # ── Queue ─────────────────────────────────────────────────
+  /api/autodj/queue:
+    get:
+      tags: [Queue]
+      summary: Get play-next queue
+      description: Returns tracks queued to play next, before returning to the playlist.
+      security:
+        - session: []
+        - bearer: []
+      parameters:
+        - name: mount
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Queue items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PlaylistItem"
+    post:
+      tags: [Queue]
+      summary: Add to play-next queue
+      security:
+        - session: []
+        - bearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mount, path]
+              properties:
+                mount:
+                  type: string
+                path:
+                  type: string
+                  description: File path relative to music directory
+      responses:
+        "200":
+          description: Added to queue
+
+  # ── Library ───────────────────────────────────────────────
+  /api/autodj/files:
+    get:
+      tags: [Library]
+      summary: Browse music directory
+      description: Lists audio files and subdirectories. Also shows saved .pls playlists at root level.
+      security:
+        - session: []
+        - bearer: []
+      parameters:
+        - name: mount
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: path
+          in: query
+          schema:
+            type: string
+            description: Subdirectory path relative to music dir (empty for root)
+      responses:
+        "200":
+          description: Directory listing
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FileEntry"
+
+  # ── Relays ────────────────────────────────────────────────
+  /api/relays:
+    get:
+      tags: [Relays]
+      summary: List relays
+      description: Returns all relay configurations with their connection status. Requires superadmin.
+      security:
+        - session: []
+        - bearer: []
+      responses:
+        "200":
+          description: Array of relay configurations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Relay"
+    post:
+      tags: [Relays]
+      summary: Create or update relay
+      description: If a relay with the same mount exists, it is updated. Otherwise a new one is created and started.
+      security:
+        - session: []
+        - bearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url, mount]
+              properties:
+                url:
+                  type: string
+                  description: Upstream server stream URL
+                  example: http://upstream:8000/live
+                mount:
+                  type: string
+                  description: Local mount point
+                  example: /relay
+                password:
+                  type: string
+                  description: Upstream source password (if required)
+                burst_size:
+                  type: integer
+                  default: 20
+                  description: Burst buffer size in KB
+      responses:
+        "200":
+          description: Relay created/updated and started
+    delete:
+      tags: [Relays]
+      summary: Delete relay
+      security:
+        - session: []
+        - bearer: []
+      parameters:
+        - name: mount
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Relay stopped and deleted
+
+  /api/relays/toggle:
+    post:
+      tags: [Relays]
+      summary: Toggle relay enabled/disabled
+      security:
+        - session: []
+        - bearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mount]
+              properties:
+                mount:
+                  type: string
+      responses:
+        "200":
+          description: Relay toggled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  enabled:
+                    type: boolean
+
+  # ── Transcoders ───────────────────────────────────────────
+  /api/transcoders:
+    get:
+      tags: [Transcoders]
+      summary: List transcoders
+      description: Returns all transcoder configurations with runtime stats.
+      security:
+        - session: []
+        - bearer: []
+      responses:
+        "200":
+          description: Array of transcoder instances
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Transcoder"
+    post:
+      tags: [Transcoders]
+      summary: Create transcoder
+      description: Creates a live transcoder that re-encodes audio from one mount to another.
+      security:
+        - session: []
+        - bearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, input_mount, output_mount]
+              properties:
+                name:
+                  type: string
+                  example: 128k MP3
+                input_mount:
+                  type: string
+                  example: /live
+                output_mount:
+                  type: string
+                  example: /live-128
+                format:
+                  type: string
+                  enum: [mp3, opus]
+                bitrate:
+                  type: integer
+                  example: 128
+      responses:
+        "200":
+          description: Transcoder created and started
+    delete:
+      tags: [Transcoders]
+      summary: Delete transcoder
+      security:
+        - session: []
+        - bearer: []
+      parameters:
+        - name: name
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Transcoder stopped and deleted
+
+  # ── Users ─────────────────────────────────────────────────
+  /api/users:
+    get:
+      tags: [Users]
+      summary: List users
+      description: Returns all users with their roles and mount access. Requires superadmin.
+      security:
+        - session: []
+        - bearer: []
+      responses:
+        "200":
+          description: Array of users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
+    post:
+      tags: [Users]
+      summary: Create user
+      security:
+        - session: []
+        - bearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username:
+                  type: string
+                password:
+                  type: string
+                role:
+                  type: string
+                  enum: [admin, superadmin]
+                  default: admin
+      responses:
+        "200":
+          description: User created
+    put:
+      tags: [Users]
+      summary: Update user
+      description: Update password and/or role. Omit password to keep current.
+      security:
+        - session: []
+        - bearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username]
+              properties:
+                username:
+                  type: string
+                password:
+                  type: string
+                role:
+                  type: string
+      responses:
+        "200":
+          description: User updated
+    delete:
+      tags: [Users]
+      summary: Delete user
+      description: Cannot delete yourself.
+      security:
+        - session: []
+        - bearer: []
+      parameters:
+        - name: username
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: User deleted
+
+  # ── Pending Users ─────────────────────────────────────────
+  /api/pending-users:
+    get:
+      tags: [Pending Users]
+      summary: List pending access requests
+      description: Returns users who authenticated via OIDC but haven't been approved yet.
+      security:
+        - session: []
+        - bearer: []
+      responses:
+        "200":
+          description: Array of pending users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    email:
+                      type: string
+                    name:
+                      type: string
+                    provider:
+                      type: string
+                    requested_at:
+                      type: string
+                      format: date-time
+
+  /api/pending-users/approve:
+    post:
+      tags: [Pending Users]
+      summary: Approve pending user
+      security:
+        - session: []
+        - bearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id, username, role]
+              properties:
+                id:
+                  type: string
+                username:
+                  type: string
+                  description: Username to assign
+                role:
+                  type: string
+                  enum: [dj, admin, superadmin]
+      responses:
+        "200":
+          description: User approved
+
+  /api/pending-users/deny:
+    post:
+      tags: [Pending Users]
+      summary: Deny pending user
+      security:
+        - session: []
+        - bearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id]
+              properties:
+                id:
+                  type: string
+      responses:
+        "200":
+          description: User denied
+
+  # ── Security ──────────────────────────────────────────────
+  /api/security/bans:
+    get:
+      tags: [Security]
+      summary: List banned IPs
+      description: Requires superadmin.
+      security:
+        - session: []
+        - bearer: []
+      responses:
+        "200":
+          description: Array of banned IP/CIDR strings
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+                  example: 192.168.1.0/24
+    post:
+      tags: [Security]
+      summary: Ban an IP or CIDR range
+      security:
+        - session: []
+        - bearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ip]
+              properties:
+                ip:
+                  type: string
+                  example: 192.168.1.0/24
+      responses:
+        "200":
+          description: IP banned
+    delete:
+      tags: [Security]
+      summary: Remove IP ban
+      security:
+        - session: []
+        - bearer: []
+      parameters:
+        - name: ip
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Ban removed
+
+  /api/security/whitelist:
+    get:
+      tags: [Security]
+      summary: List whitelisted IPs
+      description: When non-empty, only these IPs can connect. Requires superadmin.
+      security:
+        - session: []
+        - bearer: []
+      responses:
+        "200":
+          description: Array of whitelisted IP/CIDR strings
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+    post:
+      tags: [Security]
+      summary: Add IP to whitelist
+      security:
+        - session: []
+        - bearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ip]
+              properties:
+                ip:
+                  type: string
+      responses:
+        "200":
+          description: IP whitelisted
+    delete:
+      tags: [Security]
+      summary: Remove IP from whitelist
+      security:
+        - session: []
+        - bearer: []
+      parameters:
+        - name: ip
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Removed from whitelist
+
+  # ── Branding ──────────────────────────────────────────────
+  /api/branding:
+    get:
+      tags: [Branding]
+      summary: Get branding settings
+      security:
+        - session: []
+        - bearer: []
+      responses:
+        "200":
+          description: Branding configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Branding"
+    put:
+      tags: [Branding]
+      summary: Update branding settings
+      description: All fields are optional — only provided fields are updated.
+      security:
+        - session: []
+        - bearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Branding"
+      responses:
+        "200":
+          description: Branding updated
+
+  /api/branding/logo:
+    post:
+      tags: [Branding]
+      summary: Upload logo image
+      description: Upload a PNG, JPG, or SVG logo (max 2MB). Saved to `branding/logo.{ext}`.
+      security:
+        - session: []
+        - bearer: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [logo]
+              properties:
+                logo:
+                  type: string
+                  format: binary
+                  description: Image file (PNG, JPG, SVG)
+      responses:
+        "200":
+          description: Logo uploaded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  path:
+                    type: string
+
+  /branding/logo:
+    get:
+      tags: [Branding]
+      summary: Get logo image
+      description: Serves the uploaded logo file. Returns 404 if no logo is set.
+      responses:
+        "200":
+          description: Logo image
+          content:
+            image/*: {}
+        "404":
+          description: No logo configured
+
+  # ── Settings ──────────────────────────────────────────────
+  /api/settings:
+    get:
+      tags: [Settings]
+      summary: Get server settings
+      description: Requires superadmin.
+      security:
+        - session: []
+        - bearer: []
+      responses:
+        "200":
+          description: Server configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settings"
+    put:
+      tags: [Settings]
+      summary: Update server settings
+      description: All fields are optional — only provided fields are updated. Requires superadmin.
+      security:
+        - session: []
+        - bearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Settings"
+      responses:
+        "200":
+          description: Settings updated
+
+  # ── Stats ─────────────────────────────────────────────────
+  /api/stats:
+    get:
+      tags: [Stats]
+      summary: Get server statistics
+      description: Returns comprehensive server stats including per-stream metrics, memory usage, and version info.
+      security:
+        - session: []
+        - bearer: []
+      responses:
+        "200":
+          description: Server statistics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Stats"
+
+  # ── Tenants ───────────────────────────────────────────────
+  /api/tenants:
+    get:
+      tags: [Tenants]
+      summary: List tenants
+      security:
+        - session: []
+        - bearer: []
+      responses:
+        "200":
+          description: Array of tenant objects
+
+  /api/tenants/usage:
+    get:
+      tags: [Tenants]
+      summary: Get tenant usage stats
+      security:
+        - session: []
+        - bearer: []
+      parameters:
+        - name: tenant_id
+          in: query
+          schema:
+            type: string
+            default: default
+      responses:
+        "200":
+          description: Tenant usage statistics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tenant_id:
+                    type: string
+                  plan:
+                    type: string
+                  bytes_in:
+                    type: integer
+                  bytes_out:
+                    type: integer
+                  current_listeners:
+                    type: integer
+                  peak_listeners:
+                    type: integer
+                  stream_minutes:
+                    type: number
+                  stream_count:
+                    type: integer
+                  bandwidth_limit_mb:
+                    type: integer
+                  over_limit:
+                    type: boolean
+
+  # ── Streaming ─────────────────────────────────────────────
+  /{mount}:
+    get:
+      tags: [Streaming]
+      summary: Listen to audio stream
+      description: |
+        Connect as a listener to receive the audio stream via HTTP.
+        The server responds with a continuous audio stream in the format
+        configured for that mount (MP3, Opus, OGG).
+      parameters:
+        - name: mount
+          in: path
+          required: true
+          schema:
+            type: string
+          example: /live
+      responses:
+        "200":
+          description: Audio stream
+          content:
+            audio/mpeg: {}
+            audio/ogg: {}
+            application/ogg: {}
+        "404":
+          description: Mount not found or no source connected
+
+  /events:
+    get:
+      tags: [Streaming]
+      summary: Real-time events (SSE)
+      description: |
+        Server-Sent Events stream for real-time updates. No authentication required.
+
+        **Event types:**
+        - `metadata` — Track title/artist changed: `{mount, title, artist}`
+        - `stream` — Stream status update: `{mount, format, bitrate, listeners, health}`
+        - `streams` — Full stream list refresh: `[{mount, title, artist, ...}]`
+      responses:
+        "200":
+          description: SSE event stream
+          content:
+            text/event-stream: {}
+
+  # ── WebRTC ────────────────────────────────────────────────
+  /webrtc/offer:
+    post:
+      tags: [WebRTC]
+      summary: WebRTC listener offer
+      description: |
+        Exchange SDP to listen to a stream via WebRTC for ultra-low-latency playback.
+        Send your local SDP offer and receive the server's SDP answer.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sdp, type]
+              properties:
+                sdp:
+                  type: string
+                  description: SDP offer string
+                type:
+                  type: string
+                  example: offer
+      parameters:
+        - name: mount
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: SDP answer
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sdp:
+                    type: string
+                  type:
+                    type: string
+
+  /webrtc/source-offer:
+    post:
+      tags: [WebRTC]
+      summary: WebRTC source offer
+      description: |
+        Exchange SDP to broadcast audio via WebRTC. The browser captures audio
+        (e.g. via `getUserMedia`), creates an offer, and sends it here.
+        The server responds with an SDP answer to complete the connection.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sdp, type]
+              properties:
+                sdp:
+                  type: string
+                type:
+                  type: string
+                  example: offer
+      parameters:
+        - name: mount
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: SDP answer
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sdp:
+                    type: string
+                  type:
+                    type: string
+
+components:
+  securitySchemes:
+    session:
+      type: apiKey
+      in: cookie
+      name: sid
+      description: Session cookie obtained via POST /login
+    bearer:
+      type: http
+      scheme: bearer
+      description: API token created in the admin panel (format ti_...)
+
+  responses:
+    Unauthorized:
+      description: Not authenticated — session cookie missing or expired
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    BadRequest:
+      description: Invalid request body or missing required fields
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Forbidden:
+      description: Insufficient permissions (e.g. requires superadmin)
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Human-readable error message
+
+    StatusResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: created
+        mount:
+          type: string
+
+    Stream:
+      type: object
+      properties:
+        mount:
+          type: string
+        content_type:
+          type: string
+          description: MIME type (e.g. audio/mpeg)
+        bitrate:
+          type: string
+          description: Bitrate string (e.g. "128")
+        listeners:
+          type: integer
+        source_ip:
+          type: string
+          description: IP of connected source, empty if offline
+        visible:
+          type: boolean
+          description: Whether shown on public pages
+        enabled:
+          type: boolean
+        health:
+          type: number
+          description: Stream health percentage (0-100)
+        uptime:
+          type: string
+          description: Human-readable uptime
+        current_song:
+          type: string
+        name:
+          type: string
+        live:
+          type: boolean
+          description: Whether a source is currently connected
+
+    AutoDJ:
+      type: object
+      properties:
+        name:
+          type: string
+        mount:
+          type: string
+        state:
+          type: integer
+          description: "0=stopped, 1=playing, 2=paused"
+        current_song:
+          type: string
+        start_time:
+          type: integer
+          format: int64
+          description: Unix timestamp of current track start
+        duration:
+          type: number
+          description: Current track duration in seconds
+        playlist_pos:
+          type: integer
+        playlist_len:
+          type: integer
+        shuffle:
+          type: boolean
+        loop:
+          type: boolean
+        inject_metadata:
+          type: boolean
+        visible:
+          type: boolean
+        music_dir:
+          type: string
+        format:
+          type: string
+        bitrate:
+          type: integer
+        enabled:
+          type: boolean
+        mpd_enabled:
+          type: boolean
+        mpd_port:
+          type: string
+        last_playlist:
+          type: string
+        queue:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlaylistItem"
+
+    PlaylistItem:
+      type: object
+      properties:
+        id:
+          type: string
+        file:
+          type: string
+        title:
+          type: string
+
+    FileEntry:
+      type: object
+      properties:
+        name:
+          type: string
+        title:
+          type: string
+          description: Song title from metadata, or filename
+        is_dir:
+          type: boolean
+        path:
+          type: string
+          description: Relative path within music directory
+        abs_path:
+          type: string
+          description: Absolute path on server filesystem
+        is_pls:
+          type: boolean
+          description: Whether this is a saved .pls playlist file
+
+    Relay:
+      type: object
+      properties:
+        url:
+          type: string
+          description: Upstream stream URL
+        mount:
+          type: string
+          description: Local mount point
+        burst_size:
+          type: integer
+        enabled:
+          type: boolean
+          description: Whether relay is configured to run
+        active:
+          type: boolean
+          description: Whether relay is currently connected and pulling
+
+    Transcoder:
+      type: object
+      properties:
+        name:
+          type: string
+        input:
+          type: string
+          description: Source mount
+        output:
+          type: string
+          description: Output mount
+        format:
+          type: string
+        bitrate:
+          type: integer
+        active:
+          type: boolean
+        frames_processed:
+          type: integer
+          format: int64
+        bytes_encoded:
+          type: integer
+          format: int64
+        uptime:
+          type: string
+          description: Human-readable uptime, or "OFF" if inactive
+
+    User:
+      type: object
+      properties:
+        username:
+          type: string
+        role:
+          type: string
+          enum: [admin, superadmin]
+        mounts:
+          type: array
+          items:
+            type: string
+          description: Mount points this user can manage
+
+    Branding:
+      type: object
+      description: All fields are optional on update — only provided fields are changed.
+      properties:
+        page_title:
+          type: string
+          description: Site name shown in nav bar and browser tab
+          example: My Radio
+        page_subtitle:
+          type: string
+          description: Tagline shown on landing page
+          example: Broadcasting 24/7
+        accent_color:
+          type: string
+          description: Primary accent color (hex)
+          example: "#ff6600"
+        logo_path:
+          type: string
+          description: Path to logo file on disk (set via logo upload endpoint)
+        landing_markdown:
+          type: string
+          description: Markdown content for the landing page hero section
+
+    Settings:
+      type: object
+      description: All fields are optional on update. Read-only fields (bind_host, port, use_https) are returned by GET but ignored on PUT.
+      properties:
+        bind_host:
+          type: string
+          description: Bind address (read-only)
+        port:
+          type: integer
+          description: HTTP port (read-only)
+        hostname:
+          type: string
+          description: Public hostname
+        base_url:
+          type: string
+          description: Public base URL
+        location:
+          type: string
+          description: Server location string
+        admin_email:
+          type: string
+        low_latency_mode:
+          type: boolean
+          description: Reduce buffering for lower latency at cost of stability
+        max_listeners:
+          type: integer
+          description: Maximum concurrent listeners (0 = unlimited)
+        use_https:
+          type: boolean
+          description: Whether HTTPS is enabled (read-only)
+        auto_https:
+          type: boolean
+          description: Automatic HTTPS via ACME (read-only)
+        directory_listing:
+          type: boolean
+          description: Register with stream directories
+        auto_update:
+          type: boolean
+          description: Automatically check for updates
+
+    Stats:
+      type: object
+      properties:
+        bytes_in:
+          type: integer
+          format: int64
+          description: Total bytes received from sources
+        bytes_out:
+          type: integer
+          format: int64
+          description: Total bytes sent to listeners
+        total_listeners:
+          type: integer
+        total_streams:
+          type: integer
+        total_dropped:
+          type: integer
+          format: int64
+          description: Total bytes dropped due to slow listeners
+        server_uptime:
+          type: string
+          description: Human-readable server uptime
+        goroutines:
+          type: integer
+        sys_ram:
+          type: integer
+          format: int64
+          description: System memory allocated (bytes)
+        heap_alloc:
+          type: integer
+          format: int64
+          description: Heap memory in use (bytes)
+        num_gc:
+          type: integer
+          description: Number of garbage collections
+        version:
+          type: string
+        commit:
+          type: string
+        streams:
+          type: array
+          items:
+            $ref: "#/components/schemas/Stream"

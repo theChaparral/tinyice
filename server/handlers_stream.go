@@ -2,10 +2,8 @@ package server
 
 import (
 	"fmt"
-	"html/template"
 	"net"
 	"net/http"
-	"os"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -13,9 +11,6 @@ import (
 	"github.com/DatanoiseTV/tinyice/config"
 	"github.com/DatanoiseTV/tinyice/logger"
 	"github.com/DatanoiseTV/tinyice/relay"
-	"github.com/gomarkdown/markdown"
-	"github.com/gomarkdown/markdown/html"
-	"github.com/gomarkdown/markdown/parser"
 )
 
 func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
@@ -32,7 +27,25 @@ func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 		s.handlePLS(w, r)
 		return
 	}
-	if r.Method == "GET" && r.URL.Path != "/" && r.URL.Path != "/favicon.ico" && r.URL.Path != "/admin" && !strings.HasPrefix(r.URL.Path, "/player") {
+	// Known app paths — serve the appropriate page, not a stream listener
+	path := r.URL.Path
+	if strings.HasPrefix(path, "/admin") {
+		// All /admin/* paths serve the admin SPA shell
+		s.handleAdmin(w, r)
+		return
+	}
+
+	// Only treat as stream listener if it's not a known app route
+	appPrefixes := []string{"/login", "/logout", "/setup", "/auth/", "/api/", "/explore", "/developers", "/assets/", "/events", "/player", "/embed/", "/webrtc"}
+	isAppRoute := path == "/" || path == "/favicon.ico"
+	for _, prefix := range appPrefixes {
+		if strings.HasPrefix(path, prefix) || path == prefix {
+			isAppRoute = true
+			break
+		}
+	}
+
+	if r.Method == "GET" && !isAppRoute {
 		s.handleListener(w, r)
 		return
 	}
@@ -226,6 +239,9 @@ func (s *Server) handleListener(w http.ResponseWriter, r *http.Request) {
 	recoveryTicker := time.NewTicker(10 * time.Second)
 	defer recoveryTicker.Stop()
 
+	var primaryFirstSeen time.Time
+	const fallbackHysteresis = 30 * time.Second
+
 	for {
 		select {
 		case <-s.done:
@@ -235,8 +251,19 @@ func (s *Server) handleListener(w http.ResponseWriter, r *http.Request) {
 
 		if mount != originalMount {
 			if _, ok := s.Relay.GetStream(originalMount); ok {
-				logger.L.Infow("Primary stream returned, recovering from fallback", "mount", originalMount)
-				mount = originalMount
+				if primaryFirstSeen.IsZero() {
+					primaryFirstSeen = time.Now()
+				}
+				if time.Since(primaryFirstSeen) >= fallbackHysteresis {
+					logger.L.Infow("Primary stream stable, recovering from fallback",
+						"mount", originalMount,
+						"stable_for", time.Since(primaryFirstSeen),
+					)
+					mount = originalMount
+					primaryFirstSeen = time.Time{}
+				}
+			} else {
+				primaryFirstSeen = time.Time{}
 			}
 		}
 
@@ -272,6 +299,11 @@ func (s *Server) handleListener(w http.ResponseWriter, r *http.Request) {
 		}
 
 		w.Header().Set("Content-Type", stream.ContentType)
+		if mount != originalMount {
+			w.Header().Set("X-Stream-Status", "fallback")
+		} else {
+			w.Header().Set("X-Stream-Status", "primary")
+		}
 		if flusher != nil {
 			flusher.Flush()
 		}
@@ -301,6 +333,9 @@ func (s *Server) serveStreamData(w http.ResponseWriter, r *http.Request, stream 
 	bytesSentSinceMeta := 0
 	lastSong := ""
 
+	consecutiveSkips := 0
+	maxConsecutiveSkips := 5
+
 	for {
 		select {
 		case <-s.done:
@@ -328,6 +363,14 @@ func (s *Server) serveStreamData(w http.ResponseWriter, r *http.Request, stream 
 
 				n, next, skipped := stream.Buffer.ReadAt(offset, buf[:readLimit])
 				if skipped && stream.IsOggStream {
+					consecutiveSkips++
+					if consecutiveSkips >= maxConsecutiveSkips {
+						logger.L.Warnw("Slow listener disconnected (ogg sync skip)",
+							"id", id, "mount", currentMount,
+							"consecutive_skips", consecutiveSkips,
+						)
+						return false
+					}
 					offset = relay.FindNextPageBoundary(stream.Buffer.Data, stream.Buffer.Size, stream.Buffer.Head, next)
 					continue
 				}
@@ -336,6 +379,16 @@ func (s *Server) serveStreamData(w http.ResponseWriter, r *http.Request, stream 
 				}
 				if skipped {
 					atomic.AddInt64(&stream.BytesDropped, next-offset)
+					consecutiveSkips++
+					if consecutiveSkips >= maxConsecutiveSkips {
+						logger.L.Warnw("Slow listener disconnected",
+							"id", id, "mount", currentMount,
+							"consecutive_skips", consecutiveSkips,
+						)
+						return false
+					}
+				} else {
+					consecutiveSkips = 0
 				}
 				offset = next
 
@@ -376,37 +429,24 @@ func (s *Server) serveStreamData(w http.ResponseWriter, r *http.Request, stream 
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
-	md := ""
-	if data, err := os.ReadFile("LANDING.md"); err == nil {
-		md = string(data)
-	} else {
-		md = `# Welcome to TinyIce
-Explore our high-performance live streaming network. Discover new music, live shows, and community broadcasts from around the world.
-
-* **High Performance**: Built with zero-allocation broadcasting.
-* **Smart Recovery**: Automatic fallback and primary stream recovery.
-* **Ready to Play**: Interactive web players for every station.`
-	}
-
-	extensions := parser.CommonExtensions | parser.NoEmptyLineBeforeBlock
-	p := parser.NewWithExtensions(extensions)
-	doc := p.Parse([]byte(md))
-
-	htmlFlags := html.CommonFlags | html.HrefTargetBlank
-	opts := html.RendererOptions{Flags: htmlFlags}
-	renderer := html.NewRenderer(opts)
-
-	content := markdown.Render(doc, renderer)
-
-	w.Header().Set("Content-Type", "text/html")
-	data := map[string]interface{}{
-		"LandingContent": template.HTML(content),
-		"Config":         s.Config,
-	}
-	if err := s.tmpl.ExecuteTemplate(w, "index.html", data); err != nil {
-		if !strings.Contains(err.Error(), "broken pipe") {
-			logger.L.Errorf("Template error: %v", err)
+	// Build stream list for the landing page
+	allStreams := s.Relay.Snapshot()
+	var streamList []map[string]interface{}
+	for _, st := range allStreams {
+		if st.Visible {
+			streamList = append(streamList, map[string]interface{}{
+				"mount":     st.MountName,
+				"title":     st.CurrentSong,
+				"artist":    st.Name,
+				"format":    st.ContentType,
+				"bitrate":   st.Bitrate,
+				"listeners": st.ListenersCount,
+				"live":      st.SourceIP != "",
+			})
 		}
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 	}
+
+	pageData := s.BasePageData("")
+	pageData["streams"] = streamList
+	s.shell.Render(w, "landing", s.Config.PageTitle, pageData)
 }
