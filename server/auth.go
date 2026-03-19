@@ -407,6 +407,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		if !exists || !config.CheckPasswordHash(p, user.Password) {
 			s.recordAuthFailure(host)
 			s.logAuthFailed(u, r.RemoteAddr, "invalid credentials")
+			s.Audit(r, "login_failed", "auth", u, "invalid credentials")
 			if r.Header.Get("Accept") == "application/json" {
 				jsonError(w, "Invalid username or password", http.StatusUnauthorized)
 				return
@@ -419,6 +420,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 		s.recordAuthSuccess(host)
 		s.createSession(w, r, user)
+		s.Audit(r, "login", "auth", u, "")
 		http.Redirect(w, r, "/admin", http.StatusSeeOther)
 		return
 	}
@@ -428,6 +430,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	s.Audit(r, "logout", "auth", "", "")
 	if cookie, err := r.Cookie("sid"); err == nil {
 		s.sessionsMu.Lock()
 		delete(s.sessions, cookie.Value)

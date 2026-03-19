@@ -100,6 +100,7 @@ func (s *Server) handleApprovePendingUser(w http.ResponseWriter, r *http.Request
 
 	logger.L.Infow("Pending user approved", "email", pending.Email, "username", req.Username, "role", role, "approved_by", user.Username)
 	jsonResponse(w, map[string]any{"success": true, "username": req.Username})
+	s.Audit(r, "pending_approved", "user", req.Username, pending.Email)
 }
 
 func (s *Server) handleDenyPendingUser(w http.ResponseWriter, r *http.Request) {
@@ -130,6 +131,7 @@ func (s *Server) handleDenyPendingUser(w http.ResponseWriter, r *http.Request) {
 			s.Config.SaveConfig()
 			logger.L.Infow("Pending user denied", "email", p.Email, "denied_by", user.Username)
 			jsonResponse(w, map[string]bool{"success": true})
+			s.Audit(r, "pending_denied", "user", p.Email, "")
 			return
 		}
 	}
