@@ -58,8 +58,10 @@ func (s *Server) apiGetStreams(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var result []streamInfo
+	seen := make(map[string]bool)
 	for _, st := range allStreams {
 		if s.hasAccess(user, st.MountName) {
+			seen[st.MountName] = true
 			result = append(result, streamInfo{
 				Mount:       st.MountName,
 				ContentType: st.ContentType,
@@ -75,6 +77,35 @@ func (s *Server) apiGetStreams(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 	}
+
+	// Add configured mounts that are not currently active (offline)
+	for mount := range s.Config.Mounts {
+		if !seen[mount] && s.hasAccess(user, mount) {
+			seen[mount] = true
+			disabled := s.Config.DisabledMounts[mount]
+			visible := s.Config.VisibleMounts[mount]
+			result = append(result, streamInfo{
+				Mount:   mount,
+				Visible: visible,
+				Enabled: !disabled,
+			})
+		}
+	}
+	for _, u := range s.Config.Users {
+		for mount := range u.Mounts {
+			if !seen[mount] && s.hasAccess(user, mount) {
+				seen[mount] = true
+				disabled := s.Config.DisabledMounts[mount]
+				visible := s.Config.VisibleMounts[mount]
+				result = append(result, streamInfo{
+					Mount:   mount,
+					Visible: visible,
+					Enabled: !disabled,
+				})
+			}
+		}
+	}
+
 	if result == nil {
 		result = []streamInfo{}
 	}
@@ -612,7 +643,7 @@ func (s *Server) apiAddToPlaylist(w http.ResponseWriter, r *http.Request) {
 	}
 	streamer.SavePlaylist()
 	for _, adj := range s.Config.AutoDJs {
-		if adj.Mount == body.Mount {
+		if adj.Mount == mount {
 			adj.Playlist = playlistCopy
 			adj.LastPlaylist = lastPl
 			s.Config.SaveConfig()
@@ -633,8 +664,19 @@ func (s *Server) apiRemoveFromPlaylist(w http.ResponseWriter, r *http.Request) {
 	}
 
 	mount := r.URL.Query().Get("mount")
-	var idx int
-	fmt.Sscanf(r.URL.Query().Get("id"), "%d", &idx)
+
+	var body struct {
+		Mount string `json:"mount"`
+		ID    int    `json:"id"`
+	}
+	json.NewDecoder(r.Body).Decode(&body)
+	if mount == "" {
+		mount = body.Mount
+	}
+	idx := body.ID
+	if idx == 0 {
+		fmt.Sscanf(r.URL.Query().Get("id"), "%d", &idx)
+	}
 
 	streamer := s.StreamerM.GetStreamer(mount)
 	if streamer == nil {
@@ -1512,6 +1554,204 @@ func (s *Server) apiUpdateBranding(w http.ResponseWriter, r *http.Request) {
 
 	s.Config.SaveConfig()
 	jsonResponse(w, map[string]string{"status": "updated"})
+}
+
+// ---------------------------------------------------------------------------
+// Logo upload + serve
+// ---------------------------------------------------------------------------
+
+func (s *Server) apiUploadLogo(w http.ResponseWriter, r *http.Request) {
+	if !s.isCSRFSafe(r) {
+		jsonError(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	if _, ok := s.checkAuth(r); !ok {
+		jsonError(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	if err := r.ParseMultipartForm(2 << 20); err != nil {
+		jsonError(w, "File too large (max 2MB)", http.StatusBadRequest)
+		return
+	}
+	file, header, err := r.FormFile("logo")
+	if err != nil {
+		jsonError(w, "No file uploaded", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	ext := strings.ToLower(filepath.Ext(header.Filename))
+	if ext == "" {
+		ext = ".png"
+	}
+	destPath := filepath.Join("branding", "logo"+ext)
+
+	os.MkdirAll("branding", 0755)
+	dst, err := os.Create(destPath)
+	if err != nil {
+		jsonError(w, "Failed to save logo", http.StatusInternalServerError)
+		return
+	}
+	defer dst.Close()
+
+	if _, err := dst.ReadFrom(file); err != nil {
+		jsonError(w, "Failed to write logo", http.StatusInternalServerError)
+		return
+	}
+
+	s.Config.LogoPath = destPath
+	s.Config.SaveConfig()
+	jsonResponse(w, map[string]string{"status": "ok", "path": destPath})
+}
+
+func (s *Server) handleServeLogo(w http.ResponseWriter, r *http.Request) {
+	if s.Config.LogoPath == "" {
+		http.NotFound(w, r)
+		return
+	}
+	http.ServeFile(w, r, s.Config.LogoPath)
+}
+
+// ---------------------------------------------------------------------------
+// API Tokens
+// ---------------------------------------------------------------------------
+
+func (s *Server) apiGetTokens(w http.ResponseWriter, r *http.Request) {
+	user, ok := s.checkAuth(r)
+	if !ok {
+		jsonError(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	type tokenInfo struct {
+		ID         string `json:"id"`
+		Name       string `json:"name"`
+		Username   string `json:"username"`
+		CreatedAt  string `json:"created_at"`
+		LastUsedAt string `json:"last_used_at"`
+		LastUsedIP string `json:"last_used_ip"`
+		ExpiresAt  string `json:"expires_at"`
+		Prefix     string `json:"prefix"`
+	}
+
+	var result []tokenInfo
+	for _, tok := range s.Config.APITokens {
+		if user.Role != config.RoleSuperAdmin && tok.Username != user.Username {
+			continue
+		}
+		prefix := "ti_XXXX..."
+		if len(tok.TokenHash) >= 8 {
+			prefix = "ti_" + tok.TokenHash[:4] + "..."
+		}
+		result = append(result, tokenInfo{
+			ID:         tok.ID,
+			Name:       tok.Name,
+			Username:   tok.Username,
+			CreatedAt:  tok.CreatedAt,
+			LastUsedAt: tok.LastUsedAt,
+			LastUsedIP: tok.LastUsedIP,
+			ExpiresAt:  tok.ExpiresAt,
+			Prefix:     prefix,
+		})
+	}
+	if result == nil {
+		result = []tokenInfo{}
+	}
+	jsonResponse(w, result)
+}
+
+func (s *Server) apiCreateToken(w http.ResponseWriter, r *http.Request) {
+	if !s.isCSRFSafe(r) {
+		jsonError(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	user, ok := s.checkAuth(r)
+	if !ok {
+		jsonError(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var body struct {
+		Name      string `json:"name"`
+		ExpiresAt string `json:"expires_at"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		jsonError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	if body.Name == "" {
+		jsonError(w, "Name is required", http.StatusBadRequest)
+		return
+	}
+
+	raw, err := generateToken()
+	if err != nil {
+		jsonError(w, "Failed to generate token", http.StatusInternalServerError)
+		return
+	}
+
+	hash := hashToken(raw)
+	id := hash[:16]
+
+	tok := &config.APIToken{
+		ID:        id,
+		Name:      body.Name,
+		TokenHash: hash,
+		Username:  user.Username,
+		Role:      user.Role,
+		CreatedAt: time.Now().Format(time.RFC3339),
+		ExpiresAt: body.ExpiresAt,
+	}
+
+	s.Config.APITokens = append(s.Config.APITokens, tok)
+	s.Config.SaveConfig()
+
+	jsonResponse(w, map[string]string{
+		"id":    id,
+		"token": raw,
+		"name":  body.Name,
+	})
+}
+
+func (s *Server) apiDeleteToken(w http.ResponseWriter, r *http.Request) {
+	if !s.isCSRFSafe(r) {
+		jsonError(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	user, ok := s.checkAuth(r)
+	if !ok {
+		jsonError(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		jsonError(w, "ID is required", http.StatusBadRequest)
+		return
+	}
+
+	newTokens := make([]*config.APIToken, 0, len(s.Config.APITokens))
+	found := false
+	for _, tok := range s.Config.APITokens {
+		if tok.ID == id {
+			if user.Role != config.RoleSuperAdmin && tok.Username != user.Username {
+				jsonError(w, "Forbidden", http.StatusForbidden)
+				return
+			}
+			found = true
+			continue
+		}
+		newTokens = append(newTokens, tok)
+	}
+	if !found {
+		jsonError(w, "Token not found", http.StatusNotFound)
+		return
+	}
+
+	s.Config.APITokens = newTokens
+	s.Config.SaveConfig()
+	jsonResponse(w, map[string]string{"status": "deleted"})
 }
 
 // ---------------------------------------------------------------------------

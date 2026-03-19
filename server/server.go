@@ -577,6 +577,27 @@ func (s *Server) setupRoutes() *http.ServeMux {
 
 	mux.HandleFunc("/api/stats", s.apiGetStats)
 
+	mux.HandleFunc("/api/tokens", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			s.apiGetTokens(w, r)
+		case http.MethodPost:
+			s.apiCreateToken(w, r)
+		case http.MethodDelete:
+			s.apiDeleteToken(w, r)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
+	// Logo
+	mux.HandleFunc("/api/branding/logo", s.apiUploadLogo)
+	mux.HandleFunc("/branding/logo", s.handleServeLogo)
+
+	// OpenAPI / Swagger
+	mux.HandleFunc("/api/openapi.yaml", s.handleOpenAPISpec)
+	mux.HandleFunc("/api/docs", s.handleSwaggerUI)
+
 	return mux
 }
 
