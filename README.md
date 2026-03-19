@@ -22,6 +22,25 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/DatanoiseTV/tinyice)](https://goreportcard.com/report/github.com/DatanoiseTV/tinyice)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
+## What's New in v2.0 Beta
+
+- **Complete Admin UI Rewrite** — Modern single-page app built with Preact, real-time SSE updates, dark theme
+- **Bearer Token API Auth** — Create API access tokens for scripts and integrations, with expiry and usage tracking
+- **Full Branding System** — Custom site name, tagline, logo upload, accent color picker, Markdown landing page
+- **Interactive API Docs** — Built-in Swagger UI at `/api/docs` with complete OpenAPI 3.0 spec
+- **WebRTC Go Live** — Broadcast from your browser with audio device selection, spectrum analyzer, level meters with headroom (dB)
+- **AutoDJ Studio** — 3-column studio interface with library browser, transport controls, visualizer, playlist editor, and mount selector
+- **AutoDJ Editing** — Edit existing AutoDJ instances directly (name, mount, format, bitrate, etc.)
+- **Dashboard Improvements** — Split inbound/outbound bandwidth stats, real-time stream health
+- **Stream Management** — Configured-but-offline mounts now visible, proper create/delete/kick workflows
+- **Relay & Transcoder Management** — Full CRUD with live status indicators
+- **Markdown Landing Page** — Full GFM support via `marked` — headings, lists, code blocks, links, images
+- **Color Picker** — Visual accent color selection with 10 presets + native OS color picker + hex input
+- **Logo Upload** — PNG/JPG/SVG logo served at `/branding/logo`, shown in nav bar
+- **No CSRF for API** — JSON API requests no longer need CSRF tokens
+- **Makefile + go:generate** — `make build` rebuilds everything; frontend builds automatically via `go generate`
+- **Multi-auth** — Session cookies, Bearer tokens, Basic Auth, Passkeys (WebAuthn), OIDC/OAuth2
+
 ## Why TinyIce?
 
 Traditional streaming servers can be complex to configure and resource-heavy. TinyIce aims to solve this by providing:
