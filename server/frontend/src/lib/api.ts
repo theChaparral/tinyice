@@ -1,6 +1,5 @@
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const headers: Record<string, string> = {}
-  if (body !== undefined) headers['Content-Type'] = 'application/json'
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   const res = await fetch(path, {
     method,
     headers,
