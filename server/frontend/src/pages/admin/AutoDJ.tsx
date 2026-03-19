@@ -20,6 +20,8 @@ interface AutoDJInstanceRaw {
   shuffle: boolean
   loop: boolean
   inject_metadata: boolean
+  song_command: string
+  song_command_timeout: number
   visible: boolean
   music_dir: string
   enabled: boolean
@@ -42,6 +44,8 @@ interface AutoDJInstance {
   loop: boolean
   injectMetadata: boolean
   musicDir: string
+  songCommand: string
+  songCommandTimeout: number
   queue: string[]
 }
 
@@ -60,6 +64,8 @@ function mapInstance(raw: AutoDJInstanceRaw): AutoDJInstance {
     loop: raw.loop,
     injectMetadata: raw.inject_metadata,
     musicDir: raw.music_dir,
+    songCommand: raw.song_command || '',
+    songCommandTimeout: raw.song_command_timeout || 5,
     queue: (raw.queue ?? []).map(q => q.title || q.file),
   }
 }
@@ -75,6 +81,8 @@ const formFormat = signal('mp3')
 const formBitrate = signal(128)
 const formLoop = signal(true)
 const formInjectMetadata = signal(true)
+const formSongCommand = signal('')
+const formSongCommandTimeout = signal(5)
 
 function resetForm() {
   formName.value = ''
@@ -84,6 +92,8 @@ function resetForm() {
   formBitrate.value = 128
   formLoop.value = true
   formInjectMetadata.value = true
+  formSongCommand.value = ''
+  formSongCommandTimeout.value = 5
   editingMount.value = null
 }
 
@@ -95,6 +105,8 @@ function openEditForm(inst: AutoDJInstance) {
   formBitrate.value = inst.bitrate
   formLoop.value = inst.loop
   formInjectMetadata.value = inst.injectMetadata
+  formSongCommand.value = inst.songCommand || ''
+  formSongCommandTimeout.value = inst.songCommandTimeout || 5
   editingMount.value = inst.mount
   showForm.value = true
 }
@@ -112,6 +124,8 @@ async function saveAutoDJ() {
     bitrate: formBitrate.value,
     loop: formLoop.value,
     inject_metadata: formInjectMetadata.value,
+    song_command: formSongCommand.value || undefined,
+    song_command_timeout: formSongCommandTimeout.value || undefined,
   })
   showForm.value = false
   resetForm()
@@ -166,6 +180,11 @@ function InstanceCard({ inst }: { inst: AutoDJInstance }) {
         <span class="font-mono text-[10px] text-text-tertiary tracking-wider uppercase">
           {inst.format} {inst.bitrate}kbps
         </span>
+        {inst.songCommand && (
+          <span class="font-mono text-[10px] text-text-tertiary tracking-wider">
+            CMD
+          </span>
+        )}
         <div class="ml-auto flex items-center gap-1.5">
           <span class="text-2xl font-bold text-text-primary leading-none">{inst.playlistLen}</span>
           <span class="text-[9px] font-mono text-text-tertiary uppercase tracking-wider">
@@ -492,6 +511,37 @@ export function AutoDJ() {
                   <span class="text-text-secondary text-xs font-mono tracking-wider uppercase">Inject Metadata</span>
                 </label>
               </div>
+              {/* Divider */}
+              <div class="border-t border-border pt-3 mt-1">
+                <label class="text-text-secondary text-xs font-mono tracking-wider uppercase mb-1.5 block">
+                  EXTERNAL SONG COMMAND
+                </label>
+                <p class="text-[10px] text-text-tertiary mb-2">
+                  Optional script that returns the next song path. Overrides playlist when set. Falls back to playlist on failure.
+                </p>
+                <input
+                  type="text"
+                  value={formSongCommand.value}
+                  onInput={(e) => { formSongCommand.value = (e.target as HTMLInputElement).value }}
+                  placeholder="node /home/radio/getSong.js"
+                  class="bg-[rgba(255,255,255,0.03)] border border-border rounded-lg px-4 py-2.5 text-text-primary font-mono text-sm focus:border-accent outline-none w-full"
+                />
+              </div>
+              {formSongCommand.value && (
+                <div>
+                  <label class="text-text-secondary text-xs font-mono tracking-wider uppercase mb-1.5 block">
+                    COMMAND TIMEOUT (SECONDS)
+                  </label>
+                  <input
+                    type="number"
+                    value={formSongCommandTimeout.value}
+                    onInput={(e) => { formSongCommandTimeout.value = parseInt((e.target as HTMLInputElement).value) || 5 }}
+                    min={1}
+                    max={30}
+                    class="bg-[rgba(255,255,255,0.03)] border border-border rounded-lg px-4 py-2.5 text-text-primary font-mono text-sm focus:border-accent outline-none w-24"
+                  />
+                </div>
+              )}
             </div>
             <div class="flex justify-end gap-2 mt-6">
               <button
