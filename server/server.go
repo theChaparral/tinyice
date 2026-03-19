@@ -410,6 +410,7 @@ func (s *Server) setupRoutes() *http.ServeMux {
 		actionSuffixes := []string{
 			"/playlist/add", "/playlist/remove", "/playlist/clear",
 			"/playlist/reorder", "/playlist/playnext",
+			"/playlist/save", "/playlist/load",
 			"/files", "/playlist", "/queue",
 			"/play", "/pause", "/next", "/shuffle", "/loop",
 			"/metadata", "/volume",
@@ -463,6 +464,10 @@ func (s *Server) setupRoutes() *http.ServeMux {
 			s.apiReorderPlaylist(w, r)
 		case "playlist/playnext":
 			s.apiAddToQueue(w, r) // playnext adds to front of queue
+		case "playlist/save":
+			s.handlePlayerSavePlaylist(w, r)
+		case "playlist/load":
+			s.handlePlayerLoadPlaylist(w, r)
 		case "queue":
 			switch r.Method {
 			case http.MethodGet:
