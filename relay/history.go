@@ -34,6 +34,18 @@ type ListenerHistory struct {
 	Timestamp time.Time `gorm:"index"`
 }
 
+// AuditEntry records a single admin action for the audit log.
+type AuditEntry struct {
+	ID           uint      `gorm:"primaryKey" json:"id"`
+	Timestamp    time.Time `gorm:"index" json:"timestamp"`
+	Username     string    `gorm:"index" json:"username"`
+	Action       string    `gorm:"index" json:"action"`
+	ResourceType string    `json:"resource_type"`
+	ResourceID   string    `json:"resource_id"`
+	Detail       string    `json:"detail"`
+	IP           string    `json:"ip"`
+}
+
 // HistoryManager coordinates all historical data persistence using GORM.
 type HistoryManager struct {
 	db *gorm.DB
@@ -50,7 +62,7 @@ func NewHistoryManager(path string) (*HistoryManager, error) {
 	}
 
 	// Perform auto-migration to ensure schema is up-to-date
-	err = db.AutoMigrate(&HistoryItem{}, &UserAgent{}, &ListenerHistory{})
+	err = db.AutoMigrate(&HistoryItem{}, &UserAgent{}, &ListenerHistory{}, &AuditEntry{})
 	if err != nil {
 		return nil, err
 	}
@@ -214,4 +226,44 @@ func (hm *HistoryManager) Get(mount string) []HistoryItem {
 		return nil
 	}
 	return items
+}
+
+// RecordAudit persists a single audit log entry.
+func (hm *HistoryManager) RecordAudit(user, action, resourceType, resourceID, detail, ip string) {
+	hm.db.Create(&AuditEntry{
+		Timestamp:    time.Now(),
+		Username:     user,
+		Action:       action,
+		ResourceType: resourceType,
+		ResourceID:   resourceID,
+		Detail:       detail,
+		IP:           ip,
+	})
+}
+
+// GetAuditLog retrieves paginated audit log entries, optionally filtered by category.
+func (hm *HistoryManager) GetAuditLog(page, limit int, category string) ([]AuditEntry, int64) {
+	var entries []AuditEntry
+	var total int64
+
+	q := hm.db.Model(&AuditEntry{})
+	if category != "" {
+		prefixMap := map[string][]string{
+			"auth":        {"login", "logout", "login_failed", "token_created", "token_revoked"},
+			"streams":     {"mount_created", "mount_deleted"},
+			"autodj":      {"autodj_created", "autodj_deleted"},
+			"relays":      {"relay_created", "relay_deleted"},
+			"transcoders": {"transcoder_created", "transcoder_deleted"},
+			"users":       {"user_created", "user_updated", "user_deleted", "pending_approved", "pending_denied"},
+			"security":    {"ip_banned", "ip_unbanned", "ip_whitelisted", "ip_unwhitelisted"},
+			"settings":    {"settings_updated", "branding_updated", "logo_uploaded"},
+		}
+		if actions, ok := prefixMap[category]; ok {
+			q = q.Where("action IN ?", actions)
+		}
+	}
+
+	q.Count(&total)
+	q.Order("timestamp DESC").Offset((page - 1) * limit).Limit(limit).Find(&entries)
+	return entries, total
 }

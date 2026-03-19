@@ -15,6 +15,7 @@ interface ServerSettings {
   low_latency_mode: boolean
   directory_listing: boolean
   auto_update: boolean
+  audit_enabled: boolean
 }
 
 interface BrandingSettings {
@@ -41,6 +42,7 @@ const server = signal<ServerSettings>({
   low_latency_mode: false,
   directory_listing: false,
   auto_update: false,
+  audit_enabled: false,
 })
 
 // Branding state
@@ -88,6 +90,7 @@ async function saveServer() {
       low_latency_mode: server.value.low_latency_mode,
       directory_listing: server.value.directory_listing,
       auto_update: server.value.auto_update,
+      audit_enabled: server.value.audit_enabled,
     })
   } catch { /* empty */ }
   saving.value = false
@@ -186,6 +189,13 @@ export function Settings() {
             <div class="flex items-center justify-between">
               <label class="font-mono text-[10px] tracking-[2px] text-text-tertiary">AUTO UPDATE</label>
               <Toggle checked={server.value.auto_update} onChange={(v) => updateServer('auto_update', v)} label="Auto update" />
+            </div>
+            <div class="flex items-center justify-between">
+              <div>
+                <label class="font-mono text-[10px] tracking-[2px] text-text-tertiary">AUDIT LOGGING</label>
+                <p class="text-[10px] text-text-tertiary mt-0.5">Record admin actions for security review</p>
+              </div>
+              <Toggle checked={server.value.audit_enabled} onChange={(v) => updateServer('audit_enabled', v)} label="Audit logging" />
             </div>
 
             {/* Read-only info */}
