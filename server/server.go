@@ -556,6 +556,8 @@ func (s *Server) setupRoutes() *http.ServeMux {
 		}
 	})
 
+	mux.HandleFunc("/api/security/audit", s.apiGetAuditLog)
+
 	mux.HandleFunc("/api/branding", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:

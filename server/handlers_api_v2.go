@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -29,6 +30,61 @@ func jsonError(w http.ResponseWriter, msg string, status int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(map[string]string{"error": msg})
+}
+
+// ---------------------------------------------------------------------------
+// Audit helper
+// ---------------------------------------------------------------------------
+
+func (s *Server) Audit(r *http.Request, action, resourceType, resourceID, detail string) {
+	if !s.Config.AuditEnabled {
+		return
+	}
+	username := "system"
+	if user, ok := s.checkAuth(r); ok {
+		username = user.Username
+	}
+	ip := r.RemoteAddr
+	if host, _, err := net.SplitHostPort(ip); err == nil {
+		ip = host
+	}
+	s.Relay.History.RecordAudit(username, action, resourceType, resourceID, detail, ip)
+}
+
+func (s *Server) apiGetAuditLog(w http.ResponseWriter, r *http.Request) {
+	user, ok := s.checkAuth(r)
+	if !ok {
+		jsonError(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if user.Role != config.RoleSuperAdmin {
+		jsonError(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	page := 1
+	limit := 25
+	if v := r.URL.Query().Get("page"); v != "" {
+		fmt.Sscanf(v, "%d", &page)
+	}
+	if v := r.URL.Query().Get("limit"); v != "" {
+		fmt.Sscanf(v, "%d", &limit)
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	if page < 1 {
+		page = 1
+	}
+	category := r.URL.Query().Get("category")
+
+	entries, total := s.Relay.History.GetAuditLog(page, limit, category)
+	jsonResponse(w, map[string]interface{}{
+		"entries": entries,
+		"total":   total,
+		"page":    page,
+		"limit":   limit,
+	})
 }
 
 // ---------------------------------------------------------------------------
@@ -167,6 +223,7 @@ func (s *Server) apiCreateStream(w http.ResponseWriter, r *http.Request) {
 	}
 	s.Config.SaveConfig()
 	jsonResponse(w, map[string]string{"status": "created", "mount": body.Mount})
+	s.Audit(r, "mount_created", "stream", body.Mount, "")
 }
 
 func (s *Server) apiDeleteStream(w http.ResponseWriter, r *http.Request) {
@@ -195,6 +252,7 @@ func (s *Server) apiDeleteStream(w http.ResponseWriter, r *http.Request) {
 	s.Relay.RemoveStream(mount)
 	s.Config.SaveConfig()
 	jsonResponse(w, map[string]string{"status": "deleted"})
+	s.Audit(r, "mount_deleted", "stream", mount, "")
 }
 
 func (s *Server) apiKickStream(w http.ResponseWriter, r *http.Request) {
@@ -396,6 +454,7 @@ func (s *Server) apiCreateAutoDJ(w http.ResponseWriter, r *http.Request) {
 	streamer.ScanMusicDir()
 	streamer.Play()
 	jsonResponse(w, map[string]string{"status": "created", "mount": adj.Mount})
+	s.Audit(r, "autodj_created", "autodj", body.Mount, body.Name)
 }
 
 func (s *Server) apiDeleteAutoDJ(w http.ResponseWriter, r *http.Request) {
@@ -431,6 +490,7 @@ func (s *Server) apiDeleteAutoDJ(w http.ResponseWriter, r *http.Request) {
 	s.Config.AutoDJs = newADJs
 	s.Config.SaveConfig()
 	jsonResponse(w, map[string]string{"status": "deleted"})
+	s.Audit(r, "autodj_deleted", "autodj", mount, "")
 }
 
 func (s *Server) apiAutoDJPlay(w http.ResponseWriter, r *http.Request) {
@@ -1011,6 +1071,7 @@ func (s *Server) apiCreateRelay(w http.ResponseWriter, r *http.Request) {
 	s.Config.SaveConfig()
 	s.RelayM.StartRelay(body.URL, body.Mount, body.Password, body.BurstSize, s.Config.VisibleMounts[body.Mount])
 	jsonResponse(w, map[string]string{"status": "created"})
+	s.Audit(r, "relay_created", "relay", body.Mount, body.URL)
 }
 
 func (s *Server) apiDeleteRelay(w http.ResponseWriter, r *http.Request) {
@@ -1051,6 +1112,7 @@ func (s *Server) apiDeleteRelay(w http.ResponseWriter, r *http.Request) {
 	s.Config.SaveConfig()
 	s.RelayM.StopRelay(mount)
 	jsonResponse(w, map[string]string{"status": "deleted"})
+	s.Audit(r, "relay_deleted", "relay", mount, "")
 }
 
 func (s *Server) apiToggleRelay(w http.ResponseWriter, r *http.Request) {
@@ -1170,6 +1232,7 @@ func (s *Server) apiCreateTranscoder(w http.ResponseWriter, r *http.Request) {
 	s.Config.SaveConfig()
 	s.TranscoderM.StartTranscoder(tc)
 	jsonResponse(w, map[string]string{"status": "created"})
+	s.Audit(r, "transcoder_created", "transcoder", body.OutputMount, body.Name)
 }
 
 func (s *Server) apiDeleteTranscoder(w http.ResponseWriter, r *http.Request) {
@@ -1205,6 +1268,7 @@ func (s *Server) apiDeleteTranscoder(w http.ResponseWriter, r *http.Request) {
 	s.Config.Transcoders = newTCs
 	s.Config.SaveConfig()
 	jsonResponse(w, map[string]string{"status": "deleted"})
+	s.Audit(r, "transcoder_deleted", "transcoder", name, "")
 }
 
 // ---------------------------------------------------------------------------
@@ -1282,6 +1346,7 @@ func (s *Server) apiCreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	s.Config.SaveConfig()
 	jsonResponse(w, map[string]string{"status": "created", "username": body.Username})
+	s.Audit(r, "user_created", "user", body.Username, body.Role)
 }
 
 func (s *Server) apiUpdateUser(w http.ResponseWriter, r *http.Request) {
@@ -1327,6 +1392,7 @@ func (s *Server) apiUpdateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	s.Config.SaveConfig()
 	jsonResponse(w, map[string]string{"status": "updated"})
+	s.Audit(r, "user_updated", "user", body.Username, "")
 }
 
 func (s *Server) apiDeleteUser(w http.ResponseWriter, r *http.Request) {
@@ -1360,6 +1426,7 @@ func (s *Server) apiDeleteUser(w http.ResponseWriter, r *http.Request) {
 	delete(s.Config.Users, username)
 	s.Config.SaveConfig()
 	jsonResponse(w, map[string]string{"status": "deleted"})
+	s.Audit(r, "user_deleted", "user", username, "")
 }
 
 // ---------------------------------------------------------------------------
@@ -1404,6 +1471,7 @@ func (s *Server) apiAddBan(w http.ResponseWriter, r *http.Request) {
 	s.Config.AddBannedIP(body.IP)
 	s.Config.SaveConfig()
 	jsonResponse(w, map[string]string{"status": "added", "ip": body.IP})
+	s.Audit(r, "ip_banned", "security", body.IP, "")
 }
 
 func (s *Server) apiRemoveBan(w http.ResponseWriter, r *http.Request) {
@@ -1429,6 +1497,7 @@ func (s *Server) apiRemoveBan(w http.ResponseWriter, r *http.Request) {
 	s.Config.RemoveBannedIP(ip)
 	s.Config.SaveConfig()
 	jsonResponse(w, map[string]string{"status": "removed", "ip": ip})
+	s.Audit(r, "ip_unbanned", "security", ip, "")
 }
 
 func (s *Server) apiGetWhitelist(w http.ResponseWriter, r *http.Request) {
@@ -1469,6 +1538,7 @@ func (s *Server) apiAddWhitelist(w http.ResponseWriter, r *http.Request) {
 	s.Config.AddWhitelistedIP(body.IP)
 	s.Config.SaveConfig()
 	jsonResponse(w, map[string]string{"status": "added", "ip": body.IP})
+	s.Audit(r, "ip_whitelisted", "security", body.IP, "")
 }
 
 func (s *Server) apiRemoveWhitelist(w http.ResponseWriter, r *http.Request) {
@@ -1494,6 +1564,7 @@ func (s *Server) apiRemoveWhitelist(w http.ResponseWriter, r *http.Request) {
 	s.Config.RemoveWhitelistedIP(ip)
 	s.Config.SaveConfig()
 	jsonResponse(w, map[string]string{"status": "removed", "ip": ip})
+	s.Audit(r, "ip_unwhitelisted", "security", ip, "")
 }
 
 // ---------------------------------------------------------------------------
@@ -1554,6 +1625,7 @@ func (s *Server) apiUpdateBranding(w http.ResponseWriter, r *http.Request) {
 
 	s.Config.SaveConfig()
 	jsonResponse(w, map[string]string{"status": "updated"})
+	s.Audit(r, "branding_updated", "branding", "", "")
 }
 
 // ---------------------------------------------------------------------------
@@ -1603,6 +1675,7 @@ func (s *Server) apiUploadLogo(w http.ResponseWriter, r *http.Request) {
 	s.Config.LogoPath = destPath
 	s.Config.SaveConfig()
 	jsonResponse(w, map[string]string{"status": "ok", "path": destPath})
+	s.Audit(r, "logo_uploaded", "branding", destPath, "")
 }
 
 func (s *Server) handleServeLogo(w http.ResponseWriter, r *http.Request) {
@@ -1712,6 +1785,7 @@ func (s *Server) apiCreateToken(w http.ResponseWriter, r *http.Request) {
 		"token": raw,
 		"name":  body.Name,
 	})
+	s.Audit(r, "token_created", "auth", body.Name, "")
 }
 
 func (s *Server) apiDeleteToken(w http.ResponseWriter, r *http.Request) {
@@ -1752,6 +1826,7 @@ func (s *Server) apiDeleteToken(w http.ResponseWriter, r *http.Request) {
 	s.Config.APITokens = newTokens
 	s.Config.SaveConfig()
 	jsonResponse(w, map[string]string{"status": "deleted"})
+	s.Audit(r, "token_revoked", "auth", id, "")
 }
 
 // ---------------------------------------------------------------------------
@@ -1787,6 +1862,7 @@ func (s *Server) apiGetSettings(w http.ResponseWriter, r *http.Request) {
 		"directory_listing": s.Config.DirectoryListing,
 		"directory_server":  s.Config.DirectoryServer,
 		"auto_update":       s.Config.AutoUpdate,
+		"audit_enabled":     s.Config.AuditEnabled,
 	})
 }
 
@@ -1844,9 +1920,15 @@ func (s *Server) apiUpdateSettings(w http.ResponseWriter, r *http.Request) {
 			s.Config.AutoUpdate = b
 		}
 	}
+	if v, ok := body["audit_enabled"]; ok {
+		if b, ok := v.(bool); ok {
+			s.Config.AuditEnabled = b
+		}
+	}
 
 	s.Config.SaveConfig()
 	jsonResponse(w, map[string]string{"status": "updated"})
+	s.Audit(r, "settings_updated", "settings", "", "")
 }
 
 // ---------------------------------------------------------------------------
