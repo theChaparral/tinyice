@@ -324,8 +324,10 @@ func (s *Server) apiGetAutoDJ(w http.ResponseWriter, r *http.Request) {
 		Enabled        bool                 `json:"enabled"`
 		MPDEnabled     bool                 `json:"mpd_enabled"`
 		MPDPort        string               `json:"mpd_port"`
-		LastPlaylist   string               `json:"last_playlist"`
-		Queue          []relay.PlaylistItem `json:"queue"`
+		LastPlaylist       string               `json:"last_playlist"`
+		SongCommand        string               `json:"song_command"`
+		SongCommandTimeout int                   `json:"song_command_timeout"`
+		Queue              []relay.PlaylistItem  `json:"queue"`
 	}
 
 	var result []autoDJInfo
@@ -350,10 +352,12 @@ func (s *Server) apiGetAutoDJ(w http.ResponseWriter, r *http.Request) {
 			MusicDir:       adj.MusicDir,
 			MPDEnabled:     adj.MPDEnabled,
 			MPDPort:        adj.MPDPort,
-			LastPlaylist:   adj.LastPlaylist,
-			Loop:           adj.Loop,
-			InjectMetadata: adj.InjectMetadata,
-			Visible:        adj.Visible,
+			LastPlaylist:       adj.LastPlaylist,
+			SongCommand:        adj.SongCommand,
+			SongCommandTimeout: adj.SongCommandTimeout,
+			Loop:               adj.Loop,
+			InjectMetadata:     adj.InjectMetadata,
+			Visible:            adj.Visible,
 		}
 		if st, ok := streamerMap[adj.Mount]; ok {
 			stats := st.GetStats()
@@ -401,7 +405,9 @@ func (s *Server) apiCreateAutoDJ(w http.ResponseWriter, r *http.Request) {
 		MPDEnabled     bool   `json:"mpd_enabled"`
 		MPDPort        string `json:"mpd_port"`
 		MPDPassword    string `json:"mpd_password"`
-		Visible        bool   `json:"visible"`
+		Visible            bool   `json:"visible"`
+		SongCommand        string `json:"song_command"`
+		SongCommandTimeout int    `json:"song_command_timeout"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		jsonError(w, "Invalid request body", http.StatusBadRequest)
@@ -434,14 +440,16 @@ func (s *Server) apiCreateAutoDJ(w http.ResponseWriter, r *http.Request) {
 		InjectMetadata: body.InjectMetadata,
 		MPDEnabled:     body.MPDEnabled,
 		MPDPort:        body.MPDPort,
-		MPDPassword:    body.MPDPassword,
-		Visible:        body.Visible,
+		MPDPassword:        body.MPDPassword,
+		Visible:            body.Visible,
+		SongCommand:        body.SongCommand,
+		SongCommandTimeout: body.SongCommandTimeout,
 	}
 
 	s.Config.AutoDJs = append(s.Config.AutoDJs, adj)
 	s.Config.SaveConfig()
 
-	streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, nil, adj.MPDEnabled, adj.MPDPort, adj.MPDPassword, adj.Visible, "")
+	streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, nil, adj.MPDEnabled, adj.MPDPort, adj.MPDPassword, adj.Visible, "", adj.SongCommand, adj.SongCommandTimeout)
 	if err != nil {
 		jsonError(w, fmt.Sprintf("Failed to start AutoDJ: %v", err), http.StatusInternalServerError)
 		return
