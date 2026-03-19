@@ -182,13 +182,15 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 
 		// stats event
 		statsJSON, _ := json.Marshal(map[string]interface{}{
-			"listeners":  full["total_listeners"],
-			"streams":    full["total_sources"],
-			"bandwidth":  full["bytes_out"],
-			"uptime":     int(time.Since(s.startTime).Seconds()),
-			"goroutines": full["goroutines"],
-			"memory":     full["heap_alloc"],
-			"gc":         full["num_gc"],
+			"listeners":     full["total_listeners"],
+			"streams":       full["total_sources"],
+			"bandwidth_in":  full["bytes_in"],
+			"bandwidth_out": full["bytes_out"],
+			"bandwidth":     full["bytes_out"], // backwards compat
+			"uptime":        int(time.Since(s.startTime).Seconds()),
+			"goroutines":    full["goroutines"],
+			"memory":        full["heap_alloc"],
+			"gc":            full["num_gc"],
 		})
 		fmt.Fprintf(w, "event: stats\ndata: %s\n\n", statsJSON)
 

@@ -97,6 +97,9 @@ type Server struct {
 	webAuthn         *webauthn.WebAuthn
 	webauthnSessions map[string]*webauthn.SessionData
 	webauthnMu       sync.Mutex
+
+	tokenSaveTimer *time.Timer
+	tokenSaveMu    sync.Mutex
 }
 
 func NewServer(cfg *config.Config, authLog *zap.SugaredLogger, version, commit, setupToken string) *Server {

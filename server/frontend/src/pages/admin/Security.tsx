@@ -29,7 +29,7 @@ async function addBan() {
 }
 
 async function removeBan(ip: string) {
-  await api.del(`/api/security/bans/${encodeURIComponent(ip)}`)
+  await api.del(`/api/security/bans?ip=${encodeURIComponent(ip)}`)
   load()
 }
 
@@ -41,7 +41,7 @@ async function addWhitelist() {
 }
 
 async function removeWhitelist(ip: string) {
-  await api.del(`/api/security/whitelist/${encodeURIComponent(ip)}`)
+  await api.del(`/api/security/whitelist?ip=${encodeURIComponent(ip)}`)
   load()
 }
 

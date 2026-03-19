@@ -11,6 +11,7 @@ import (
 	"github.com/DatanoiseTV/tinyice/logger"
 )
 
+//go:generate sh -c "cd frontend && npm install --silent && npm run build"
 //go:embed frontend/dist
 var frontendDistFS embed.FS
 

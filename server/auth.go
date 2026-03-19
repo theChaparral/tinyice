@@ -143,6 +143,23 @@ func generateToken() (string, error) {
 	return "ti_" + hex.EncodeToString(b), nil
 }
 
+func (s *Server) touchToken(tok *config.APIToken, remoteAddr string) {
+	tok.LastUsedAt = time.Now().Format(time.RFC3339)
+	if host, _, err := net.SplitHostPort(remoteAddr); err == nil {
+		tok.LastUsedIP = host
+	}
+	s.tokenSaveMu.Lock()
+	if s.tokenSaveTimer == nil {
+		s.tokenSaveTimer = time.AfterFunc(60*time.Second, func() {
+			s.Config.SaveConfig()
+			s.tokenSaveMu.Lock()
+			s.tokenSaveTimer = nil
+			s.tokenSaveMu.Unlock()
+		})
+	}
+	s.tokenSaveMu.Unlock()
+}
+
 func (s *Server) checkAuth(r *http.Request) (*config.User, bool) {
 	// Bearer token auth
 	if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
@@ -160,11 +177,8 @@ func (s *Server) checkAuth(r *http.Request) (*config.User, bool) {
 				if !exists {
 					return nil, false
 				}
-				// Update last-used tracking
-				tok.LastUsedAt = time.Now().Format(time.RFC3339)
-				if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
-					tok.LastUsedIP = host
-				}
+				// Update last-used tracking (debounced save)
+				s.touchToken(tok, r.RemoteAddr)
 				return user, true
 			}
 		}

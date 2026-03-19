@@ -1,7 +1,6 @@
 import { useEffect, useRef, useCallback } from 'preact/hooks'
 import { signal } from '@preact/signals'
 import { Visualizer } from '@/components/Visualizer'
-import { TransportControls } from '@/components/TransportControls'
 import { ModeToggle } from '@/components/ModeToggle'
 import { VolumeKnob } from '@/components/VolumeKnob'
 import { createSSE } from '@/lib/sse'
@@ -60,7 +59,7 @@ export function Player() {
     if (!analyserRef.current) {
       analyserRef.current = connectAudio(el)
     }
-    el.src = `/${data.mount}`
+    el.src = data.mount.startsWith('/') ? data.mount : `/${data.mount}`
     el.play()
     playing.value = true
   }, [])
@@ -137,12 +136,22 @@ export function Player() {
           </p>
         </div>
 
-        {/* Transport controls */}
-        <TransportControls
-          playing={playing.value}
-          onPlay={handlePlay}
-          onPause={handlePause}
-        />
+        {/* Play / Pause — radio only needs this */}
+        <button
+          onClick={playing.value ? handlePause : handlePlay}
+          class="w-14 h-14 rounded-full bg-accent flex items-center justify-center shadow-[0_0_20px_rgba(255,102,0,0.3)] hover:shadow-[0_0_28px_rgba(255,102,0,0.45)] transition-shadow"
+          aria-label={playing.value ? 'Pause' : 'Play'}
+        >
+          {playing.value ? (
+            <svg class="w-6 h-6 text-surface-base" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
+            </svg>
+          ) : (
+            <svg class="w-6 h-6 text-surface-base ml-0.5" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M8 5v14l11-7z" />
+            </svg>
+          )}
+        </button>
 
         {/* Mode toggle */}
         {data.hasWebRTC && (
@@ -157,7 +166,7 @@ export function Player() {
       <div class="fixed bottom-0 inset-x-0 z-20 border-t border-border">
         <div class="mx-auto max-w-7xl px-4 py-3 flex items-center justify-center gap-8">
           <span class="font-mono text-[9px] tracking-widest text-text-tertiary/50 uppercase">
-            /{data.mount}
+            {data.mount}
           </span>
           <span class="font-mono text-[9px] tracking-widest text-text-tertiary/50 uppercase">
             {data.bitrate}kbps {data.format}

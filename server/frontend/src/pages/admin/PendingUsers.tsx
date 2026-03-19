@@ -27,10 +27,9 @@ async function fetchPending() {
 }
 
 async function approve(user: PendingUserData) {
-  const csrf = (window as any).__TINYICE__?.csrfToken
   const res = await fetch('/api/pending-users/approve', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ id: user.id, username: approveUsername.value, role: approveRole.value }),
   })
   if (res.ok) {
@@ -41,10 +40,9 @@ async function approve(user: PendingUserData) {
 }
 
 async function deny(id: string) {
-  const csrf = (window as any).__TINYICE__?.csrfToken
   await fetch('/api/pending-users/deny', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ id }),
   })
   fetchPending()

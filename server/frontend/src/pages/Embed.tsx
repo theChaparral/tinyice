@@ -40,7 +40,7 @@ export function Embed() {
       audio.src = ''
       playing.value = false
     } else {
-      audio.src = `/${data.mount}`
+      audio.src = data.mount.startsWith('/') ? data.mount : `/${data.mount}`
       audio.play()
       playing.value = true
     }

@@ -1,22 +1,23 @@
 import { signal } from '@preact/signals'
 import { useEffect } from 'preact/hooks'
 import { api } from '../../lib/api'
-import { Toggle } from '../../components/Toggle'
 
 interface Transcoder {
-  id: string
-  inputMount: string
-  outputMount: string
+  name: string
+  input: string
+  output: string
   format: string
   bitrate: number
-  enabled: boolean
-  listeners: number
-  status: string
+  active: boolean
+  frames_processed: number
+  bytes_encoded: number
+  uptime: string
 }
 
 const transcoders = signal<Transcoder[]>([])
 const loading = signal(true)
 const showForm = signal(false)
+const formName = signal('')
 const formInput = signal('')
 const formOutput = signal('')
 const formFormat = signal('mp3')
@@ -32,12 +33,14 @@ async function load() {
 
 async function addTranscoder() {
   await api.post('/api/transcoders', {
-    inputMount: formInput.value,
-    outputMount: formOutput.value,
+    name: formName.value,
+    input_mount: formInput.value,
+    output_mount: formOutput.value,
     format: formFormat.value,
     bitrate: formBitrate.value,
   })
   showForm.value = false
+  formName.value = ''
   formInput.value = ''
   formOutput.value = ''
   formFormat.value = 'mp3'
@@ -45,13 +48,8 @@ async function addTranscoder() {
   load()
 }
 
-async function toggleTranscoder(id: string) {
-  await api.put(`/api/transcoders/${encodeURIComponent(id)}/toggle`)
-  load()
-}
-
-async function removeTranscoder(id: string) {
-  await api.del(`/api/transcoders/${encodeURIComponent(id)}`)
+async function removeTranscoder(name: string) {
+  await api.del(`/api/transcoders?name=${encodeURIComponent(name)}`)
   load()
 }
 
@@ -78,11 +76,11 @@ export function Transcoders() {
       ) : (
         <div class="grid gap-3">
           {transcoders.value.map((t) => (
-            <div key={t.id} class="border border-border rounded-xl bg-surface-raised p-5">
+            <div key={t.name} class="border border-border rounded-xl bg-surface-raised p-5">
               <div class="flex items-center justify-between">
                 <div class="flex items-center gap-3 flex-1 min-w-0">
                   {/* Visual flow */}
-                  <span class="font-mono text-sm font-bold text-text-primary truncate">{t.inputMount}</span>
+                  <span class="font-mono text-sm font-bold text-text-primary truncate">{t.input}</span>
                   <span class="text-text-tertiary">
                     <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
                   </span>
@@ -92,16 +90,15 @@ export function Transcoders() {
                   <span class="text-text-tertiary">
                     <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
                   </span>
-                  <span class="font-mono text-sm font-bold text-text-primary truncate">{t.outputMount}</span>
+                  <span class="font-mono text-sm font-bold text-text-primary truncate">{t.output}</span>
                 </div>
                 <div class="flex items-center gap-4 ml-4">
                   <div class="flex items-center gap-2">
-                    <span class={`inline-block w-2 h-2 rounded-full ${t.status === 'running' ? 'bg-live' : 'bg-text-tertiary'}`} />
-                    <span class="text-xs text-text-tertiary">{t.listeners} listeners</span>
+                    <span class={`inline-block w-2 h-2 rounded-full ${t.active ? 'bg-live' : 'bg-text-tertiary'}`} />
+                    <span class="text-xs text-text-tertiary">{t.active ? t.uptime : 'OFF'}</span>
                   </div>
-                  <Toggle checked={t.enabled} onChange={() => toggleTranscoder(t.id)} label="Enable transcoder" />
                   <button
-                    onClick={() => removeTranscoder(t.id)}
+                    onClick={() => removeTranscoder(t.name)}
                     title="Remove transcoder"
                     class="border border-border text-danger font-mono text-xs px-2 py-1.5 rounded-lg hover:border-danger/30"
                   >
@@ -120,6 +117,16 @@ export function Transcoders() {
           <div class="bg-surface-overlay border border-border rounded-xl p-6 max-w-md w-full mx-4">
             <h2 class="text-lg font-bold text-text-primary mb-4">Add Transcoder</h2>
             <div class="flex flex-col gap-3">
+              <div>
+                <label class="font-mono text-[10px] tracking-[2px] text-text-tertiary mb-1 block">NAME</label>
+                <input
+                  type="text"
+                  value={formName.value}
+                  onInput={(e) => { formName.value = (e.target as HTMLInputElement).value }}
+                  placeholder="My Transcoder"
+                  class="w-full bg-[rgba(255,255,255,0.03)] border border-border rounded-lg px-4 py-2.5 text-text-primary font-mono text-sm focus:border-accent outline-none"
+                />
+              </div>
               <div>
                 <label class="font-mono text-[10px] tracking-[2px] text-text-tertiary mb-1 block">INPUT MOUNT</label>
                 <input

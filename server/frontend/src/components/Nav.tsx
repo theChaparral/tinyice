@@ -2,23 +2,31 @@ interface NavProps {
   branding?: {
     logoUrl: string | null
     accentColor: string
+    navTitle?: string
   }
+  pageTitle?: string
 }
 
-export function Nav({ branding }: NavProps) {
+export function Nav({ branding, pageTitle }: NavProps) {
+  const displayTitle = branding?.navTitle || pageTitle || 'TINYICE'
+
   return (
     <nav class="fixed top-0 inset-x-0 z-50 h-14 border-b border-border bg-surface-base/80 backdrop-blur-md">
       <div class="h-full flex items-center justify-between px-8 lg:px-16 xl:px-24">
         {/* Logo */}
         <a href="/" class="flex items-center gap-3">
           {branding?.logoUrl ? (
-            <img src={branding.logoUrl} alt="Logo" class="h-8 w-8 rounded" />
+            <img src={branding.logoUrl} alt="Logo" class="h-8 w-8 rounded object-cover" />
           ) : (
             <div class="h-8 w-8 rounded bg-accent flex items-center justify-center">
-              <span class="font-mono text-xs font-bold text-surface-base leading-none">Ti</span>
+              <span class="font-mono text-xs font-bold text-surface-base leading-none">
+                {displayTitle.slice(0, 2).toUpperCase()}
+              </span>
             </div>
           )}
-          <span class="font-mono text-sm font-bold tracking-widest text-text-primary">TINYICE</span>
+          <span class="font-mono text-sm font-bold tracking-widest text-text-primary uppercase">
+            {displayTitle}
+          </span>
         </a>
 
         {/* Nav links */}

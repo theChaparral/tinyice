@@ -41,9 +41,9 @@ function openEdit(u: User) {
 
 async function saveUser() {
   if (editingUser.value) {
-    const body: Record<string, string> = { role: formRole.value }
+    const body: Record<string, string> = { username: editingUser.value, role: formRole.value }
     if (formPassword.value) body.password = formPassword.value
-    await api.put(`/api/users/${encodeURIComponent(editingUser.value)}`, body)
+    await api.put('/api/users', body)
   } else {
     await api.post('/api/users', {
       username: formUsername.value,
@@ -56,7 +56,7 @@ async function saveUser() {
 }
 
 async function removeUser(username: string) {
-  await api.del(`/api/users/${encodeURIComponent(username)}`)
+  await api.del(`/api/users?username=${encodeURIComponent(username)}`)
   load()
 }
 

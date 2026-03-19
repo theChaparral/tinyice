@@ -8,11 +8,16 @@ const status = signal<'ready' | 'connecting' | 'live'>('ready')
 const selectedMount = signal('/live')
 const selectedDeviceId = signal('')
 const audioDevices = signal<MediaDeviceInfo[]>([])
+const audioPermission = signal<'prompt' | 'granted' | 'denied'>('prompt')
 const latency = signal(0)
 const durationSec = signal(0)
 const connectionFormat = signal('')
 const levelL = signal(0)
 const levelR = signal(0)
+const headroomL = signal(-Infinity)
+const headroomR = signal(-Infinity)
+const peakL = signal(0)
+const peakR = signal(0)
 
 function getMounts(): string[] {
   const data = window.__TINYICE__ as AdminData | undefined
@@ -40,17 +45,58 @@ export function GoLive() {
   const barsRef = useRef<HTMLDivElement | null>(null)
   const levelLRef = useRef<HTMLDivElement | null>(null)
   const levelRRef = useRef<HTMLDivElement | null>(null)
+  const peakLRef = useRef<HTMLDivElement | null>(null)
+  const peakRRef = useRef<HTMLDivElement | null>(null)
+  const peakLVal = useRef(0)
+  const peakRVal = useRef(0)
+  const peakLDecay = useRef(0)
+  const peakRDecay = useRef(0)
 
-  // Enumerate audio devices
+  async function enumerateAudioDevices() {
+    const devices = await navigator.mediaDevices.enumerateDevices()
+    audioDevices.value = devices.filter((d) => d.kind === 'audioinput')
+    if (audioDevices.value.length > 0 && !selectedDeviceId.value) {
+      selectedDeviceId.value = audioDevices.value[0].deviceId
+    }
+  }
+
+  async function requestAudioPermission() {
+    try {
+      // getUserMedia triggers the browser permission prompt and unlocks device labels
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      // Stop the temporary stream immediately — we just needed the permission
+      stream.getTracks().forEach((t) => t.stop())
+      audioPermission.value = 'granted'
+      await enumerateAudioDevices()
+    } catch {
+      audioPermission.value = 'denied'
+    }
+  }
+
   useEffect(() => {
     selectedMount.value = getMounts()[0] || '/live'
 
-    navigator.mediaDevices.enumerateDevices().then((devices) => {
-      audioDevices.value = devices.filter((d) => d.kind === 'audioinput')
-      if (audioDevices.value.length > 0 && !selectedDeviceId.value) {
-        selectedDeviceId.value = audioDevices.value[0].deviceId
-      }
-    })
+    // Check if permission is already granted (e.g. from a previous visit)
+    if (navigator.permissions) {
+      navigator.permissions.query({ name: 'microphone' as PermissionName }).then((result) => {
+        if (result.state === 'granted') {
+          audioPermission.value = 'granted'
+          enumerateAudioDevices()
+        } else {
+          audioPermission.value = result.state === 'denied' ? 'denied' : 'prompt'
+        }
+      }).catch(() => {
+        // permissions.query not supported for microphone in some browsers — try enumerate
+        enumerateAudioDevices().then(() => {
+          // If we got labels, permission was already granted
+          if (audioDevices.value.some((d) => d.label)) {
+            audioPermission.value = 'granted'
+          }
+        })
+      })
+    } else {
+      enumerateAudioDevices()
+    }
 
     return () => {
       stopBroadcast()
@@ -88,6 +134,10 @@ export function GoLive() {
     latency.value = 0
     levelL.value = 0
     levelR.value = 0
+    headroomL.value = -Infinity
+    headroomR.value = -Infinity
+    peakL.value = 0
+    peakR.value = 0
   }, [])
 
   const startBroadcast = useCallback(async () => {
@@ -215,8 +265,36 @@ export function GoLive() {
         levelL.value = Math.min(1, rmsL * 3)
         levelR.value = Math.min(1, rmsR * 3)
 
+        // Headroom (dB before clipping)
+        headroomL.value = rmsL > 0 ? 20 * Math.log10(1 / rmsL) : -Infinity
+        headroomR.value = rmsR > 0 ? 20 * Math.log10(1 / rmsR) : -Infinity
+
+        // Peak hold with slow decay
+        if (levelL.value >= peakLVal.current) {
+          peakLVal.current = levelL.value
+          peakLDecay.current = 0
+        } else {
+          peakLDecay.current++
+          if (peakLDecay.current > 30) {
+            peakLVal.current = Math.max(0, peakLVal.current - 0.005)
+          }
+        }
+        if (levelR.value >= peakRVal.current) {
+          peakRVal.current = levelR.value
+          peakRDecay.current = 0
+        } else {
+          peakRDecay.current++
+          if (peakRDecay.current > 30) {
+            peakRVal.current = Math.max(0, peakRVal.current - 0.005)
+          }
+        }
+        peakL.value = peakLVal.current
+        peakR.value = peakRVal.current
+
         if (levelLRef.current) levelLRef.current.style.width = `${levelL.value * 100}%`
         if (levelRRef.current) levelRRef.current.style.width = `${levelR.value * 100}%`
+        if (peakLRef.current) peakLRef.current.style.left = `${peakL.value * 100}%`
+        if (peakRRef.current) peakRRef.current.style.left = `${peakR.value * 100}%`
 
         rafRef.current = requestAnimationFrame(tick)
       }
@@ -308,21 +386,42 @@ export function GoLive() {
           <label class="block font-mono text-[9px] tracking-widest text-text-tertiary uppercase mb-2">
             INPUT DEVICE
           </label>
-          <select
-            value={selectedDeviceId.value}
-            onChange={(e) => { selectedDeviceId.value = (e.target as HTMLSelectElement).value }}
-            disabled={broadcasting.value || isConnecting}
-            class="w-full h-10 px-3 rounded-lg bg-surface-overlay border border-border text-sm text-text-primary focus:border-accent outline-none transition-colors disabled:opacity-50"
-          >
-            {audioDevices.value.map((d) => (
-              <option key={d.deviceId} value={d.deviceId}>
-                {d.label || `Microphone ${d.deviceId.slice(0, 8)}`}
-              </option>
-            ))}
-            {audioDevices.value.length === 0 && (
-              <option value="">No audio devices found</option>
-            )}
-          </select>
+          {audioPermission.value === 'granted' ? (
+            <select
+              value={selectedDeviceId.value}
+              onChange={(e) => { selectedDeviceId.value = (e.target as HTMLSelectElement).value }}
+              disabled={broadcasting.value || isConnecting}
+              class="w-full h-10 px-3 rounded-lg bg-surface-overlay border border-border text-sm text-text-primary focus:border-accent outline-none transition-colors disabled:opacity-50"
+            >
+              {audioDevices.value.map((d, i) => (
+                <option key={d.deviceId} value={d.deviceId}>
+                  {d.label || `Microphone (Device ${i + 1})`}
+                </option>
+              ))}
+              {audioDevices.value.length === 0 && (
+                <option value="">No audio devices found</option>
+              )}
+            </select>
+          ) : audioPermission.value === 'denied' ? (
+            <div class="w-full h-10 px-3 rounded-lg bg-danger/10 border border-danger/30 text-sm text-danger flex items-center gap-2">
+              <svg class="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10" /><line x1="15" y1="9" x2="9" y2="15" /><line x1="9" y1="9" x2="15" y2="15" />
+              </svg>
+              Microphone access denied. Check browser permissions.
+            </div>
+          ) : (
+            <button
+              onClick={requestAudioPermission}
+              class="w-full h-10 px-3 rounded-lg bg-accent/10 border border-accent/30 text-sm text-accent font-mono tracking-wider hover:bg-accent/20 transition-colors flex items-center justify-center gap-2"
+            >
+              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                <line x1="12" y1="19" x2="12" y2="22" />
+              </svg>
+              ALLOW MICROPHONE ACCESS
+            </button>
+          )}
         </div>
       </div>
 
@@ -356,23 +455,63 @@ export function GoLive() {
         <div class="space-y-2">
           <div class="flex items-center gap-3">
             <span class="font-mono text-[10px] text-text-tertiary w-3">L</span>
-            <div class="flex-1 h-3 bg-surface-overlay rounded-full overflow-hidden">
+            <div class="flex-1 h-3 bg-surface-overlay rounded-full overflow-hidden relative">
               <div
                 ref={levelLRef}
                 class="h-full bg-accent rounded-full transition-[width] duration-75"
                 style={{ width: '0%' }}
               />
+              <div
+                ref={peakLRef}
+                class="absolute top-0 h-full w-[2px] bg-text-primary"
+                style={{ left: '0%', transition: 'left 0.05s linear' }}
+              />
             </div>
+            <span
+              class="font-mono text-[10px] w-20 text-right"
+              style={{
+                color: isLive
+                  ? headroomL.value === -Infinity ? 'var(--color-text-tertiary)'
+                    : headroomL.value > 6 ? '#22c55e'
+                    : headroomL.value > 3 ? '#eab308'
+                    : '#ef4444'
+                  : 'var(--color-text-tertiary)',
+              }}
+            >
+              {isLive && headroomL.value !== -Infinity
+                ? `${headroomL.value.toFixed(1)} dB`
+                : '-- dB'}
+            </span>
           </div>
           <div class="flex items-center gap-3">
             <span class="font-mono text-[10px] text-text-tertiary w-3">R</span>
-            <div class="flex-1 h-3 bg-surface-overlay rounded-full overflow-hidden">
+            <div class="flex-1 h-3 bg-surface-overlay rounded-full overflow-hidden relative">
               <div
                 ref={levelRRef}
                 class="h-full bg-accent rounded-full transition-[width] duration-75"
                 style={{ width: '0%' }}
               />
+              <div
+                ref={peakRRef}
+                class="absolute top-0 h-full w-[2px] bg-text-primary"
+                style={{ left: '0%', transition: 'left 0.05s linear' }}
+              />
             </div>
+            <span
+              class="font-mono text-[10px] w-20 text-right"
+              style={{
+                color: isLive
+                  ? headroomR.value === -Infinity ? 'var(--color-text-tertiary)'
+                    : headroomR.value > 6 ? '#22c55e'
+                    : headroomR.value > 3 ? '#eab308'
+                    : '#ef4444'
+                  : 'var(--color-text-tertiary)',
+              }}
+            >
+              {isLive && headroomR.value !== -Infinity
+                ? `${headroomR.value.toFixed(1)} dB`
+                : '-- dB'}
+            </span>
           </div>
         </div>
       </div>

@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from 'preact/hooks'
+import { useEffect, useCallback, useRef } from 'preact/hooks'
 import { signal, computed } from '@preact/signals'
 import { api } from '@/lib/api'
 import { createSSE } from '@/lib/sse'
@@ -11,15 +11,12 @@ import { PlaylistItem as PlaylistItemComp } from '@/components/PlaylistItem'
 import { FileItem } from '@/components/FileItem'
 import type { PlaylistItem, FileInfo, AutoDJEvent } from '@/types'
 
-// Read mount from URL query param — must be called when component renders, not at module load
-function getMount(): string {
-  const params = new URLSearchParams(window.location.search)
-  return params.get('mount') || '/live'
-}
+// ── Current mount ──────────────────────────────────────────
+const currentMount = signal('')
+const availableMounts = signal<string[]>([])
+const loadingMounts = signal(true)
 
-let mount = getMount()
-
-// State signals
+// ── State signals ──────────────────────────────────────────
 const state = signal<'playing' | 'paused' | 'stopped'>('stopped')
 const trackTitle = signal('No Track')
 const trackArtist = signal('Unknown Artist')
@@ -31,13 +28,13 @@ const volume = signal(80)
 const metadataEnabled = signal(true)
 const format = signal('mp3')
 
-// Library state
+// ── Library state ──────────────────────────────────────────
 const libraryPath = signal('')
 const libraryFiles = signal<FileInfo[]>([])
 const librarySearch = signal('')
 const selectedFile = signal<string | null>(null)
 
-// Playlist/Queue/History state
+// ── Playlist/Queue/History ─────────────────────────────────
 const activeTab = signal<'playlist' | 'queue' | 'history'>('playlist')
 const playlist = signal<PlaylistItem[]>([])
 const queue = signal<PlaylistItem[]>([])
@@ -82,38 +79,116 @@ function totalDuration(items: PlaylistItem[]): string {
   return h > 0 ? `${h}h ${m}m` : `${m}m`
 }
 
-let mountEncoded = encodeURIComponent(mount)
+function enc() { return encodeURIComponent(currentMount.value) }
+
+function resetState() {
+  state.value = 'stopped'
+  trackTitle.value = 'No Track'
+  trackArtist.value = 'Unknown Artist'
+  position.value = 0
+  duration.value = 0
+  listeners.value = 0
+  uptime.value = 0
+  volume.value = 80
+  metadataEnabled.value = true
+  format.value = 'mp3'
+  libraryPath.value = ''
+  libraryFiles.value = []
+  librarySearch.value = ''
+  selectedFile.value = null
+  activeTab.value = 'playlist'
+  playlist.value = []
+  queue.value = []
+  history.value = []
+  currentTrackId.value = null
+}
 
 function fetchLibrary(path: string) {
   libraryPath.value = path
-  api.get<FileInfo[]>(`/api/autodj/${mountEncoded}/files?path=${encodeURIComponent(path)}`)
+  api.get<FileInfo[]>(`/api/autodj/${enc()}/files?path=${encodeURIComponent(path)}`)
     .then((data) => { libraryFiles.value = data })
     .catch(() => { libraryFiles.value = [] })
 }
 
 function fetchPlaylist() {
-  api.get<PlaylistItem[]>(`/api/autodj/${mountEncoded}/playlist`)
+  api.get<PlaylistItem[]>(`/api/autodj/${enc()}/playlist`)
     .then((data) => { playlist.value = data })
     .catch(() => { playlist.value = [] })
 }
 
 function fetchQueue() {
-  api.get<PlaylistItem[]>(`/api/autodj/${mountEncoded}/queue`)
+  api.get<PlaylistItem[]>(`/api/autodj/${enc()}/queue`)
     .then((data) => { queue.value = data })
     .catch(() => { queue.value = [] })
 }
 
-export function Studio() {
-  // Re-read mount from URL on every render (SPA client-side navigation)
-  mount = getMount()
-  mountEncoded = encodeURIComponent(mount)
+function fetchAllData() {
+  fetchLibrary('')
+  fetchPlaylist()
+  fetchQueue()
+}
 
+export function Studio() {
+  const sseRef = useRef<ReturnType<typeof createSSE> | null>(null)
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // Initialize: fetch mounts, pick initial mount
   useEffect(() => {
-    fetchLibrary('')
-    fetchPlaylist()
-    fetchQueue()
+    const params = new URLSearchParams(window.location.search)
+    const urlMount = params.get('mount') || ''
+
+    api.get<Array<{ mount: string; format: string }>>('/api/autodj')
+      .then((data) => {
+        const mounts = data.map((d) => d.mount)
+        availableMounts.value = mounts
+
+        // Pick mount: URL param > first available > /live
+        let picked = urlMount
+        if (!picked || !mounts.includes(picked)) {
+          picked = mounts[0] || '/live'
+        }
+        currentMount.value = picked
+
+        // Set format from the matching instance
+        const inst = data.find((d) => d.mount === picked)
+        if (inst) format.value = inst.format
+
+        loadingMounts.value = false
+        // Data fetch + SSE will trigger via the mount change effect
+      })
+      .catch(() => {
+        availableMounts.value = []
+        currentMount.value = urlMount || '/live'
+        loadingMounts.value = false
+      })
+
+    return () => {
+      if (sseRef.current) sseRef.current.close()
+      if (timerRef.current) clearInterval(timerRef.current)
+    }
+  }, [])
+
+  // React to mount changes: re-fetch everything, reconnect SSE
+  useEffect(() => {
+    const mount = currentMount.value
+    if (!mount) return
+
+    // Update URL without reload
+    const url = new URL(window.location.href)
+    url.searchParams.set('mount', mount)
+    window.history.replaceState(null, '', url.toString())
+
+    // Reset state for new mount
+    resetState()
+    fetchAllData()
+
+    // Reconnect SSE for new mount
+    if (sseRef.current) sseRef.current.close()
+    if (timerRef.current) clearInterval(timerRef.current)
 
     const sse = createSSE('/events')
+    sseRef.current = sse
+
     sse.on('autodj', (evt: AutoDJEvent) => {
       if (evt.mount !== mount) return
       state.value = evt.state
@@ -122,56 +197,80 @@ export function Studio() {
       position.value = evt.position
       duration.value = evt.duration
     })
-    sse.on('stream', (evt) => {
+    sse.on('stream', (evt: { mount: string; listeners: number }) => {
       if (evt.mount !== mount) return
       listeners.value = evt.listeners
     })
 
-    // Uptime counter
-    const timer = setInterval(() => {
+    timerRef.current = setInterval(() => {
       if (state.value === 'playing') uptime.value++
     }, 1000)
+  }, [currentMount.value])
 
-    return () => { sse.close(); clearInterval(timer) }
+  const handleMountChange = useCallback((newMount: string) => {
+    currentMount.value = newMount
   }, [])
 
   const handleTransport = useCallback((action: string) => {
-    api.post(`/api/autodj/${mountEncoded}/${action}`)
+    api.post(`/api/autodj/${enc()}/${action}`)
   }, [])
 
   const handleVolumeChange = useCallback((v: number) => {
     volume.value = v
-    api.post(`/api/autodj/${mountEncoded}/volume`, { volume: v })
+    api.post(`/api/autodj/${enc()}/volume`, { volume: v })
   }, [])
 
   const handleMetadataToggle = useCallback((checked: boolean) => {
     metadataEnabled.value = checked
-    api.post(`/api/autodj/${mountEncoded}/metadata`, { enabled: checked })
+    api.post(`/api/autodj/${enc()}/metadata`, { enabled: checked })
   }, [])
 
   const handleAddFile = useCallback((file: FileInfo) => {
-    api.post(`/api/autodj/${mountEncoded}/playlist/add`, { path: file.path })
+    api.post(`/api/autodj/${enc()}/playlist/add`, { path: file.path })
       .then(() => fetchPlaylist())
   }, [])
 
   const handleAddAll = useCallback(() => {
     const files = libraryFiles.value.filter((f) => !f.isDir)
-    api.post(`/api/autodj/${mountEncoded}/playlist/add`, { paths: files.map((f) => f.path) })
+    api.post(`/api/autodj/${enc()}/playlist/add`, { paths: files.map((f) => f.path) })
       .then(() => fetchPlaylist())
   }, [])
 
   const handleRemoveTrack = useCallback((id: string) => {
-    api.post(`/api/autodj/${mountEncoded}/playlist/remove`, { id })
+    api.post(`/api/autodj/${enc()}/playlist/remove`, { id })
       .then(() => fetchPlaylist())
   }, [])
 
   const handlePlayNext = useCallback((id: string) => {
-    api.post(`/api/autodj/${mountEncoded}/playlist/playnext`, { id })
+    api.post(`/api/autodj/${enc()}/playlist/playnext`, { id })
   }, [])
 
   const handleClear = useCallback(() => {
-    api.post(`/api/autodj/${mountEncoded}/playlist/clear`)
+    api.post(`/api/autodj/${enc()}/playlist/clear`)
       .then(() => fetchPlaylist())
+  }, [])
+
+  const handleSavePlaylist = useCallback(() => {
+    const csrf = (window as any).__TINYICE__?.csrfToken ?? ''
+    const form = new FormData()
+    form.append('mount', currentMount.value)
+    fetch('/admin/player/save-playlist', {
+      method: 'POST',
+      headers: { 'X-CSRF-Token': csrf },
+      body: form,
+    })
+  }, [])
+
+  const handleLoadPlaylist = useCallback(() => {
+    const csrf = (window as any).__TINYICE__?.csrfToken ?? ''
+    const form = new FormData()
+    form.append('mount', currentMount.value)
+    form.append('file', '')
+    fetch('/admin/player/load-playlist', {
+      method: 'POST',
+      headers: { 'X-CSRF-Token': csrf },
+      body: form,
+    }).then(() => fetchPlaylist())
   }, [])
 
   const handleFolderClick = useCallback((file: FileInfo) => {
@@ -182,10 +281,41 @@ export function Studio() {
 
   const progress = duration.value > 0 ? (position.value / duration.value) * 100 : 0
   const isPlaying = state.value === 'playing'
+  const mount = currentMount.value
 
   const activeList = activeTab.value === 'playlist' ? playlist.value
     : activeTab.value === 'queue' ? queue.value
     : history.value
+
+  // Loading state
+  if (loadingMounts.value) {
+    return (
+      <div class="h-screen flex items-center justify-center bg-surface-base">
+        <div class="flex items-center gap-3 text-text-tertiary">
+          <EqBars bars={3} />
+          <span class="text-sm">Loading...</span>
+        </div>
+      </div>
+    )
+  }
+
+  // No AutoDJ instances
+  if (availableMounts.value.length === 0) {
+    return (
+      <div class="h-screen flex flex-col items-center justify-center bg-surface-base gap-4">
+        <svg class="w-12 h-12 text-text-tertiary opacity-30" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
+        </svg>
+        <p class="text-text-tertiary text-sm">No AutoDJ instances configured</p>
+        <a
+          href="/admin/autodj"
+          class="text-accent font-mono text-xs tracking-wider hover:underline"
+        >
+          Create one in AutoDJ
+        </a>
+      </div>
+    )
+  }
 
   return (
     <div class="h-screen flex flex-col bg-surface-base overflow-hidden">
@@ -207,7 +337,15 @@ export function Studio() {
               class={`w-2 h-2 rounded-full ${isPlaying ? 'bg-live' : 'bg-text-tertiary'}`}
               style={isPlaying ? { animation: 'pulse-glow 2s ease-in-out infinite' } : undefined}
             />
-            <span class="font-mono font-bold text-text-primary text-sm">{mount}</span>
+            <select
+              value={mount}
+              onChange={(e) => handleMountChange((e.target as HTMLSelectElement).value)}
+              class="bg-[rgba(255,255,255,0.03)] border border-border rounded-lg px-3 py-1.5 font-mono font-bold text-text-primary text-sm focus:border-accent outline-none cursor-pointer"
+            >
+              {availableMounts.value.map((m) => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
             <span class="font-mono text-[10px] text-text-tertiary uppercase">{format.value}</span>
           </div>
         </div>
@@ -360,10 +498,16 @@ export function Studio() {
           {/* Actions bar */}
           <div class="flex items-center justify-between px-3 py-2 border-b border-border">
             <div class="flex items-center gap-1">
-              <button class="h-7 px-2 rounded text-[10px] font-mono text-text-tertiary hover:text-text-secondary transition-colors uppercase tracking-wider">
+              <button
+                onClick={handleSavePlaylist}
+                class="h-7 px-2 rounded text-[10px] font-mono text-text-tertiary hover:text-text-secondary transition-colors uppercase tracking-wider"
+              >
                 Save
               </button>
-              <button class="h-7 px-2 rounded text-[10px] font-mono text-text-tertiary hover:text-text-secondary transition-colors uppercase tracking-wider">
+              <button
+                onClick={handleLoadPlaylist}
+                class="h-7 px-2 rounded text-[10px] font-mono text-text-tertiary hover:text-text-secondary transition-colors uppercase tracking-wider"
+              >
                 Load
               </button>
               <button

@@ -4,10 +4,15 @@ import { api } from '../../lib/api'
 
 interface Stream {
   mount: string
-  sourceIp: string
-  format: string
+  source_ip: string
+  content_type: string
   listeners: number
-  live: boolean
+  enabled: boolean
+  visible: boolean
+  health: number
+  bitrate: string
+  current_song: string
+  name: string
 }
 
 const streams = signal<Stream[]>([])
@@ -39,17 +44,17 @@ async function addMount() {
 }
 
 async function removeMount(mount: string) {
-  await api.del(`/api/streams/${encodeURIComponent(mount)}`)
+  await api.del(`/api/streams?mount=${encodeURIComponent(mount)}`)
   load()
 }
 
 async function kickSource(mount: string) {
-  await api.post(`/api/streams/${encodeURIComponent(mount)}/kick`, { type: 'source' })
+  await api.post('/api/streams/kick', { mount, type: 'source' })
   load()
 }
 
 async function kickListeners(mount: string) {
-  await api.post(`/api/streams/${encodeURIComponent(mount)}/kick`, { type: 'listeners' })
+  await api.post('/api/streams/kick', { mount, type: 'listeners' })
   load()
 }
 
@@ -91,11 +96,11 @@ export function Streams() {
               streams.value.map((s) => (
                 <tr key={s.mount} class="border-b border-[rgba(255,255,255,0.03)]">
                   <td class="px-4 py-3.5">
-                    <span class={`inline-block w-2 h-2 rounded-full ${s.live ? 'bg-live' : 'bg-text-tertiary'}`} />
+                    <span class={`inline-block w-2 h-2 rounded-full ${s.source_ip ? 'bg-live' : 'bg-text-tertiary'}`} />
                   </td>
                   <td class="px-4 py-3.5 font-mono font-bold text-sm text-text-primary">{s.mount}</td>
-                  <td class="px-4 py-3.5 text-sm text-text-secondary">{s.sourceIp || 'No source'}</td>
-                  <td class="px-4 py-3.5 text-sm text-text-secondary">{s.format || '—'}</td>
+                  <td class="px-4 py-3.5 text-sm text-text-secondary">{s.source_ip || 'No source'}</td>
+                  <td class="px-4 py-3.5 text-sm text-text-secondary">{s.content_type || '—'}</td>
                   <td class="px-4 py-3.5 font-mono text-sm text-text-primary">{s.listeners}</td>
                   <td class="px-4 py-3.5 text-right">
                     <div class="flex items-center justify-end gap-1">

@@ -7,6 +7,7 @@ import { Relays } from './Relays'
 import { Transcoders } from './Transcoders'
 import { Users } from './Users'
 import { Security } from './Security'
+import { APITokens } from './APITokens'
 import { Settings } from './Settings'
 import { AutoDJ } from './AutoDJ'
 import { Studio } from './Studio'
@@ -30,6 +31,7 @@ export function AdminLayout() {
           <Route path="/admin/studio" component={Studio} />
           <Route path="/admin/users" component={Users} />
           <Route path="/admin/security" component={Security} />
+          <Route path="/admin/tokens" component={APITokens} />
           <Route path="/admin/pending" component={PendingUsers} />
           <Route path="/admin/settings" component={Settings} />
         </Router>

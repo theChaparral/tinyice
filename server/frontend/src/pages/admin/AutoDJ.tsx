@@ -40,6 +40,7 @@ interface AutoDJInstance {
   playlistLen: number
   shuffle: boolean
   loop: boolean
+  injectMetadata: boolean
   musicDir: string
   queue: string[]
 }
@@ -57,6 +58,7 @@ function mapInstance(raw: AutoDJInstanceRaw): AutoDJInstance {
     playlistLen: raw.playlist_len,
     shuffle: raw.shuffle,
     loop: raw.loop,
+    injectMetadata: raw.inject_metadata,
     musicDir: raw.music_dir,
     queue: (raw.queue ?? []).map(q => q.title || q.file),
   }
@@ -65,6 +67,7 @@ function mapInstance(raw: AutoDJInstanceRaw): AutoDJInstance {
 const instances = signal<AutoDJInstance[]>([])
 const loading = signal(true)
 const showForm = signal(false)
+const editingMount = signal<string | null>(null) // null = creating new, string = editing existing mount
 const formName = signal('')
 const formMount = signal('')
 const formMusicDir = signal('')
@@ -73,7 +76,34 @@ const formBitrate = signal(128)
 const formLoop = signal(true)
 const formInjectMetadata = signal(true)
 
-async function createAutoDJ() {
+function resetForm() {
+  formName.value = ''
+  formMount.value = ''
+  formMusicDir.value = ''
+  formFormat.value = 'mp3'
+  formBitrate.value = 128
+  formLoop.value = true
+  formInjectMetadata.value = true
+  editingMount.value = null
+}
+
+function openEditForm(inst: AutoDJInstance) {
+  formName.value = inst.name
+  formMount.value = inst.mount
+  formMusicDir.value = inst.musicDir
+  formFormat.value = inst.format
+  formBitrate.value = inst.bitrate
+  formLoop.value = inst.loop
+  formInjectMetadata.value = inst.injectMetadata
+  editingMount.value = inst.mount
+  showForm.value = true
+}
+
+async function saveAutoDJ() {
+  // If editing, delete the old instance first then re-create
+  if (editingMount.value) {
+    await api.del(`/api/autodj?mount=${encodeURIComponent(editingMount.value)}`)
+  }
   await api.post('/api/autodj', {
     name: formName.value,
     mount: formMount.value,
@@ -84,13 +114,7 @@ async function createAutoDJ() {
     inject_metadata: formInjectMetadata.value,
   })
   showForm.value = false
-  formName.value = ''
-  formMount.value = ''
-  formMusicDir.value = ''
-  formFormat.value = 'mp3'
-  formBitrate.value = 128
-  formLoop.value = true
-  formInjectMetadata.value = true
+  resetForm()
   loadAutoDJ()
 }
 
@@ -156,15 +180,39 @@ function InstanceCard({ inst }: { inst: AutoDJInstance }) {
           <span class="text-sm text-text-tertiary">
             Stopped &mdash; {inst.playlistLen} tracks
           </span>
-          <button
-            onClick={() => handleTransport('play')}
-            class="w-10 h-10 rounded-full border border-border flex items-center justify-center text-text-tertiary hover:text-accent hover:border-accent transition-colors"
-            aria-label="Play"
-          >
-            <svg class="w-4 h-4 ml-0.5" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M8 5v14l11-7z" />
-            </svg>
-          </button>
+          <div class="flex items-center gap-2">
+            <button
+              onClick={() => handleTransport('play')}
+              class="w-10 h-10 rounded-full border border-border flex items-center justify-center text-text-tertiary hover:text-accent hover:border-accent transition-colors"
+              aria-label="Play"
+            >
+              <svg class="w-4 h-4 ml-0.5" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M8 5v14l11-7z" />
+              </svg>
+            </button>
+            <button
+              onClick={() => openEditForm(inst)}
+              class="w-8 h-8 rounded-lg border border-border flex items-center justify-center text-text-secondary hover:text-accent hover:border-accent/30 transition-colors"
+              aria-label="Edit AutoDJ"
+              title="Edit AutoDJ"
+            >
+              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+                <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+              </svg>
+            </button>
+            <button
+              onClick={() => deleteAutoDJ(inst.mount)}
+              class="w-8 h-8 rounded-lg border border-border flex items-center justify-center text-danger hover:border-danger/30 transition-colors"
+              aria-label="Delete AutoDJ"
+              title="Delete AutoDJ"
+            >
+              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="3 6 5 6 21 6" />
+                <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
+              </svg>
+            </button>
+          </div>
         </div>
       ) : (
         <>
@@ -241,6 +289,17 @@ function InstanceCard({ inst }: { inst: AutoDJInstance }) {
             </a>
 
             <button
+              onClick={() => openEditForm(inst)}
+              class="w-8 h-8 rounded-lg border border-border flex items-center justify-center text-text-secondary hover:text-accent hover:border-accent/30 transition-colors"
+              aria-label="Edit AutoDJ"
+              title="Edit AutoDJ"
+            >
+              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+                <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+              </svg>
+            </button>
+            <button
               onClick={() => deleteAutoDJ(inst.mount)}
               class="w-8 h-8 rounded-lg border border-border flex items-center justify-center text-danger hover:border-danger/30 transition-colors"
               aria-label="Delete AutoDJ"
@@ -315,7 +374,7 @@ export function AutoDJ() {
       <div class="flex items-center justify-between mb-6">
         <h1 class="text-xl font-bold text-text-primary font-heading">AutoDJ</h1>
         <button
-          onClick={() => { showForm.value = true }}
+          onClick={() => { resetForm(); showForm.value = true }}
           class="h-9 px-4 rounded-lg bg-accent text-surface-base text-sm font-medium flex items-center gap-2 hover:shadow-[0_0_20px_rgba(255,102,0,0.3)] transition-shadow"
         >
           <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
@@ -358,7 +417,7 @@ export function AutoDJ() {
       {showForm.value && (
         <div class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
           <div class="bg-surface-raised border border-border rounded-xl p-6 w-full max-w-md">
-            <h2 class="text-lg font-bold text-text-primary mb-4">New AutoDJ</h2>
+            <h2 class="text-lg font-bold text-text-primary mb-4">{editingMount.value ? 'Edit AutoDJ' : 'New AutoDJ'}</h2>
             <div class="flex flex-col gap-3">
               <div>
                 <label class="text-text-secondary text-xs font-mono tracking-wider uppercase mb-1.5 block">NAME</label>
@@ -436,16 +495,16 @@ export function AutoDJ() {
             </div>
             <div class="flex justify-end gap-2 mt-6">
               <button
-                onClick={() => { showForm.value = false }}
+                onClick={() => { showForm.value = false; resetForm() }}
                 class="border border-border text-text-secondary font-mono text-xs px-5 py-2.5 rounded-lg hover:border-border-hover"
               >
                 CANCEL
               </button>
               <button
-                onClick={createAutoDJ}
+                onClick={saveAutoDJ}
                 class="bg-accent text-surface-base font-mono font-bold text-xs tracking-wider px-5 py-2.5 rounded-lg"
               >
-                CREATE
+                {editingMount.value ? 'SAVE' : 'CREATE'}
               </button>
             </div>
           </div>

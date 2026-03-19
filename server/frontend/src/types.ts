@@ -45,6 +45,8 @@ export interface StatsEvent {
   listeners: number
   streams: number
   bandwidth: number
+  bandwidth_in: number
+  bandwidth_out: number
   uptime: number
   goroutines: number
   memory: number

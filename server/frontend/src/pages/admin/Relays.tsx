@@ -4,14 +4,11 @@ import { api } from '../../lib/api'
 import { Toggle } from '../../components/Toggle'
 
 interface Relay {
-  id: string
-  upstreamUrl: string
-  localMount: string
+  url: string
+  mount: string
+  burst_size: number
   enabled: boolean
-  connected: boolean
-  connecting: boolean
-  uptime: number
-  listeners: number
+  active: boolean
 }
 
 const relays = signal<Relay[]>([])
@@ -40,10 +37,10 @@ async function load() {
 
 async function addRelay() {
   await api.post('/api/relays', {
-    upstreamUrl: formUrl.value,
-    localMount: formMount.value,
+    url: formUrl.value,
+    mount: formMount.value,
     password: formPassword.value || undefined,
-    burstSize: formBurst.value,
+    burst_size: formBurst.value,
   })
   showForm.value = false
   formUrl.value = ''
@@ -53,20 +50,20 @@ async function addRelay() {
   load()
 }
 
-async function toggleRelay(id: string) {
-  await api.put(`/api/relays/${encodeURIComponent(id)}/toggle`)
+async function toggleRelay(mount: string) {
+  await api.post('/api/relays/toggle', { mount })
   load()
 }
 
-async function removeRelay(id: string) {
-  await api.del(`/api/relays/${encodeURIComponent(id)}`)
+async function removeRelay(mount: string) {
+  await api.del(`/api/relays?mount=${encodeURIComponent(mount)}`)
   load()
 }
 
 function statusColor(r: Relay): string {
-  if (r.connected) return 'bg-live'
-  if (r.connecting) return 'bg-yellow-400'
-  return 'bg-danger'
+  if (r.active) return 'bg-live'
+  if (r.enabled) return 'bg-yellow-400'
+  return 'bg-text-tertiary'
 }
 
 export function Relays() {
@@ -92,23 +89,22 @@ export function Relays() {
       ) : (
         <div class="grid gap-3">
           {relays.value.map((r) => (
-            <div key={r.id} class="border border-border rounded-xl bg-surface-raised p-5">
+            <div key={r.mount} class="border border-border rounded-xl bg-surface-raised p-5">
               <div class="flex items-start justify-between">
                 <div class="flex-1 min-w-0">
                   <div class="flex items-center gap-2 mb-2">
                     <span class={`inline-block w-2 h-2 rounded-full ${statusColor(r)}`} />
-                    <span class="font-mono text-sm font-bold text-text-primary truncate">{r.localMount}</span>
+                    <span class="font-mono text-sm font-bold text-text-primary truncate">{r.mount}</span>
                   </div>
-                  <div class="font-mono text-xs text-text-secondary truncate mb-3">{r.upstreamUrl}</div>
+                  <div class="font-mono text-xs text-text-secondary truncate mb-3">{r.url}</div>
                   <div class="flex items-center gap-4 text-xs text-text-tertiary">
-                    <span>Uptime: {formatUptime(r.uptime)}</span>
-                    <span>Listeners: {r.listeners}</span>
+                    <span>{r.active ? 'Connected' : r.enabled ? 'Connecting...' : 'Disabled'}</span>
                   </div>
                 </div>
                 <div class="flex items-center gap-3 ml-4">
-                  <Toggle checked={r.enabled} onChange={() => toggleRelay(r.id)} label="Enable relay" />
+                  <Toggle checked={r.enabled} onChange={() => toggleRelay(r.mount)} label="Enable relay" />
                   <button
-                    onClick={() => removeRelay(r.id)}
+                    onClick={() => removeRelay(r.mount)}
                     title="Remove relay"
                     class="border border-border text-danger font-mono text-xs px-2 py-1.5 rounded-lg hover:border-danger/30"
                   >

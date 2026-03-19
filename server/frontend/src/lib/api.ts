@@ -1,7 +1,5 @@
-const csrf = () => window.__TINYICE__?.csrfToken ?? ''
-
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const headers: Record<string, string> = { 'X-CSRF-Token': csrf() }
+  const headers: Record<string, string> = {}
   if (body !== undefined) headers['Content-Type'] = 'application/json'
   const res = await fetch(path, {
     method,

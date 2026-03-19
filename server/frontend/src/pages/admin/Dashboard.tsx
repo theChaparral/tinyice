@@ -9,6 +9,8 @@ const stats = signal<StatsEvent>({
   listeners: 0,
   streams: 0,
   bandwidth: 0,
+  bandwidth_in: 0,
+  bandwidth_out: 0,
   uptime: 0,
   goroutines: 0,
   memory: 0,
@@ -89,7 +91,7 @@ export function Dashboard() {
       </div>
 
       {/* Stats row */}
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
         <StatCard
           label="Listeners"
           value={stats.value.listeners}
@@ -102,9 +104,14 @@ export function Dashboard() {
           subtitle="active / total"
         />
         <StatCard
-          label="Bandwidth"
-          value={formatBandwidth(stats.value.bandwidth)}
-          subtitle="outbound"
+          label="Inbound"
+          value={formatBandwidth(stats.value.bandwidth_in || 0)}
+          subtitle="from sources"
+        />
+        <StatCard
+          label="Outbound"
+          value={formatBandwidth(stats.value.bandwidth_out || stats.value.bandwidth || 0)}
+          subtitle="to listeners"
         />
         <StatCard
           label="Uptime"

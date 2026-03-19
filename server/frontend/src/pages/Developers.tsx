@@ -18,21 +18,35 @@ const sections = [
   ]},
   { id: 'reference', label: 'Reference', children: [
     { id: 'rest-api', label: 'REST API' },
+    { id: 'api-docs', label: 'API Docs (Swagger)' },
     { id: 'embed-widget', label: 'Embed Widget' },
     { id: 'icecast-compat', label: 'Icecast Compat' },
   ]},
 ]
 
 const endpoints = [
-  { method: 'POST', path: '/webrtc/source-offer', desc: 'Start WebRTC source stream' },
   { method: 'GET', path: '/{mount}', desc: 'Listen to audio stream (HTTP)' },
+  { method: 'POST', path: '/webrtc/source-offer', desc: 'Start WebRTC source stream' },
+  { method: 'POST', path: '/webrtc/offer', desc: 'WebRTC listener connection' },
   { method: 'GET', path: '/events', desc: 'Real-time metadata (SSE)' },
+  { method: 'GET', path: '/api/streams', desc: 'List all stream mounts' },
+  { method: 'POST', path: '/api/streams', desc: 'Create a stream mount' },
+  { method: 'GET', path: '/api/autodj', desc: 'List AutoDJ instances' },
   { method: 'GET', path: '/api/stats', desc: 'Server statistics' },
-  { method: 'GET', path: '/explore', desc: 'Stream discovery page' },
+  { method: 'GET', path: '/api/relays', desc: 'List relay connections' },
+  { method: 'GET', path: '/api/users', desc: 'List users' },
+  { method: 'GET', path: '/api/settings', desc: 'Server configuration' },
+  { method: 'GET', path: '/api/branding', desc: 'Branding settings' },
 ]
 
 function methodColor(m: string) {
-  return m === 'POST' ? 'bg-green-500/15 text-green-400 border-green-500/20' : 'bg-blue-500/15 text-blue-400 border-blue-500/20'
+  const colors: Record<string, string> = {
+    GET: 'bg-blue-500/15 text-blue-400 border-blue-500/20',
+    POST: 'bg-green-500/15 text-green-400 border-green-500/20',
+    PUT: 'bg-yellow-500/15 text-yellow-400 border-yellow-500/20',
+    DELETE: 'bg-red-500/15 text-red-400 border-red-500/20',
+  }
+  return colors[m] || colors.GET
 }
 
 export function Developers() {
@@ -68,7 +82,7 @@ export function Developers() {
 
   return (
     <div class="min-h-screen bg-surface-base">
-      <Nav branding={data.branding} />
+      <Nav branding={data.branding} pageTitle={data.pageTitle} />
 
       <div class="flex pt-14">
         {/* Sidebar */}
@@ -318,6 +332,63 @@ source.addEventListener('metadata', (e) => {
                     </svg>
                   </div>
                 ))}
+              </div>
+            </section>
+
+            {/* API Docs */}
+            <section id="api-docs">
+              <h2 class="font-heading text-xl font-bold text-text-primary mb-2">Interactive API Docs</h2>
+              <p class="text-text-secondary text-sm leading-relaxed mb-6">
+                Explore the full API interactively with Swagger UI. All endpoints are documented
+                with request/response schemas, parameter descriptions, and example values.
+              </p>
+
+              <div class="flex flex-col gap-3">
+                <a
+                  href="/api/docs"
+                  target="_blank"
+                  class="group flex items-center gap-4 rounded-lg border border-accent/30 bg-accent/5 hover:bg-accent/10 p-5 transition-colors"
+                >
+                  <div class="w-10 h-10 rounded-lg bg-accent/15 flex items-center justify-center flex-shrink-0">
+                    <svg class="w-5 h-5 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                      <polyline points="14 2 14 8 20 8" />
+                      <line x1="16" y1="13" x2="8" y2="13" />
+                      <line x1="16" y1="17" x2="8" y2="17" />
+                    </svg>
+                  </div>
+                  <div class="flex-1">
+                    <div class="font-heading text-sm font-semibold text-text-primary">Swagger UI</div>
+                    <div class="text-text-tertiary text-xs mt-0.5">Interactive API explorer with try-it-out</div>
+                  </div>
+                  <svg class="w-4 h-4 text-text-tertiary group-hover:text-accent transition-colors" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                    <polyline points="15 3 21 3 21 9" />
+                    <line x1="10" y1="14" x2="21" y2="3" />
+                  </svg>
+                </a>
+
+                <a
+                  href="/api/openapi.yaml"
+                  target="_blank"
+                  class="group flex items-center gap-4 rounded-lg border border-border hover:border-accent/30 bg-surface-raised p-5 transition-colors"
+                >
+                  <div class="w-10 h-10 rounded-lg bg-surface-overlay flex items-center justify-center flex-shrink-0">
+                    <svg class="w-5 h-5 text-text-secondary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <polyline points="16 18 22 12 16 6" />
+                      <polyline points="8 6 2 12 8 18" />
+                    </svg>
+                  </div>
+                  <div class="flex-1">
+                    <div class="font-heading text-sm font-semibold text-text-primary">OpenAPI Spec</div>
+                    <div class="text-text-tertiary text-xs mt-0.5">Download the raw OpenAPI 3.0 YAML specification</div>
+                  </div>
+                  <svg class="w-4 h-4 text-text-tertiary group-hover:text-accent transition-colors" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <polyline points="7 10 12 15 17 10" />
+                    <line x1="12" y1="15" x2="12" y2="3" />
+                  </svg>
+                </a>
               </div>
             </section>
 
