@@ -201,6 +201,9 @@ type Config struct {
 	Users       map[string]*User   `json:"users"`
 	APITokens   []*APIToken        `json:"api_tokens,omitempty"`
 
+	// Audit logging
+	AuditEnabled bool `json:"audit_enabled"`
+
 	// Auth: Setup & Onboarding
 	SetupComplete bool `json:"setup_complete"`
 
