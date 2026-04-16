@@ -326,6 +326,49 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "409":
           description: Mount already taken
+    put:
+      tags: [Streams]
+      summary: Update an existing stream mount
+      description: |
+        Edit the password, enabled state (DisabledMounts), or visibility
+        (VisibleMounts) of an existing mount. Omitted fields are left
+        unchanged. The mount path itself cannot be changed.
+      security:
+        - session: []
+        - bearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mount]
+              properties:
+                mount:
+                  type: string
+                  example: /live
+                password:
+                  type: string
+                  description: New source password. Omit or send empty to keep the current password.
+                enabled:
+                  type: boolean
+                  description: If false, the mount is added to DisabledMounts and any connected source is disconnected.
+                visible:
+                  type: boolean
+                  description: If true, the mount is listed publicly.
+      responses:
+        "200":
+          description: Mount updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          description: No access to this mount
+        "404":
+          description: Mount not found
     delete:
       tags: [Streams]
       summary: Delete a stream mount

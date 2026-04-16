@@ -226,6 +226,105 @@ func (s *Server) apiCreateStream(w http.ResponseWriter, r *http.Request) {
 	s.Audit(r, "mount_created", "stream", body.Mount, "")
 }
 
+// apiUpdateStream edits an existing stream mount. The mount path itself is
+// immutable (renaming would require migrating per-user ownership); password,
+// enabled (DisabledMounts) and visibility (VisibleMounts) can all be changed
+// independently. Any omitted field is left untouched.
+func (s *Server) apiUpdateStream(w http.ResponseWriter, r *http.Request) {
+	if !s.isCSRFSafe(r) {
+		jsonError(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	user, ok := s.checkAuth(r)
+	if !ok {
+		jsonError(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var body struct {
+		Mount    string  `json:"mount"`
+		Password *string `json:"password,omitempty"`
+		Enabled  *bool   `json:"enabled,omitempty"`
+		Visible  *bool   `json:"visible,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		jsonError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	if body.Mount == "" {
+		jsonError(w, "Mount is required", http.StatusBadRequest)
+		return
+	}
+	if body.Mount[0] != '/' {
+		body.Mount = "/" + body.Mount
+	}
+	if !s.hasAccess(user, body.Mount) {
+		jsonError(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	// Find the current password location (global vs per-user map).
+	_, inGlobal := s.Config.Mounts[body.Mount]
+	var owningUser *config.User
+	for _, u := range s.Config.Users {
+		if _, ok := u.Mounts[body.Mount]; ok {
+			owningUser = u
+			break
+		}
+	}
+	if !inGlobal && owningUser == nil {
+		jsonError(w, "Mount not found", http.StatusNotFound)
+		return
+	}
+
+	if body.Password != nil && *body.Password != "" {
+		hashed, err := config.HashPassword(*body.Password)
+		if err != nil {
+			jsonError(w, "Failed to hash password", http.StatusInternalServerError)
+			return
+		}
+		if inGlobal {
+			s.Config.Mounts[body.Mount] = hashed
+		} else {
+			owningUser.Mounts[body.Mount] = hashed
+		}
+	}
+
+	if body.Enabled != nil {
+		if s.Config.DisabledMounts == nil {
+			s.Config.DisabledMounts = make(map[string]bool)
+		}
+		if *body.Enabled {
+			delete(s.Config.DisabledMounts, body.Mount)
+		} else {
+			s.Config.DisabledMounts[body.Mount] = true
+			// Kick the live source if it's currently connected so the new
+			// disabled state takes effect immediately.
+			if st, ok := s.Relay.GetStream(body.Mount); ok {
+				st.DisconnectListeners()
+			}
+		}
+	}
+
+	if body.Visible != nil {
+		if s.Config.VisibleMounts == nil {
+			s.Config.VisibleMounts = make(map[string]bool)
+		}
+		if *body.Visible {
+			s.Config.VisibleMounts[body.Mount] = true
+		} else {
+			delete(s.Config.VisibleMounts, body.Mount)
+		}
+		if st, ok := s.Relay.GetStream(body.Mount); ok {
+			st.SetVisible(*body.Visible)
+		}
+	}
+
+	s.Config.SaveConfig()
+	jsonResponse(w, map[string]string{"status": "updated", "mount": body.Mount})
+	s.Audit(r, "mount_updated", "stream", body.Mount, "")
+}
+
 func (s *Server) apiDeleteStream(w http.ResponseWriter, r *http.Request) {
 	if !s.isCSRFSafe(r) {
 		jsonError(w, "Forbidden", http.StatusForbidden)

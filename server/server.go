@@ -341,6 +341,8 @@ func (s *Server) setupRoutes() *http.ServeMux {
 			s.apiGetStreams(w, r)
 		case http.MethodPost:
 			s.apiCreateStream(w, r)
+		case http.MethodPut, http.MethodPatch:
+			s.apiUpdateStream(w, r)
 		case http.MethodDelete:
 			s.apiDeleteStream(w, r)
 		default:
