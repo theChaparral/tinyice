@@ -158,7 +158,45 @@ func (tm *TranscoderManager) performTranscode(ctx context.Context, inst *Transco
 	offset, signal := input.Subscribe(id, 32*1024)
 	defer input.Unsubscribe(id)
 
-	reader := NewStreamReader(input.Buffer, offset, signal, ctx, id).WithOggSync(input)
+	// For live Ogg inputs, the subscribe offset lands mid-stream. The decoder
+	// needs the BOS + setup pages to initialise, so we prepend the captured
+	// OggHead (stored by the Icecast SOURCE / WebRTC ingest) and align the
+	// live reader to the next valid page boundary so the Ogg page parser
+	// picks up from a clean edge.
+	input.mu.RLock()
+	isOgg := input.IsOggStream || strings.Contains(strings.ToLower(input.ContentType), "ogg") ||
+		strings.Contains(strings.ToLower(input.ContentType), "opus") ||
+		strings.Contains(strings.ToLower(input.ContentType), "vorbis") ||
+		strings.Contains(strings.ToLower(input.ContentType), "flac")
+	bufSize := input.Buffer.Size
+	bufHead := input.Buffer.Head
+	var headBytes []byte
+	if len(input.OggHead) > 0 {
+		headBytes = append(headBytes, input.OggHead...)
+	}
+	input.mu.RUnlock()
+
+	var reader io.Reader
+	if isOgg {
+		aligned := FindNextPageBoundary(input.Buffer.Data, bufSize, bufHead, offset)
+		if aligned < bufHead {
+			offset = aligned
+		}
+		live := NewStreamReader(input.Buffer, offset, signal, ctx, id).WithOggSync(input)
+		if len(headBytes) > 0 {
+			reader = io.MultiReader(bytes.NewReader(headBytes), live)
+		} else {
+			// Without stored headers the decoder will likely fail to init;
+			// log a hint so the operator knows to restart the source so we
+			// can capture BOS/Tags next time.
+			logger.L.Warnw("Transcoder: Ogg input has no captured headers; decoder may fail until source reconnects",
+				"name", inst.Config.Name, "input", inst.Config.InputMount,
+			)
+			reader = live
+		}
+	} else {
+		reader = NewStreamReader(input.Buffer, offset, signal, ctx, id).WithOggSync(input)
+	}
 
 	// 3. Decode — auto-detect MP3 / Ogg Opus / Ogg Vorbis / FLAC from the
 	// first bytes of the input stream.

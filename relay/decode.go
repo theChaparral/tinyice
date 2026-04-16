@@ -58,6 +58,15 @@ func OpenDecoder(r io.Reader) (PCMDecoder, error) {
 // openOggDecoder dispatches based on the identification packet carried in the
 // BOS page of an Ogg stream.
 func openOggDecoder(br io.Reader, peek []byte) (PCMDecoder, error) {
+	// If the first page in the peek isn't a BOS page, we're reading
+	// mid-stream (typical for the transcoder subscribing to a live relay
+	// with no captured OggHead). No amount of codec sniffing will yield the
+	// right identification packet — return a specific error so the caller
+	// can log a helpful hint.
+	if len(peek) >= 6 && peek[5]&0x02 == 0 {
+		return nil, fmt.Errorf("decode: Ogg stream started mid-stream (no BOS page in first %d bytes — source needs to reconnect so BOS/Tags pages can be captured)", len(peek))
+	}
+
 	body := firstOggPageBody(peek)
 	switch {
 	case len(body) >= 8 && bytes.Equal(body[:8], []byte("OpusHead")):
@@ -73,9 +82,9 @@ func openOggDecoder(br io.Reader, peek []byte) (PCMDecoder, error) {
 	switch {
 	case bytes.Contains(peek, []byte("OpusHead")):
 		return newOggOpusDecoder(br)
-	case bytes.Contains(peek, []byte("\x01vorbis")) || bytes.Contains(peek, []byte("vorbis")):
+	case bytes.Contains(peek, []byte("\x01vorbis")):
 		return newOggVorbisDecoder(br)
-	case bytes.Contains(peek, []byte("FLAC")) && bytes.Contains(peek, []byte{0x7F}):
+	case bytes.Contains(peek, []byte{0x7F, 'F', 'L', 'A', 'C'}):
 		return newOggFLACDecoder(br)
 	}
 	// Report up to 32 bytes of the actual body so the operator can tell which
