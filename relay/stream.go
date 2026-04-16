@@ -108,6 +108,19 @@ func (s *Stream) IsOgg() bool {
 	return strings.Contains(ct, "ogg") || strings.Contains(ct, "opus")
 }
 
+// StoreOggHead atomically records the Ogg header bytes and the buffer offset
+// at which audio data begins. Late-joining listeners prepend OggHead to their
+// output and skip buffer content before OggHeaderOffset so they get a complete
+// set of codec setup pages.
+func (s *Stream) StoreOggHead(head []byte, audioStartOffset int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.OggHead = head
+	s.OggHeaderOffset = audioStartOffset
+	// Mark the stream as Ogg so the listener path applies Ogg-specific sync.
+	s.IsOggStream = true
+}
+
 // Close closes all listeners on the stream and cleans up resources.
 //
 // This method should be called when a stream is being removed or when the source

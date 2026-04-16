@@ -12,7 +12,6 @@ import (
 	"github.com/DatanoiseTV/tinyice/config"
 	"github.com/DatanoiseTV/tinyice/logger"
 	shine "github.com/braheezy/shine-mp3/pkg/mp3"
-	"github.com/hajimehoshi/go-mp3"
 	"github.com/kazzmir/opus-go/ogg"
 	"github.com/kazzmir/opus-go/opus"
 )
@@ -160,8 +159,9 @@ func (tm *TranscoderManager) performTranscode(ctx context.Context, inst *Transco
 
 	reader := NewStreamReader(input.Buffer, offset, signal, ctx, id).WithOggSync(input)
 
-	// 3. Decode
-	decoder, err := mp3.NewDecoder(reader)
+	// 3. Decode — auto-detect MP3 / Ogg Opus / Ogg Vorbis / FLAC from the
+	// first bytes of the input stream.
+	decoder, err := OpenDecoder(reader)
 	if err != nil {
 		logger.L.Errorw("Transcoder: Failed to initialize decoder", "name", inst.Config.Name, "input", inst.Config.InputMount, "error", err)
 		return
@@ -176,7 +176,7 @@ func (tm *TranscoderManager) performTranscode(ctx context.Context, inst *Transco
 
 	if inst.Config.Format == "mp3" {
 		output.ContentType = "audio/mpeg"
-		EncodeMP3(ctx, tm.relay, output, decoder, inst.Config.Bitrate, &inst.BytesEncoded, false, 44100)
+		EncodeMP3(ctx, tm.relay, output, decoder, inst.Config.Bitrate, &inst.BytesEncoded, false, decoder.SampleRate())
 	} else if inst.Config.Format == "opus" {
 		output.ContentType = "audio/ogg"
 		EncodeOpus(ctx, tm.relay, output, decoder, inst.Config.Bitrate, &inst.BytesEncoded, false)

@@ -16,7 +16,6 @@ import (
 	"github.com/DatanoiseTV/tinyice/logger"
 	"github.com/bogem/id3v2/v2"
 	"github.com/dhowden/tag"
-	"github.com/hajimehoshi/go-mp3"
 )
 
 type StreamerState int
@@ -862,10 +861,20 @@ func validateAudioFile(path string) error {
 	if _, err := f.Read(header); err != nil {
 		return fmt.Errorf("cannot read header: %w", err)
 	}
+	// MP3 with ID3v2 tags
 	if header[0] == 'I' && header[1] == 'D' && header[2] == '3' {
 		return nil
 	}
+	// Raw MP3 frame sync
 	if header[0] == 0xFF && (header[1]&0xE0) == 0xE0 {
+		return nil
+	}
+	// Ogg container (Vorbis / Opus / FLAC-in-Ogg)
+	if string(header) == "OggS" {
+		return nil
+	}
+	// Native FLAC
+	if string(header) == "fLaC" {
 		return nil
 	}
 	return fmt.Errorf("unrecognized audio format (header: %x)", header[:4])
@@ -892,7 +901,7 @@ func (sm *StreamerManager) streamFile(ctx context.Context, s *Streamer, path str
 	// Seek back to start after reading tags
 	f.Seek(0, 0)
 
-	decoder, err := mp3.NewDecoder(f)
+	decoder, err := OpenDecoder(f)
 	if err != nil {
 		return err
 	}
@@ -914,9 +923,9 @@ func (sm *StreamerManager) streamFile(ctx context.Context, s *Streamer, path str
 		}
 	}
 	s.CurrentSampleRate = decoder.SampleRate()
-	s.CurrentChannels = 2 // go-mp3 always outputs 2 channels
+	s.CurrentChannels = 2 // decoders always emit 2 channels via OpenDecoder
 	s.CurrentFileTime = time.Now()
-	s.CurrentFileDuration = time.Duration(decoder.Length()) * time.Second / time.Duration(decoder.SampleRate()*4)
+	s.CurrentFileDuration = 0 // PCM length isn't known up-front for non-MP3 inputs
 	s.mu.Unlock()
 
 	// Update stream metadata

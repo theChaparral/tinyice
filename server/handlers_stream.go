@@ -168,11 +168,37 @@ func (s *Server) handleSource(w http.ResponseWriter, r *http.Request) {
 
 	s.updateSourceMetadata(stream, mount, r)
 
+	// Late-joining listeners on Ogg-based mounts (Vorbis / Opus / FLAC-in-Ogg)
+	// need the BOS + comment/setup pages prepended so they can initialise the
+	// codec. Capture those pages while forwarding the byte stream.
+	captureHeaders := isOggContentType(r.Header.Get("Content-Type")) || stream.IsOgg()
+	var headerBuf []byte
+	captureStartOffset := stream.Buffer.Head
+
 	buf := make([]byte, 8192)
 	for {
 		n, err := bufrw.Read(buf)
 		if n > 0 {
 			stream.Broadcast(buf[:n], s.Relay)
+			if captureHeaders {
+				headerBuf = append(headerBuf, buf[:n]...)
+				endPos, needMore, abort := relay.FindOggHeaderEnd(headerBuf)
+				if abort {
+					captureHeaders = false
+					headerBuf = nil
+				} else if !needMore {
+					headers := make([]byte, endPos)
+					copy(headers, headerBuf[:endPos])
+					stream.StoreOggHead(headers, captureStartOffset+int64(endPos))
+					logger.L.Infow("Source: Captured Ogg headers",
+						"mount", mount,
+						"bytes", len(headers),
+						"offset", captureStartOffset+int64(endPos),
+					)
+					captureHeaders = false
+					headerBuf = nil
+				}
+			}
 		}
 		if err != nil {
 			break
@@ -183,6 +209,28 @@ func (s *Server) handleSource(w http.ResponseWriter, r *http.Request) {
 		"mount": mount,
 	})
 	s.Relay.RemoveStream(mount)
+}
+
+// isOggContentType returns true if the given HTTP Content-Type indicates an
+// Ogg-container stream (Vorbis, Opus, FLAC-in-Ogg, etc.).
+func isOggContentType(ct string) bool {
+	ct = strings.ToLower(strings.TrimSpace(ct))
+	if ct == "" {
+		return false
+	}
+	// Strip any "; charset=..." suffix.
+	if idx := strings.Index(ct, ";"); idx >= 0 {
+		ct = strings.TrimSpace(ct[:idx])
+	}
+	switch ct {
+	case "application/ogg", "audio/ogg", "audio/opus", "audio/vorbis":
+		return true
+	}
+	// Also recognise vendor-specific shapes like audio/ogg; codecs=opus.
+	if strings.HasPrefix(ct, "audio/ogg") || strings.HasPrefix(ct, "application/ogg") {
+		return true
+	}
+	return false
 }
 
 func (s *Server) updateSourceMetadata(stream *relay.Stream, mount string, r *http.Request) {
