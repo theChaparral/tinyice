@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math"
 
 	"github.com/jfreymuth/oggvorbis"
 	"github.com/kazzmir/opus-go/ogg"
@@ -51,6 +52,8 @@ func OpenDecoder(r io.Reader) (PCMDecoder, error) {
 		return newFLACDecoder(br)
 	case bytes.Equal(peek[:4], []byte("OggS")):
 		return openOggDecoder(br, peek)
+	case bytes.Equal(peek[:4], []byte("RIFF")) && len(peek) >= 12 && bytes.Equal(peek[8:12], []byte("WAVE")):
+		return newWavDecoder(br)
 	}
 	return nil, fmt.Errorf("decode: unknown audio format (header: %x)", peek[:4])
 }
@@ -317,6 +320,187 @@ func (f *flacDecoder) Read(p []byte) (int, error) {
 	n := copy(p, f.pending)
 	f.pending = f.pending[n:]
 	return n, nil
+}
+
+// --- WAV --------------------------------------------------------------------
+
+type wavDecoder struct {
+	r             io.Reader
+	sampleRate    int
+	channels      int
+	bitsPerSample int
+	isFloat       bool
+	pending       []byte
+	inBuf         []byte
+}
+
+func newWavDecoder(r io.Reader) (PCMDecoder, error) {
+	var head [12]byte
+	if _, err := io.ReadFull(r, head[:]); err != nil {
+		return nil, fmt.Errorf("decode wav: read RIFF header: %w", err)
+	}
+	if !bytes.Equal(head[0:4], []byte("RIFF")) || !bytes.Equal(head[8:12], []byte("WAVE")) {
+		return nil, fmt.Errorf("decode wav: not a RIFF/WAVE file")
+	}
+
+	var (
+		fmtFound                     bool
+		sampleRate, channels, bps    int
+		isFloat                      bool
+	)
+	for {
+		var hdr [8]byte
+		if _, err := io.ReadFull(r, hdr[:]); err != nil {
+			return nil, fmt.Errorf("decode wav: read chunk header: %w", err)
+		}
+		id := string(hdr[0:4])
+		size := binary.LittleEndian.Uint32(hdr[4:8])
+		switch id {
+		case "fmt ":
+			if size < 16 || size > 1<<20 {
+				return nil, fmt.Errorf("decode wav: implausible fmt chunk size %d", size)
+			}
+			body := make([]byte, size)
+			if _, err := io.ReadFull(r, body); err != nil {
+				return nil, fmt.Errorf("decode wav: read fmt: %w", err)
+			}
+			audioFormat := binary.LittleEndian.Uint16(body[0:2])
+			channels = int(binary.LittleEndian.Uint16(body[2:4]))
+			sampleRate = int(binary.LittleEndian.Uint32(body[4:8]))
+			bps = int(binary.LittleEndian.Uint16(body[14:16]))
+			switch audioFormat {
+			case 1: // PCM
+				isFloat = false
+			case 3: // IEEE float
+				isFloat = true
+			case 0xFFFE: // extensible
+				if size < 40 {
+					return nil, fmt.Errorf("decode wav: extensible fmt too small (%d)", size)
+				}
+				subFmt := binary.LittleEndian.Uint16(body[24:26])
+				isFloat = subFmt == 3
+				if subFmt != 1 && subFmt != 3 {
+					return nil, fmt.Errorf("decode wav: unsupported extensible sub-format %d", subFmt)
+				}
+			default:
+				return nil, fmt.Errorf("decode wav: unsupported audio format %d (only PCM and IEEE float supported)", audioFormat)
+			}
+			fmtFound = true
+		case "data":
+			if !fmtFound {
+				return nil, fmt.Errorf("decode wav: data chunk before fmt chunk")
+			}
+			if channels < 1 || bps < 8 || bps > 32 || sampleRate < 1 {
+				return nil, fmt.Errorf("decode wav: invalid params channels=%d bps=%d sr=%d", channels, bps, sampleRate)
+			}
+			return &wavDecoder{
+				r:             r,
+				sampleRate:    sampleRate,
+				channels:      channels,
+				bitsPerSample: bps,
+				isFloat:       isFloat,
+			}, nil
+		default:
+			// Skip unknown chunk (and its padding byte if odd size).
+			if _, err := io.CopyN(io.Discard, r, int64(size)); err != nil {
+				return nil, fmt.Errorf("decode wav: skip chunk %q: %w", id, err)
+			}
+			if size%2 != 0 {
+				var pad [1]byte
+				_, _ = io.ReadFull(r, pad[:])
+			}
+		}
+	}
+}
+
+func (w *wavDecoder) SampleRate() int { return w.sampleRate }
+
+func (w *wavDecoder) Read(p []byte) (int, error) {
+	for len(w.pending) == 0 {
+		sampleBytes := w.bitsPerSample / 8
+		frameBytes := w.channels * sampleBytes
+		if frameBytes == 0 {
+			return 0, fmt.Errorf("decode wav: invalid frame size")
+		}
+		batchFrames := 1024
+		readBytes := batchFrames * frameBytes
+		if cap(w.inBuf) < readBytes {
+			w.inBuf = make([]byte, readBytes)
+		}
+		buf := w.inBuf[:readBytes]
+		n, err := io.ReadFull(w.r, buf)
+		if n == 0 {
+			if err == nil {
+				err = io.EOF
+			}
+			return 0, err
+		}
+		// Trim to whole frames.
+		n -= n % frameBytes
+		if n == 0 {
+			return 0, io.ErrUnexpectedEOF
+		}
+		w.pending = wavBytesToStereoS16LE(buf[:n], w.channels, w.bitsPerSample, w.isFloat, w.pending[:0])
+	}
+	n := copy(p, w.pending)
+	w.pending = w.pending[n:]
+	return n, nil
+}
+
+// wavBytesToStereoS16LE converts interleaved WAV sample bytes into S16LE
+// stereo. Mono inputs are duplicated, >2 channel inputs keep just the first
+// two channels.
+func wavBytesToStereoS16LE(src []byte, channels, bps int, isFloat bool, dst []byte) []byte {
+	sampleBytes := bps / 8
+	frameBytes := channels * sampleBytes
+	frames := len(src) / frameBytes
+	tmp := make([]byte, 0, frames*4)
+	for i := 0; i < frames; i++ {
+		off := i * frameBytes
+		l := extractWavSample(src[off:off+sampleBytes], bps, isFloat)
+		var r int32
+		if channels >= 2 {
+			r = extractWavSample(src[off+sampleBytes:off+2*sampleBytes], bps, isFloat)
+		} else {
+			r = l
+		}
+		li := clampInt32ToInt16(l)
+		ri := clampInt32ToInt16(r)
+		tmp = append(tmp, byte(li), byte(li>>8), byte(ri), byte(ri>>8))
+	}
+	return append(dst, tmp...)
+}
+
+// extractWavSample returns a single sample normalised into the int16 range
+// (before clamping).
+func extractWavSample(b []byte, bps int, isFloat bool) int32 {
+	switch {
+	case isFloat && bps == 32:
+		bits := binary.LittleEndian.Uint32(b)
+		f := math.Float32frombits(bits) * 32767.0
+		if f > 32767 {
+			f = 32767
+		} else if f < -32768 {
+			f = -32768
+		}
+		return int32(f)
+	case !isFloat && bps == 16:
+		return int32(int16(binary.LittleEndian.Uint16(b)))
+	case !isFloat && bps == 24:
+		v := int32(b[0]) | int32(b[1])<<8 | int32(b[2])<<16
+		if v&0x800000 != 0 {
+			v |= ^int32(0xFFFFFF)
+		}
+		return v >> 8 // down to 16-bit
+	case !isFloat && bps == 32:
+		v := int32(binary.LittleEndian.Uint32(b))
+		return v >> 16
+	case !isFloat && bps == 8:
+		// 8-bit WAV is unsigned with a centre of 128.
+		return (int32(b[0]) - 128) << 8
+	default:
+		return 0
+	}
 }
 
 // --- conversion helpers -----------------------------------------------------

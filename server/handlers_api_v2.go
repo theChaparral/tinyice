@@ -1168,13 +1168,18 @@ func (s *Server) apiCreateRelay(w http.ResponseWriter, r *http.Request) {
 		body.BurstSize = 20
 	}
 
-	// Update existing or create new
+	// Update existing or create new. An empty password on an update preserves
+	// the stored one so the Edit UI can omit the password field.
 	found := false
+	effectivePassword := body.Password
 	for _, rc := range s.Config.Relays {
 		if rc.Mount == body.Mount {
 			rc.URL = body.URL
-			rc.Password = body.Password
+			if body.Password != "" {
+				rc.Password = body.Password
+			}
 			rc.BurstSize = body.BurstSize
+			effectivePassword = rc.Password
 			found = true
 			break
 		}
@@ -1185,9 +1190,15 @@ func (s *Server) apiCreateRelay(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	s.Config.SaveConfig()
-	s.RelayM.StartRelay(body.URL, body.Mount, body.Password, body.BurstSize, s.Config.VisibleMounts[body.Mount])
-	jsonResponse(w, map[string]string{"status": "created"})
-	s.Audit(r, "relay_created", "relay", body.Mount, body.URL)
+	// Restart the relay so new URL / burst / password take effect immediately.
+	s.RelayM.StopRelay(body.Mount)
+	s.RelayM.StartRelay(body.URL, body.Mount, effectivePassword, body.BurstSize, s.Config.VisibleMounts[body.Mount])
+	action := "relay_created"
+	if found {
+		action = "relay_updated"
+	}
+	jsonResponse(w, map[string]string{"status": "ok"})
+	s.Audit(r, action, "relay", body.Mount, body.URL)
 }
 
 func (s *Server) apiDeleteRelay(w http.ResponseWriter, r *http.Request) {

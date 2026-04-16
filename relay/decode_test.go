@@ -3,6 +3,7 @@ package relay
 import (
 	"bytes"
 	"encoding/binary"
+	"math"
 	"testing"
 )
 
@@ -98,6 +99,105 @@ func TestOpenDecoder_RejectsUnknown(t *testing.T) {
 	_, err := OpenDecoder(bytes.NewReader([]byte{0x00, 0x01, 0x02, 0x03, 0x04}))
 	if err == nil {
 		t.Fatalf("expected error for unknown format")
+	}
+}
+
+// makeWavHeader builds a minimal PCM WAV header followed by `dataBytes` zero
+// payload bytes. The data chunk size matches dataBytes so the decoder has a
+// well-formed stream for the test.
+func makeWavHeader(channels, sampleRate, bitsPerSample, dataBytes int) []byte {
+	byteRate := sampleRate * channels * bitsPerSample / 8
+	blockAlign := channels * bitsPerSample / 8
+	buf := &bytes.Buffer{}
+	buf.WriteString("RIFF")
+	binary.Write(buf, binary.LittleEndian, uint32(36+dataBytes))
+	buf.WriteString("WAVE")
+	buf.WriteString("fmt ")
+	binary.Write(buf, binary.LittleEndian, uint32(16))
+	binary.Write(buf, binary.LittleEndian, uint16(1)) // PCM
+	binary.Write(buf, binary.LittleEndian, uint16(channels))
+	binary.Write(buf, binary.LittleEndian, uint32(sampleRate))
+	binary.Write(buf, binary.LittleEndian, uint32(byteRate))
+	binary.Write(buf, binary.LittleEndian, uint16(blockAlign))
+	binary.Write(buf, binary.LittleEndian, uint16(bitsPerSample))
+	buf.WriteString("data")
+	binary.Write(buf, binary.LittleEndian, uint32(dataBytes))
+	buf.Write(make([]byte, dataBytes))
+	return buf.Bytes()
+}
+
+func TestOpenDecoder_WAV(t *testing.T) {
+	// 2ch, 48k, 16-bit, 1 second of silence = 48000 frames * 4 bytes
+	data := makeWavHeader(2, 48000, 16, 48000*4)
+	dec, err := OpenDecoder(bytes.NewReader(data))
+	if err != nil {
+		t.Fatalf("OpenDecoder: %v", err)
+	}
+	if dec.SampleRate() != 48000 {
+		t.Fatalf("SampleRate=%d, want 48000", dec.SampleRate())
+	}
+	out := make([]byte, 4096)
+	total := 0
+	for {
+		n, err := dec.Read(out)
+		total += n
+		if err != nil {
+			break
+		}
+		if total > 48000*4*2 {
+			t.Fatalf("decoder returned more bytes than expected")
+		}
+	}
+	// Input = 48000 stereo 16-bit frames = 192000 bytes. The adapter emits
+	// S16LE stereo, so output should be the same.
+	if total != 48000*4 {
+		t.Fatalf("decoded %d bytes, want %d", total, 48000*4)
+	}
+}
+
+func TestOpenDecoder_WAV_MonoFloat(t *testing.T) {
+	// Build a mono float32 WAV manually.
+	buf := &bytes.Buffer{}
+	buf.WriteString("RIFF")
+	binary.Write(buf, binary.LittleEndian, uint32(36+16))
+	buf.WriteString("WAVE")
+	buf.WriteString("fmt ")
+	binary.Write(buf, binary.LittleEndian, uint32(16))
+	binary.Write(buf, binary.LittleEndian, uint16(3)) // IEEE float
+	binary.Write(buf, binary.LittleEndian, uint16(1)) // mono
+	binary.Write(buf, binary.LittleEndian, uint32(44100))
+	binary.Write(buf, binary.LittleEndian, uint32(44100*4))
+	binary.Write(buf, binary.LittleEndian, uint16(4))
+	binary.Write(buf, binary.LittleEndian, uint16(32))
+	buf.WriteString("data")
+	binary.Write(buf, binary.LittleEndian, uint32(16))
+	// Four float32 samples at 0.5
+	for i := 0; i < 4; i++ {
+		binary.Write(buf, binary.LittleEndian, math.Float32bits(0.5))
+	}
+	dec, err := OpenDecoder(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatalf("OpenDecoder: %v", err)
+	}
+	if dec.SampleRate() != 44100 {
+		t.Fatalf("SampleRate=%d, want 44100", dec.SampleRate())
+	}
+	out := make([]byte, 64)
+	n, _ := dec.Read(out)
+	// 4 mono frames → 4 stereo S16LE frames = 16 bytes
+	if n != 16 {
+		t.Fatalf("n=%d, want 16", n)
+	}
+	// Verify the stereo channels are both set to ~0.5 * 32767 = 16383 (LE).
+	for i := 0; i < 4; i++ {
+		l := int16(binary.LittleEndian.Uint16(out[i*4:]))
+		r := int16(binary.LittleEndian.Uint16(out[i*4+2:]))
+		if l != r {
+			t.Errorf("frame %d: L=%d R=%d, expected identical (mono duplicated)", i, l, r)
+		}
+		if l < 16000 || l > 17000 {
+			t.Errorf("frame %d: sample %d out of expected range ~16383", i, l)
+		}
 	}
 }
 

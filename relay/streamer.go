@@ -877,6 +877,10 @@ func validateAudioFile(path string) error {
 	if string(header) == "fLaC" {
 		return nil
 	}
+	// WAV / RIFF
+	if string(header) == "RIFF" {
+		return nil
+	}
 	return fmt.Errorf("unrecognized audio format (header: %x)", header[:4])
 }
 
