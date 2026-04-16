@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -176,10 +177,49 @@ func (tm *TranscoderManager) performTranscode(ctx context.Context, inst *Transco
 
 	if inst.Config.Format == "mp3" {
 		output.ContentType = "audio/mpeg"
-		EncodeMP3(ctx, tm.relay, output, decoder, inst.Config.Bitrate, &inst.BytesEncoded, false, decoder.SampleRate())
+		sr := inst.Config.SampleRate
+		if sr == 0 {
+			sr = decoder.SampleRate()
+		}
+		EncodeMP3(ctx, tm.relay, output, decoder, inst.Config.Bitrate, &inst.BytesEncoded, false, sr)
 	} else if inst.Config.Format == "opus" {
 		output.ContentType = "audio/ogg"
-		EncodeOpus(ctx, tm.relay, output, decoder, inst.Config.Bitrate, &inst.BytesEncoded, false)
+		EncodeOpus(ctx, tm.relay, output, decoder, inst.Config.Bitrate, &inst.BytesEncoded, false,
+			OpusEncoderSettings{
+				Application: inst.Config.OpusApplication,
+				VBR:         inst.Config.OpusVBR,
+				Complexity:  inst.Config.OpusComplexity,
+				FrameSizeMS: inst.Config.OpusFrameSizeMS,
+			})
+	}
+}
+
+// OpusEncoderSettings carries optional Opus tuning. Zero / empty values fall
+// back to encoder defaults.
+type OpusEncoderSettings struct {
+	Application string // "audio" | "voip" | "lowdelay"
+	VBR         *bool  // nil = VBR on
+	Complexity  int    // 0..10, 0 = encoder default
+	FrameSizeMS int    // 2/5/10/20/40/60, 0 = 20
+}
+
+func resolveOpusApplication(s string) int {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "voip":
+		return opus.ApplicationVoIP
+	case "lowdelay", "restricted_lowdelay", "restricted-lowdelay":
+		return opus.ApplicationRestrictedLowDelay
+	default:
+		return opus.ApplicationAudio
+	}
+}
+
+func resolveOpusFrameSizeMS(ms int) int {
+	switch ms {
+	case 2, 5, 10, 20, 40, 60:
+		return ms
+	default:
+		return 20
 	}
 }
 
@@ -233,14 +273,18 @@ func EncodeMP3(ctx context.Context, relay *Relay, output *Stream, decoder io.Rea
 	}
 }
 
-func EncodeOpus(ctx context.Context, relay *Relay, output *Stream, decoder io.Reader, bitrate int, stats *int64, pace bool) {
-	// 48kHz is standard for Opus
+func EncodeOpus(ctx context.Context, relay *Relay, output *Stream, decoder io.Reader, bitrate int, stats *int64, pace bool, settings ...OpusEncoderSettings) {
+	// 48kHz is the canonical Opus sample rate.
 	const sampleRate = 48000
 	const channels = 2
-	const frameMS = 20
-	const frameSize = sampleRate * frameMS / 1000
+	var cfg OpusEncoderSettings
+	if len(settings) > 0 {
+		cfg = settings[0]
+	}
+	frameMS := resolveOpusFrameSizeMS(cfg.FrameSizeMS)
+	frameSize := sampleRate * frameMS / 1000
 
-	enc, err := opus.NewEncoder(sampleRate, channels, opus.ApplicationAudio)
+	enc, err := opus.NewEncoder(sampleRate, channels, resolveOpusApplication(cfg.Application))
 	if err != nil {
 		logger.L.Errorf("Failed to create Opus encoder: %v", err)
 		return
@@ -249,6 +293,12 @@ func EncodeOpus(ctx context.Context, relay *Relay, output *Stream, decoder io.Re
 
 	if bitrate > 0 {
 		enc.SetBitrate(bitrate * 1000)
+	}
+	if cfg.Complexity > 0 && cfg.Complexity <= 10 {
+		_ = enc.SetComplexity(cfg.Complexity)
+	}
+	if cfg.VBR != nil {
+		_ = enc.SetVBR(*cfg.VBR)
 	}
 
 	// Ogg encapsulation
@@ -314,7 +364,7 @@ func EncodeOpus(ctx context.Context, relay *Relay, output *Stream, decoder io.Re
 			if pace {
 				sentCount++
 				elapsed := time.Since(startTime)
-				expected := time.Duration(sentCount*frameMS) * time.Millisecond
+				expected := time.Duration(sentCount*int64(frameMS)) * time.Millisecond
 				if expected > elapsed {
 					time.Sleep(expected - elapsed)
 				}

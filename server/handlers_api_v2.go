@@ -1280,7 +1280,26 @@ func (s *Server) apiGetTranscoders(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var stats []relay.TranscoderStats
+	type transcoderRow struct {
+		Name            string `json:"name"`
+		Input           string `json:"input"`
+		Output          string `json:"output"`
+		Format          string `json:"format"`
+		Bitrate         int    `json:"bitrate"`
+		Enabled         bool   `json:"enabled"`
+		Active          bool   `json:"active"`
+		FramesProcessed int64  `json:"frames_processed"`
+		BytesEncoded    int64  `json:"bytes_encoded"`
+		Uptime          string `json:"uptime"`
+		SampleRate      int    `json:"sample_rate,omitempty"`
+		Channels        int    `json:"channels,omitempty"`
+		OpusApplication string `json:"opus_application,omitempty"`
+		OpusVBR         *bool  `json:"opus_vbr,omitempty"`
+		OpusComplexity  int    `json:"opus_complexity,omitempty"`
+		OpusFrameSizeMS int    `json:"opus_frame_size_ms,omitempty"`
+	}
+
+	rows := make([]transcoderRow, 0, len(s.Config.Transcoders))
 	for _, tc := range s.Config.Transcoders {
 		inst := s.TranscoderM.GetInstance(tc.OutputMount)
 		uptime := "OFF"
@@ -1292,22 +1311,41 @@ func (s *Server) apiGetTranscoders(w http.ResponseWriter, r *http.Request) {
 			frames = atomic.LoadInt64(&inst.FramesProcessed)
 			bytes = atomic.LoadInt64(&inst.BytesEncoded)
 		}
-		stats = append(stats, relay.TranscoderStats{
+		rows = append(rows, transcoderRow{
 			Name:            tc.Name,
 			Input:           tc.InputMount,
 			Output:          tc.OutputMount,
 			Format:          tc.Format,
 			Bitrate:         tc.Bitrate,
+			Enabled:         tc.Enabled,
 			Active:          active,
 			FramesProcessed: frames,
 			BytesEncoded:    bytes,
 			Uptime:          uptime,
+			SampleRate:      tc.SampleRate,
+			Channels:        tc.Channels,
+			OpusApplication: tc.OpusApplication,
+			OpusVBR:         tc.OpusVBR,
+			OpusComplexity:  tc.OpusComplexity,
+			OpusFrameSizeMS: tc.OpusFrameSizeMS,
 		})
 	}
-	if stats == nil {
-		stats = []relay.TranscoderStats{}
-	}
-	jsonResponse(w, stats)
+	jsonResponse(w, rows)
+}
+
+type transcoderBody struct {
+	Name            string `json:"name"`
+	InputMount      string `json:"input_mount"`
+	OutputMount     string `json:"output_mount"`
+	Format          string `json:"format"`
+	Bitrate         int    `json:"bitrate"`
+	Enabled         *bool  `json:"enabled,omitempty"`
+	SampleRate      int    `json:"sample_rate,omitempty"`
+	Channels        int    `json:"channels,omitempty"`
+	OpusApplication string `json:"opus_application,omitempty"`
+	OpusVBR         *bool  `json:"opus_vbr,omitempty"`
+	OpusComplexity  int    `json:"opus_complexity,omitempty"`
+	OpusFrameSizeMS int    `json:"opus_frame_size_ms,omitempty"`
 }
 
 func (s *Server) apiCreateTranscoder(w http.ResponseWriter, r *http.Request) {
@@ -1320,13 +1358,7 @@ func (s *Server) apiCreateTranscoder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var body struct {
-		Name        string `json:"name"`
-		InputMount  string `json:"input_mount"`
-		OutputMount string `json:"output_mount"`
-		Format      string `json:"format"`
-		Bitrate     int    `json:"bitrate"`
-	}
+	var body transcoderBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		jsonError(w, "Invalid request body", http.StatusBadRequest)
 		return
@@ -1336,19 +1368,105 @@ func (s *Server) apiCreateTranscoder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	enabled := true
+	if body.Enabled != nil {
+		enabled = *body.Enabled
+	}
 	tc := &config.TranscoderConfig{
-		Name:        body.Name,
-		InputMount:  body.InputMount,
-		OutputMount: body.OutputMount,
-		Format:      body.Format,
-		Bitrate:     body.Bitrate,
-		Enabled:     true,
+		Name:            body.Name,
+		InputMount:      body.InputMount,
+		OutputMount:     body.OutputMount,
+		Format:          body.Format,
+		Bitrate:         body.Bitrate,
+		Enabled:         enabled,
+		SampleRate:      body.SampleRate,
+		Channels:        body.Channels,
+		OpusApplication: body.OpusApplication,
+		OpusVBR:         body.OpusVBR,
+		OpusComplexity:  body.OpusComplexity,
+		OpusFrameSizeMS: body.OpusFrameSizeMS,
 	}
 	s.Config.Transcoders = append(s.Config.Transcoders, tc)
 	s.Config.SaveConfig()
-	s.TranscoderM.StartTranscoder(tc)
+	if tc.Enabled {
+		s.TranscoderM.StartTranscoder(tc)
+	}
 	jsonResponse(w, map[string]string{"status": "created"})
 	s.Audit(r, "transcoder_created", "transcoder", body.OutputMount, body.Name)
+}
+
+// apiUpdateTranscoder edits an existing transcoder in place, keyed by its
+// original Name (passed as ?name=). The running instance is stopped and, if
+// still enabled, restarted with the new settings.
+func (s *Server) apiUpdateTranscoder(w http.ResponseWriter, r *http.Request) {
+	if !s.isCSRFSafe(r) {
+		jsonError(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	if _, ok := s.checkAuth(r); !ok {
+		jsonError(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	originalName := r.URL.Query().Get("name")
+	if originalName == "" {
+		jsonError(w, "Query parameter 'name' is required", http.StatusBadRequest)
+		return
+	}
+
+	var body transcoderBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		jsonError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	var target *config.TranscoderConfig
+	for _, tc := range s.Config.Transcoders {
+		if tc.Name == originalName {
+			target = tc
+			break
+		}
+	}
+	if target == nil {
+		jsonError(w, "Transcoder not found", http.StatusNotFound)
+		return
+	}
+
+	// Stop the running instance before mutating config — StartTranscoder is
+	// keyed by OutputMount so changing the output needs a clean stop first.
+	s.TranscoderM.StopTranscoder(target.OutputMount)
+
+	if body.Name != "" {
+		target.Name = body.Name
+	}
+	if body.InputMount != "" {
+		target.InputMount = body.InputMount
+	}
+	if body.OutputMount != "" {
+		target.OutputMount = body.OutputMount
+	}
+	if body.Format != "" {
+		target.Format = body.Format
+	}
+	if body.Bitrate != 0 {
+		target.Bitrate = body.Bitrate
+	}
+	if body.Enabled != nil {
+		target.Enabled = *body.Enabled
+	}
+	target.SampleRate = body.SampleRate
+	target.Channels = body.Channels
+	target.OpusApplication = body.OpusApplication
+	target.OpusVBR = body.OpusVBR
+	target.OpusComplexity = body.OpusComplexity
+	target.OpusFrameSizeMS = body.OpusFrameSizeMS
+
+	s.Config.SaveConfig()
+	if target.Enabled {
+		s.TranscoderM.StartTranscoder(target)
+	}
+	jsonResponse(w, map[string]string{"status": "updated", "name": target.Name})
+	s.Audit(r, "transcoder_updated", "transcoder", target.OutputMount, target.Name)
 }
 
 func (s *Server) apiDeleteTranscoder(w http.ResponseWriter, r *http.Request) {

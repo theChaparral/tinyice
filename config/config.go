@@ -96,6 +96,15 @@ type TranscoderConfig struct {
 	Format      string `json:"format"` // "mp3" or "opus"
 	Bitrate     int    `json:"bitrate"`
 	Enabled     bool   `json:"enabled"`
+
+	// Encoder tuning. Zero/empty values fall back to defaults so existing
+	// configs continue to work without migration.
+	SampleRate      int    `json:"sample_rate,omitempty"`        // Hz. 0 = follow input (MP3) / 48000 (Opus)
+	Channels        int    `json:"channels,omitempty"`           // 1 or 2. 0 = 2 (stereo)
+	OpusApplication string `json:"opus_application,omitempty"`   // "audio" | "voip" | "lowdelay"
+	OpusVBR         *bool  `json:"opus_vbr,omitempty"`           // nil = VBR on (default)
+	OpusComplexity  int    `json:"opus_complexity,omitempty"`    // 0-10, 0 = encoder default
+	OpusFrameSizeMS int    `json:"opus_frame_size_ms,omitempty"` // 2.5/5/10/20/40/60, 0 = 20
 }
 
 type WebhookConfig struct {

@@ -516,6 +516,8 @@ func (s *Server) setupRoutes() *http.ServeMux {
 			s.apiGetTranscoders(w, r)
 		case http.MethodPost:
 			s.apiCreateTranscoder(w, r)
+		case http.MethodPut, http.MethodPatch:
+			s.apiUpdateTranscoder(w, r)
 		case http.MethodDelete:
 			s.apiDeleteTranscoder(w, r)
 		default:

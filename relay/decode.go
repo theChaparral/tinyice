@@ -31,7 +31,10 @@ type PCMDecoder interface {
 // native FLAC.
 func OpenDecoder(r io.Reader) (PCMDecoder, error) {
 	br := bufio.NewReaderSize(r, 64*1024)
-	peek, err := br.Peek(128)
+	// Peek a generous amount so the BOS page body (which contains the codec
+	// identification packet) is always present even for longer Vorbis /
+	// FLAC-in-Ogg setup packets.
+	peek, err := br.Peek(4096)
 	if err != nil && err != io.EOF && err != bufio.ErrBufferFull {
 		return nil, fmt.Errorf("decode: peek failed: %w", err)
 	}
@@ -47,17 +50,64 @@ func OpenDecoder(r io.Reader) (PCMDecoder, error) {
 	case bytes.Equal(peek[:4], []byte("fLaC")):
 		return newFLACDecoder(br)
 	case bytes.Equal(peek[:4], []byte("OggS")):
-		if bytes.Contains(peek, []byte("OpusHead")) {
-			return newOggOpusDecoder(br)
-		}
-		// Vorbis identification packet is "\x01vorbis". Accept either a strict
-		// check or the textual "vorbis" token anywhere in the first page.
-		if bytes.Contains(peek, []byte("vorbis")) {
-			return newOggVorbisDecoder(br)
-		}
-		return nil, fmt.Errorf("decode: unknown Ogg codec (first 128 bytes do not mention Opus or Vorbis)")
+		return openOggDecoder(br, peek)
 	}
 	return nil, fmt.Errorf("decode: unknown audio format (header: %x)", peek[:4])
+}
+
+// openOggDecoder dispatches based on the identification packet carried in the
+// BOS page of an Ogg stream.
+func openOggDecoder(br io.Reader, peek []byte) (PCMDecoder, error) {
+	body := firstOggPageBody(peek)
+	switch {
+	case len(body) >= 8 && bytes.Equal(body[:8], []byte("OpusHead")):
+		return newOggOpusDecoder(br)
+	case len(body) >= 7 && body[0] == 0x01 && bytes.Equal(body[1:7], []byte("vorbis")):
+		return newOggVorbisDecoder(br)
+	case len(body) >= 5 && body[0] == 0x7F && bytes.Equal(body[1:5], []byte("FLAC")):
+		return newOggFLACDecoder(br)
+	}
+	// Fall back to a textual search — some encoders place the codec magic at
+	// a non-standard offset in the first page. This keeps compatibility broad
+	// without needing to teach the parser about every Ogg codec.
+	switch {
+	case bytes.Contains(peek, []byte("OpusHead")):
+		return newOggOpusDecoder(br)
+	case bytes.Contains(peek, []byte("\x01vorbis")) || bytes.Contains(peek, []byte("vorbis")):
+		return newOggVorbisDecoder(br)
+	case bytes.Contains(peek, []byte("FLAC")) && bytes.Contains(peek, []byte{0x7F}):
+		return newOggFLACDecoder(br)
+	}
+	// Report up to 32 bytes of the actual body so the operator can tell which
+	// Ogg codec we don't yet handle (e.g. Speex, Theora).
+	preview := body
+	if len(preview) > 32 {
+		preview = preview[:32]
+	}
+	return nil, fmt.Errorf("decode: unknown Ogg codec (BOS body: %x)", preview)
+}
+
+// firstOggPageBody returns the concatenated segment data of the first Ogg
+// page found in data. Returns nil if data doesn't start with a complete page.
+func firstOggPageBody(data []byte) []byte {
+	if len(data) < 27 || !bytes.Equal(data[:4], []byte("OggS")) {
+		return nil
+	}
+	numSegments := int(data[26])
+	headerLen := 27 + numSegments
+	if len(data) < headerLen {
+		return nil
+	}
+	bodyLen := 0
+	for i := 0; i < numSegments; i++ {
+		bodyLen += int(data[27+i])
+	}
+	if len(data) < headerLen+bodyLen {
+		// Truncated peek — return whatever body we have so the caller can
+		// still try magic matching.
+		return data[headerLen:]
+	}
+	return data[headerLen : headerLen+bodyLen]
 }
 
 // --- MP3 --------------------------------------------------------------------
@@ -199,6 +249,47 @@ func newFLACDecoder(r io.Reader) (PCMDecoder, error) {
 		channels: int(s.Info.NChannels),
 		bitDepth: int(s.Info.BitsPerSample),
 	}, nil
+}
+
+// newOggFLACDecoder demuxes FLAC-in-Ogg by reading Ogg pages and reconstituting
+// the native FLAC byte stream (stripping the "\x7FFLAC\x01\x00\x??\x??"
+// mapping header on the first page), then hands that stream to the native
+// FLAC decoder.
+func newOggFLACDecoder(r io.Reader) (PCMDecoder, error) {
+	pr := ogg.NewPageReader(r)
+	pr.VerifyCRC = false
+	pipeR, pipeW := io.Pipe()
+	go func() {
+		var closeErr error
+		defer func() { pipeW.CloseWithError(closeErr) }()
+		first := true
+		for {
+			page, err := pr.ReadPage()
+			if err != nil {
+				closeErr = err
+				return
+			}
+			body := page.SegmentData
+			if first {
+				first = false
+				// Strip "\x7F FLAC <mapping-major> <mapping-minor> <num-packets>"
+				// 1 + 4 + 1 + 1 + 2 = 9 bytes. The native FLAC stream starts
+				// at the "fLaC" signature that follows.
+				if len(body) > 9 && body[0] == 0x7F &&
+					bytes.Equal(body[1:5], []byte("FLAC")) {
+					body = body[9:]
+				}
+			}
+			if len(body) == 0 {
+				continue
+			}
+			if _, werr := pipeW.Write(body); werr != nil {
+				closeErr = werr
+				return
+			}
+		}
+	}()
+	return newFLACDecoder(pipeR)
 }
 
 func (f *flacDecoder) SampleRate() int { return int(f.stream.Info.SampleRate) }
