@@ -8,7 +8,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -118,6 +117,15 @@ func (s *Server) handleOIDCRedirect(w http.ResponseWriter, r *http.Request) {
 
 	state := generateOIDCState(providerID)
 
+	// Nonce bound to this browser; the IdP will echo it back inside the
+	// ID token so replay and login-CSRF are both blocked.
+	nonceBytes := make([]byte, 16)
+	if _, err := rand.Read(nonceBytes); err != nil {
+		http.Error(w, "Failed to generate nonce", http.StatusInternalServerError)
+		return
+	}
+	nonce := base64.RawURLEncoding.EncodeToString(nonceBytes)
+
 	verifier := oauth2.GenerateVerifier()
 	http.SetCookie(w, &http.Cookie{
 		Name:     "pkce_verifier",
@@ -128,8 +136,33 @@ func (s *Server) handleOIDCRedirect(w http.ResponseWriter, r *http.Request) {
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   600,
 	})
+	// Bind the state value to this browser by stashing it in a cookie;
+	// the callback refuses to proceed unless the query-string state
+	// matches. Stops an attacker feeding their state+code pair to the
+	// victim (classic login-CSRF).
+	http.SetCookie(w, &http.Cookie{
+		Name:     "oidc_state",
+		Value:    state,
+		Path:     "/auth/" + providerID,
+		HttpOnly: true,
+		Secure:   r.TLS != nil,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   600,
+	})
+	http.SetCookie(w, &http.Cookie{
+		Name:     "oidc_nonce",
+		Value:    nonce,
+		Path:     "/auth/" + providerID,
+		HttpOnly: true,
+		Secure:   r.TLS != nil,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   600,
+	})
 
-	authURL := oauthConfig.AuthCodeURL(state, oauth2.S256ChallengeOption(verifier))
+	authURL := oauthConfig.AuthCodeURL(state,
+		oauth2.S256ChallengeOption(verifier),
+		oauth2.SetAuthURLParam("nonce", nonce),
+	)
 	http.Redirect(w, r, authURL, http.StatusTemporaryRedirect)
 }
 
@@ -145,6 +178,14 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	verifiedProvider, ok := verifyOIDCState(state)
 	if !ok || verifiedProvider != providerID {
 		http.Error(w, "Invalid state parameter", http.StatusForbidden)
+		return
+	}
+	// Bind state to the initiating browser: the state value we handed out
+	// on redirect was stashed in a cookie; refuse if the callback's query
+	// state doesn't match.
+	stateCookie, err := r.Cookie("oidc_state")
+	if err != nil || !hmac.Equal([]byte(stateCookie.Value), []byte(state)) {
+		http.Error(w, "State cookie mismatch", http.StatusForbidden)
 		return
 	}
 
@@ -165,13 +206,19 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Missing PKCE verifier", http.StatusBadRequest)
 		return
 	}
+	nonceCookie, err := r.Cookie("oidc_nonce")
+	if err != nil {
+		http.Error(w, "Missing OIDC nonce", http.StatusBadRequest)
+		return
+	}
 
-	http.SetCookie(w, &http.Cookie{
-		Name:   "pkce_verifier",
-		Value:  "",
-		Path:   "/auth/" + providerID,
-		MaxAge: -1,
-	})
+	// Invalidate the transient cookies immediately — state+PKCE+nonce are
+	// all single-use.
+	for _, name := range []string{"pkce_verifier", "oidc_state", "oidc_nonce"} {
+		http.SetCookie(w, &http.Cookie{
+			Name: name, Value: "", Path: "/auth/" + providerID, MaxAge: -1,
+		})
+	}
 
 	oauthConfig, oidcProvider, err := s.buildOAuth2Config(provider, r)
 	if err != nil {
@@ -207,11 +254,27 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Invalid ID token", http.StatusUnauthorized)
 			return
 		}
+		// Verify the nonce the IdP echoed back matches the one we set
+		// on redirect — stops authorization-code replay.
+		if idToken.Nonce == "" || !hmac.Equal([]byte(idToken.Nonce), []byte(nonceCookie.Value)) {
+			http.Error(w, "ID token nonce mismatch", http.StatusUnauthorized)
+			return
+		}
 		var claims struct {
-			Email string `json:"email"`
-			Name  string `json:"name"`
+			Email         string `json:"email"`
+			EmailVerified *bool  `json:"email_verified,omitempty"`
+			Name          string `json:"name"`
 		}
 		idToken.Claims(&claims)
+		// Refuse to treat an unverified OIDC email as proof of identity —
+		// otherwise any attacker with a matching-email account at an OIDC
+		// provider can take over a local account.
+		if claims.EmailVerified == nil || !*claims.EmailVerified {
+			logger.L.Warnw("OIDC login rejected: email not verified by IdP",
+				"provider", providerID, "email", claims.Email)
+			http.Error(w, "Provider has not verified your email address", http.StatusForbidden)
+			return
+		}
 		email = claims.Email
 		name = claims.Name
 	}
@@ -225,10 +288,10 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	for _, user := range s.Config.Users {
 		for _, linkedEmail := range user.LinkedEmails {
 			if strings.EqualFold(linkedEmail, email) {
-				host, _, _ := net.SplitHostPort(r.RemoteAddr)
-				s.recordAuthSuccess(host)
+				s.recordAuthSuccess(s.clientIP(r))
 				s.createSession(w, r, user)
 				logger.L.Infow("OIDC login successful", "user", user.Username, "provider", providerID, "email", email)
+				s.Audit(r, "login", "user", user.Username, "oidc:"+providerID)
 				http.Redirect(w, r, "/admin", http.StatusSeeOther)
 				return
 			}
@@ -291,33 +354,42 @@ func (s *Server) fetchGitHubUserInfo(ctx context.Context, token *oauth2.Token) (
 	var profile struct {
 		Name  string `json:"name"`
 		Login string `json:"login"`
-		Email string `json:"email"`
 	}
-	json.NewDecoder(resp.Body).Decode(&profile)
+	if err := json.NewDecoder(resp.Body).Decode(&profile); err != nil {
+		return "", "", fmt.Errorf("decode github /user: %w", err)
+	}
 	name = profile.Name
 	if name == "" {
 		name = profile.Login
 	}
-	email = profile.Email
 
-	if email == "" {
-		resp2, err := client.Get("https://api.github.com/user/emails")
-		if err == nil {
-			defer resp2.Body.Close()
-			var emails []struct {
-				Email   string `json:"email"`
-				Primary bool   `json:"primary"`
-			}
-			json.NewDecoder(resp2.Body).Decode(&emails)
-			for _, e := range emails {
-				if e.Primary {
-					email = e.Email
-					break
-				}
-			}
+	// Always fetch /user/emails — the primary email on /user is not
+	// guaranteed to be verified, and GitHub will happily return any email
+	// the user has added to their account. We only accept a primary AND
+	// verified address, otherwise an attacker can add admin@victim.tld
+	// as unverified-primary and take over a local account.
+	resp2, err := client.Get("https://api.github.com/user/emails")
+	if err != nil {
+		return "", "", fmt.Errorf("fetch github /user/emails: %w", err)
+	}
+	defer resp2.Body.Close()
+	var emails []struct {
+		Email    string `json:"email"`
+		Primary  bool   `json:"primary"`
+		Verified bool   `json:"verified"`
+	}
+	if err := json.NewDecoder(resp2.Body).Decode(&emails); err != nil {
+		return "", "", fmt.Errorf("decode github /user/emails: %w", err)
+	}
+	for _, e := range emails {
+		if e.Primary && e.Verified {
+			email = e.Email
+			break
 		}
 	}
-
+	if email == "" {
+		return "", "", fmt.Errorf("github account has no primary, verified email address")
+	}
 	return email, name, nil
 }
 

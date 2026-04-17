@@ -28,6 +28,22 @@ func (s *Server) directoryReportingTask() {
 	}
 }
 
+// sessionReaperTask sweeps expired / idle sessions out of memory on a
+// schedule. Without this, checkAuth still rejects an expired session, but
+// the map grows unboundedly across a long-lived process.
+func (s *Server) sessionReaperTask() {
+	ticker := time.NewTicker(15 * time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-s.done:
+			return
+		case <-ticker.C:
+			s.reapSessions()
+		}
+	}
+}
+
 func (s *Server) statsRecordingTask() {
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()

@@ -29,7 +29,29 @@ type authAttempt struct {
 type session struct {
 	User      *config.User
 	CSRFToken string
+	// CreatedAt is the wall time the session was minted. ExpiresAt is the
+	// absolute expiry; checkAuth treats the session as absent once now() is
+	// past it. LastSeen is bumped on each successful use so idle sessions
+	// naturally drop when the reaper runs.
+	CreatedAt time.Time
+	ExpiresAt time.Time
+	LastSeen  time.Time
 }
+
+// sessionMaxLifetime is the absolute (non-sliding) upper bound on a session.
+// sessionIdleTimeout is the sliding idle limit — a session that goes unused
+// for this long is reaped even if the absolute lifetime hasn't expired.
+const (
+	sessionMaxLifetime = 7 * 24 * time.Hour
+	sessionIdleTimeout = 24 * time.Hour
+)
+
+// dummyBcryptHash is compared against when the submitted username doesn't
+// exist, so the login path always pays one bcrypt verification and user
+// enumeration via response time stops working.
+//
+// Generated once with bcrypt.GenerateFromPassword([]byte("never"), cost=10).
+const dummyBcryptHash = "$2a$10$CwTycUXWue0Thq9StjUM0uJ8dOo8dX1p5lPfzPOY4Vqf.m5k1Il0i"
 
 func (s *Server) logAuth() *zap.SugaredLogger {
 	if s.AuthLog != nil {
@@ -190,6 +212,22 @@ func (s *Server) checkAuth(r *http.Request) (*config.User, bool) {
 		sess, ok := s.sessions[cookie.Value]
 		s.sessionsMu.RUnlock()
 		if ok {
+			now := time.Now()
+			if !sess.ExpiresAt.IsZero() && now.After(sess.ExpiresAt) {
+				s.sessionsMu.Lock()
+				delete(s.sessions, cookie.Value)
+				s.sessionsMu.Unlock()
+				return nil, false
+			}
+			if !sess.LastSeen.IsZero() && now.Sub(sess.LastSeen) > sessionIdleTimeout {
+				s.sessionsMu.Lock()
+				delete(s.sessions, cookie.Value)
+				s.sessionsMu.Unlock()
+				return nil, false
+			}
+			s.sessionsMu.Lock()
+			sess.LastSeen = now
+			s.sessionsMu.Unlock()
 			return sess.User, true
 		}
 	}
@@ -205,13 +243,22 @@ func (s *Server) checkAuth(r *http.Request) (*config.User, bool) {
 		return nil, false
 	}
 
+	// Always run bcrypt (against a dummy hash when the user doesn't exist)
+	// so login response times don't leak username existence.
 	user, exists := s.Config.Users[u]
+	var passOK bool
+	if exists {
+		passOK = config.CheckPasswordHash(p, user.Password)
+	} else {
+		_ = config.CheckPasswordHash(p, dummyBcryptHash)
+		passOK = false
+	}
 	if !exists {
 		s.recordAuthFailure(host)
 		s.logAuthFailed(u, r.RemoteAddr, "user not found")
 		return nil, false
 	}
-	if !config.CheckPasswordHash(p, user.Password) {
+	if !passOK {
 		s.recordAuthFailure(host)
 		s.logAuthFailed(u, r.RemoteAddr, "invalid password")
 		return nil, false
@@ -230,6 +277,52 @@ func (s *Server) hasAccess(user *config.User, mount string) bool {
 	return exists
 }
 
+// clientIP returns the best-known client IP for the request. When the direct
+// peer is in the configured TrustedProxies list, the left-most entry of
+// X-Forwarded-For (the originating client) is used instead; otherwise the
+// peer address is returned. Prevents attackers from spoofing an X-F-F header
+// directly, while still giving sensible behaviour behind a reverse proxy.
+func (s *Server) clientIP(r *http.Request) string {
+	peer, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		peer = r.RemoteAddr
+	}
+	if !s.isTrustedProxy(peer) {
+		return peer
+	}
+	xff := r.Header.Get("X-Forwarded-For")
+	if xff == "" {
+		if real := strings.TrimSpace(r.Header.Get("X-Real-IP")); real != "" {
+			return real
+		}
+		return peer
+	}
+	if i := strings.IndexByte(xff, ','); i >= 0 {
+		return strings.TrimSpace(xff[:i])
+	}
+	return strings.TrimSpace(xff)
+}
+
+// isTrustedProxy reports whether the given peer address is configured as a
+// reverse-proxy hop we're willing to take X-Forwarded-For from. Loopback is
+// NOT automatically trusted — operators must opt in via TrustedProxies.
+func (s *Server) isTrustedProxy(peer string) bool {
+	ip := net.ParseIP(peer)
+	if ip == nil {
+		return false
+	}
+	for _, p := range s.Config.TrustedProxies {
+		if strings.Contains(p, "/") {
+			if _, ipnet, err := net.ParseCIDR(p); err == nil && ipnet.Contains(ip) {
+				return true
+			}
+		} else if p == peer {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Server) isWhitelisted(ipStr string) bool {
 	host, _, err := net.SplitHostPort(ipStr)
 	if err != nil {
@@ -241,7 +334,11 @@ func (s *Server) isWhitelisted(ipStr string) bool {
 		return false
 	}
 
-	if ip.IsLoopback() {
+	// Loopback is only whitelisted when TrustedProxies is empty — otherwise
+	// the server is behind a reverse proxy and "the connection came from
+	// localhost" is the norm, which would silently disable scan detection
+	// and rate limiting for every client.
+	if ip.IsLoopback() && len(s.Config.TrustedProxies) == 0 {
 		return true
 	}
 
@@ -359,17 +456,38 @@ func (s *Server) getSourcePassword(mount string) (string, bool) {
 
 // createSession generates a new session for the given user and sets the sid cookie.
 // Returns the CSRF token for the new session.
+//
+// Also invalidates any pre-existing session under the caller's current sid
+// cookie (session fixation defence) and removes any other sessions tied to
+// the same user so an attacker holding a stolen cookie is logged out when
+// the legitimate user logs back in.
 func (s *Server) createSession(w http.ResponseWriter, r *http.Request, user *config.User) string {
 	b := make([]byte, 32)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		logger.L.Errorf("createSession: rand.Read failed: %v", err)
+	}
 	sid := hex.EncodeToString(b)
 
 	cb := make([]byte, 32)
-	rand.Read(cb)
+	if _, err := rand.Read(cb); err != nil {
+		logger.L.Errorf("createSession: rand.Read(csrf) failed: %v", err)
+	}
 	csrf := hex.EncodeToString(cb)
 
+	now := time.Now()
+
 	s.sessionsMu.Lock()
-	s.sessions[sid] = &session{User: user, CSRFToken: csrf}
+	// Invalidate the caller's previous session, if any.
+	if old, err := r.Cookie("sid"); err == nil {
+		delete(s.sessions, old.Value)
+	}
+	s.sessions[sid] = &session{
+		User:      user,
+		CSRFToken: csrf,
+		CreatedAt: now,
+		ExpiresAt: now.Add(sessionMaxLifetime),
+		LastSeen:  now,
+	}
 	s.sessionsMu.Unlock()
 
 	http.SetCookie(w, &http.Cookie{
@@ -379,10 +497,28 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request, user *con
 		HttpOnly: true,
 		Secure:   r.TLS != nil,
 		SameSite: http.SameSiteLaxMode,
-		MaxAge:   86400 * 7,
+		MaxAge:   int(sessionMaxLifetime.Seconds()),
 	})
 
 	return csrf
+}
+
+// reapSessions removes expired / idle sessions. Call periodically from a
+// goroutine started at server boot; safe to call while the server is under
+// load since it takes the sessions mutex only during the sweep.
+func (s *Server) reapSessions() {
+	s.sessionsMu.Lock()
+	defer s.sessionsMu.Unlock()
+	now := time.Now()
+	for sid, sess := range s.sessions {
+		if !sess.ExpiresAt.IsZero() && now.After(sess.ExpiresAt) {
+			delete(s.sessions, sid)
+			continue
+		}
+		if !sess.LastSeen.IsZero() && now.Sub(sess.LastSeen) > sessionIdleTimeout {
+			delete(s.sessions, sid)
+		}
+	}
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {

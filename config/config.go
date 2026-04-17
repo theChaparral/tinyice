@@ -167,6 +167,12 @@ type Config struct {
 	Webhooks       []*WebhookConfig          `json:"webhooks"`
 	BannedIPs      []string                  `json:"banned_ips"`
 	WhitelistedIPs []string                  `json:"whitelisted_ips"`
+	// TrustedProxies is a list of reverse-proxy peer addresses (exact IPs or
+	// CIDRs) whose X-Forwarded-For / X-Real-IP headers we will honour for
+	// scan-detection, bans and audit logging. Leave empty when the server
+	// faces the internet directly. When populated, loopback is no longer
+	// auto-whitelisted, so ops behind a reverse proxy see real client IPs.
+	TrustedProxies []string `json:"trusted_proxies"`
 
 	AdminPassword  string            `json:"admin_password"`
 	AdminUser      string            `json:"admin_user"`

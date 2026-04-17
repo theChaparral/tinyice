@@ -751,6 +751,7 @@ func (s *Server) Start() error {
 	}
 	go s.statsRecordingTask()
 	go s.HealthM.Start(context.Background())
+	go s.sessionReaperTask()
 
 	for _, rc := range s.Config.Relays {
 		if rc.Enabled {
