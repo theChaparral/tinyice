@@ -97,6 +97,7 @@ type rtmpHandler struct {
 	relay   *Relay
 	config  *config.Config
 	conn    net.Conn
+	app     string // RTMP application name from the connect command
 	mount   string
 	stream  *Stream
 	started time.Time
@@ -114,9 +115,12 @@ func (h *rtmpHandler) OnServe(conn *rtmp.Conn) {
 	logger.L.Infow("RTMP: Client connected", "remote", h.conn.RemoteAddr())
 }
 
-// OnConnect handles the RTMP connect command.
+// OnConnect handles the RTMP connect command. We remember the app name so
+// the publish step can combine it with the stream key when the user put
+// the mount in OBS's "Server" field rather than in the stream key.
 func (h *rtmpHandler) OnConnect(timestamp uint32, cmd *rtmpmsg.NetConnectionConnect) error {
-	logger.L.Infow("RTMP: Connect", "remote", h.conn.RemoteAddr(), "app", cmd.Command.App)
+	h.app = cmd.Command.App
+	logger.L.Infow("RTMP: Connect", "remote", h.conn.RemoteAddr(), "app", h.app)
 	return nil
 }
 
@@ -129,8 +133,11 @@ func (h *rtmpHandler) OnCreateStream(timestamp uint32, cmd *rtmpmsg.NetConnectio
 func (h *rtmpHandler) OnPublish(_ *rtmp.StreamContext, timestamp uint32, cmd *rtmpmsg.NetStreamPublish) error {
 	publishName := cmd.PublishingName
 
-	// Parse mount and optional key from publish name
-	mount, sourcePassword := parseStreamKey(publishName)
+	// Parse the RTMP app name + publishing name into a tinyice mount and
+	// source password. Supports both OBS-friendly layouts:
+	//   Server: rtmp://host/mount   Stream Key: password
+	//   Server: rtmp://host/        Stream Key: mount?key=password
+	mount, sourcePassword := resolveRTMPPath(h.app, publishName)
 
 	// Validate source password
 	requiredPass, found := getSourcePassword(h.config, mount)
@@ -378,6 +385,49 @@ func (h *rtmpHandler) OnClose() {
 			h.relay.RemoveStream(h.videoMount)
 		}
 	}
+}
+
+// resolveRTMPPath turns the RTMP `app` (from the connect command) and
+// `publishName` (from the publish command) into a tinyice mount path and
+// source password. Two layouts are supported:
+//
+//   1. OBS default — Server "rtmp://host/mount", Stream Key "password".
+//      The RTMP app is the mount; the stream key is the password. This is
+//      how encoders treat Twitch/YouTube/nginx-rtmp-style URLs, so OBS
+//      users can just fill in the two fields the way OBS shows them.
+//
+//   2. Classic tinyice — Server "rtmp://host/", Stream Key
+//      "mount?key=password". Kept for backward compatibility and CLIs
+//      that only take a single URL.
+//
+// A publishing name that contains "?" always uses layout 2, so legacy
+// ?key= parameters keep working regardless of what's in the app slot.
+func resolveRTMPPath(app, publishName string) (mount, password string) {
+	app = strings.TrimSpace(strings.Trim(app, "/"))
+	publishName = strings.TrimSpace(publishName)
+
+	// Layout 2: explicit ?key= in the stream key wins. The mount is the
+	// app plus the name part, joined cleanly.
+	if i := strings.Index(publishName, "?"); i >= 0 {
+		nameOnly := publishName[:i]
+		query := publishName[i:]
+		full := nameOnly
+		if app != "" {
+			full = app + "/" + strings.TrimLeft(nameOnly, "/")
+		}
+		return parseStreamKey(full + query)
+	}
+
+	// Layout 1: OBS-style server/key split. Only kick in when the server
+	// actually had a path segment, otherwise we'd misinterpret a bare
+	// stream key as a password-less mount.
+	if app != "" {
+		return "/" + app, publishName
+	}
+
+	// No app, no ?key= — whole publishing name is the mount (and relies
+	// on DefaultSourcePassword or an unauthenticated mount).
+	return parseStreamKey(publishName)
 }
 
 // parseStreamKey splits "mount" or "mount?key=password" into mount and password.
