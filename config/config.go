@@ -426,11 +426,8 @@ func (config *Config) initMapsAndArrays() {
 }
 
 func (config *Config) handleMigrations() {
-	for _, r := range config.Relays {
-		r.Enabled = true // Migration logic
-	}
-
-	// Migration/Backward compatibility
+	// Migration/Backward compatibility — lift a legacy top-level
+	// AdminUser/AdminPassword pair into the unified Users map.
 	if config.AdminUser != "" && config.Users[config.AdminUser] == nil {
 		config.Users[config.AdminUser] = &User{
 			Username: config.AdminUser,
@@ -439,6 +436,9 @@ func (config *Config) handleMigrations() {
 			Mounts:   make(map[string]string),
 		}
 	}
+	// Note: we used to unconditionally `r.Enabled = true` on every relay
+	// here which silently reverted the per-relay toggle on every restart.
+	// That line is gone — the Enabled flag is now honoured as persisted.
 }
 
 func (c *Config) SaveConfig() error {

@@ -113,6 +113,7 @@ func (s *Server) handleSetupComplete(w http.ResponseWriter, r *http.Request) {
 	logger.L.Infow("Setup completed", "admin_user", req.Username, "time", time.Now().Format(time.RFC3339))
 
 	s.createSession(w, r, s.Config.Users[req.Username])
+	s.Audit(r, "setup_complete", "server", "", req.Username)
 
 	jsonResponse(w, map[string]any{
 		"success":             true,

@@ -786,6 +786,59 @@ func (s *Server) apiAutoDJNext(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, map[string]string{"status": "skipped"})
 }
 
+// apiAutoDJPrev rewinds the AutoDJ playlist by one track. Paired with the
+// UI's previous-track button, which was 404ing before this endpoint
+// existed.
+func (s *Server) apiAutoDJPrev(w http.ResponseWriter, r *http.Request) {
+	if !s.isCSRFSafe(r) {
+		jsonError(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	mount, ok := s.requireMountAccess(w, r, "")
+	if !ok {
+		return
+	}
+	streamer := s.StreamerM.GetStreamer(mount)
+	if streamer == nil {
+		jsonError(w, "Streamer not found", http.StatusNotFound)
+		return
+	}
+	streamer.Previous()
+	jsonResponse(w, map[string]string{"status": "rewound"})
+}
+
+// apiAutoDJVolume sets playback volume for an AutoDJ mount. Accepts
+// either {"volume": 0.8} as a float in [0,1] or {"volume": 80} as a
+// percentage.
+func (s *Server) apiAutoDJVolume(w http.ResponseWriter, r *http.Request) {
+	if !s.isCSRFSafe(r) {
+		jsonError(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	mount, ok := s.requireMountAccess(w, r, "")
+	if !ok {
+		return
+	}
+	streamer := s.StreamerM.GetStreamer(mount)
+	if streamer == nil {
+		jsonError(w, "Streamer not found", http.StatusNotFound)
+		return
+	}
+	var body struct {
+		Volume float64 `json:"volume"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		jsonError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	v := body.Volume
+	if v > 1.0 { // accept either 0..1 or 0..100
+		v = v / 100.0
+	}
+	streamer.SetVolume(v)
+	jsonResponse(w, map[string]interface{}{"status": "ok", "volume": streamer.GetVolume()})
+}
+
 func (s *Server) apiAutoDJShuffle(w http.ResponseWriter, r *http.Request) {
 	if !s.isCSRFSafe(r) {
 		jsonError(w, "Forbidden", http.StatusForbidden)

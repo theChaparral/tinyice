@@ -45,6 +45,7 @@ type Streamer struct {
 	LastPlaylist        string
 	SongCommand         string
 	SongCommandTimeout  int
+	Volume              float64 // 0..1 playback gain applied before encode
 
 	relay  *Relay
 	cancel context.CancelFunc
@@ -102,6 +103,49 @@ func (s *Streamer) Next() {
 	if s.fileCancel != nil {
 		s.fileCancel()
 	}
+}
+
+// Previous rewinds the playlist by one track and cancels the currently
+// playing file. The main loop increments CurrentPos after reading, so we
+// subtract 2 here: the cancel triggers the next iteration which does
+// CurrentPos++ before picking the file, landing one before the current
+// track. Stops at the beginning of the playlist rather than underflowing.
+func (s *Streamer) Previous() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.CurrentPos -= 2
+	if s.CurrentPos < 0 {
+		s.CurrentPos = 0
+	}
+	if s.fileCancel != nil {
+		s.fileCancel()
+	}
+}
+
+// SetVolume records a playback gain (0.0 = silence, 1.0 = unity). The
+// encode path applies it to every PCM sample before it reaches the MP3 /
+// Opus encoder. Clamped to [0, 1] so the operator can't push into clipping
+// territory by accident.
+func (s *Streamer) SetVolume(v float64) {
+	if v < 0 {
+		v = 0
+	}
+	if v > 1 {
+		v = 1
+	}
+	s.mu.Lock()
+	s.Volume = v
+	s.mu.Unlock()
+}
+
+// Volume returns the current playback gain. 1.0 if never set.
+func (s *Streamer) GetVolume() float64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.Volume <= 0 {
+		return 1.0
+	}
+	return s.Volume
 }
 
 func (s *Streamer) TogglePlay() {
@@ -953,17 +997,64 @@ func (sm *StreamerManager) streamFile(ctx context.Context, s *Streamer, path str
 		sm.relay.UpdateMetadata(s.OutputMount, s.CurrentFile)
 	}
 
+	// Apply the streamer's volume setting (0..1) to the PCM stream before
+	// it reaches the encoder. When Volume is 1.0 the wrapper is a no-op.
+	var pcm io.Reader = decoder
+	if gain := s.GetVolume(); gain < 1.0 {
+		pcm = newGainReader(pcm, gain)
+	}
+
 	if s.Format == "opus" {
 		// Opus encoder is locked at 48 kHz; resample if the file is at a
 		// different rate so playback isn't sped up / slowed down.
-		var pcm io.Reader = decoder
 		if decoder.SampleRate() != 48000 {
-			pcm = NewLinearResampler(decoder, decoder.SampleRate(), 48000)
+			pcm = NewLinearResampler(pcm, decoder.SampleRate(), 48000)
 		}
 		EncodeOpus(ctx, sm.relay, output, pcm, s.Bitrate, &s.BytesStreamed, true)
 	} else {
-		EncodeMP3(ctx, sm.relay, output, decoder, s.Bitrate, &s.BytesStreamed, true, decoder.SampleRate())
+		EncodeMP3(ctx, sm.relay, output, pcm, s.Bitrate, &s.BytesStreamed, true, decoder.SampleRate())
 	}
 
 	return nil
+}
+
+// gainReader multiplies every S16LE stereo sample it passes through by a
+// fixed gain in [0, 1]. Used to apply the AutoDJ's Volume setting without
+// touching the decoder / encoder interfaces.
+type gainReader struct {
+	src  io.Reader
+	gain float64
+}
+
+func newGainReader(src io.Reader, gain float64) *gainReader {
+	if gain < 0 {
+		gain = 0
+	}
+	if gain > 1 {
+		gain = 1
+	}
+	return &gainReader{src: src, gain: gain}
+}
+
+func (g *gainReader) Read(p []byte) (int, error) {
+	n, err := g.src.Read(p)
+	if n == 0 {
+		return n, err
+	}
+	// Process whole 2-byte samples only; defer odd trailing byte to the
+	// next read (the source always feeds us whole stereo frames so this
+	// rarely matters).
+	end := n - (n % 2)
+	for i := 0; i+1 < end; i += 2 {
+		s := int32(int16(p[i]) | int16(p[i+1])<<8)
+		s = int32(float64(s) * g.gain)
+		if s > 32767 {
+			s = 32767
+		} else if s < -32768 {
+			s = -32768
+		}
+		p[i] = byte(s)
+		p[i+1] = byte(s >> 8)
+	}
+	return n, err
 }

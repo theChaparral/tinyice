@@ -451,6 +451,14 @@ func (s *Server) getSourcePassword(mount string) (string, bool) {
 	if pass, ok := s.Config.Mounts[mount]; ok {
 		return pass, true
 	}
+	// AdvancedMounts (set via "Advanced Mount Settings" in the UI) is
+	// also consulted. The RTMP and SRT ingest paths already honour it;
+	// without this, an admin who configures a per-mount password in
+	// that section sees it work for RTMP/SRT but silently fall back to
+	// the default password on HTTP Icecast SOURCE/PUT.
+	if adv, ok := s.Config.AdvancedMounts[mount]; ok && adv != nil && adv.Password != "" {
+		return adv.Password, true
+	}
 	return s.Config.DefaultSourcePassword, s.Config.DefaultSourcePassword != ""
 }
 

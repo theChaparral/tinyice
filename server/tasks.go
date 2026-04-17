@@ -10,20 +10,47 @@ import (
 	"github.com/DatanoiseTV/tinyice/relay"
 )
 
+// directoryReportingTask keeps the configured YP-style directory server in
+// sync with the set of currently-public mounts. Each tick it sends:
+//   - "add"    for mounts that just went public / are newly present,
+//   - "touch"  for mounts already advertised (required as a heartbeat so
+//              the directory doesn't age them out),
+//   - "remove" for mounts that were advertised last tick but have gone
+//              away (source disconnected or went non-public).
+// The previous implementation only sent "add", so directory listings went
+// stale and dead entries lingered forever.
 func (s *Server) directoryReportingTask() {
 	ticker := time.NewTicker(3 * time.Minute)
 	defer ticker.Stop()
+	advertised := make(map[string]relay.StreamStats)
 	for {
 		select {
 		case <-s.done:
+			for mount, st := range advertised {
+				s.reportToDirectoryAction(st, "remove")
+				delete(advertised, mount)
+			}
 			return
 		case <-ticker.C:
-			streams := s.Relay.Snapshot()
-			for _, st := range streams {
+			next := make(map[string]relay.StreamStats)
+			for _, st := range s.Relay.Snapshot() {
 				if st.Public {
-					s.reportToDirectory(st)
+					next[st.MountName] = st
 				}
 			}
+			for mount, st := range next {
+				if _, had := advertised[mount]; had {
+					s.reportToDirectoryAction(st, "touch")
+				} else {
+					s.reportToDirectoryAction(st, "add")
+				}
+			}
+			for mount, st := range advertised {
+				if _, still := next[mount]; !still {
+					s.reportToDirectoryAction(st, "remove")
+				}
+			}
+			advertised = next
 		}
 	}
 }
@@ -63,7 +90,10 @@ func (s *Server) statsRecordingTask() {
 	}
 }
 
-func (s *Server) reportToDirectory(st relay.StreamStats) {
+// reportToDirectoryAction sends a single YP request. action is "add",
+// "touch" or "remove". The legacy reportToDirectory wrapper always used
+// "add", which isn't a lifecycle.
+func (s *Server) reportToDirectoryAction(st relay.StreamStats, action string) {
 	proto := "http://"
 	if s.Config.UseHTTPS {
 		proto = "https://"
@@ -73,7 +103,7 @@ func (s *Server) reportToDirectory(st relay.StreamStats) {
 		listenURL = proto + net.JoinHostPort(s.Config.HostName, s.Config.HTTPSPort) + st.MountName
 	}
 	data := url.Values{}
-	data.Set("action", "add")
+	data.Set("action", action)
 	data.Set("sn", st.Name)
 	data.Set("genre", st.Genre)
 	data.Set("cps", st.Bitrate)
@@ -84,13 +114,13 @@ func (s *Server) reportToDirectory(st relay.StreamStats) {
 	data.Set("type", "audio/mpeg")
 	resp, err := http.PostForm(s.Config.DirectoryServer, data)
 	if err != nil {
-		logger.L.Warnw("Failed to report to directory server", "error", err)
+		logger.L.Warnw("Failed to report to directory server", "error", err, "action", action)
 		return
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		logger.L.Warnw("Directory server rejected update", "status", resp.Status)
+		logger.L.Warnw("Directory server rejected update", "status", resp.Status, "action", action)
 	} else {
-		logger.L.Debugw("Reported to directory server", "mount", st.MountName)
+		logger.L.Debugw("Reported to directory server", "mount", st.MountName, "action", action)
 	}
 }

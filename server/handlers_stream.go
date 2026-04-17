@@ -365,7 +365,15 @@ func (s *Server) handleListener(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) serveStreamData(w http.ResponseWriter, r *http.Request, stream *relay.Stream, id, originalMount, currentMount string, recoveryTicker *time.Ticker, metaint int) bool {
-	offset, signal := stream.Subscribe(id, 128*1024)
+	// Burst size defaults to 128 KiB but can be overridden per mount via
+	// AdvancedMounts.BurstSize (the "Advanced Mount Settings" UI field).
+	// The value was previously written to config and then ignored; this
+	// lets operators trade join latency vs. first-byte-to-audio delay.
+	burst := 128 * 1024
+	if adv, ok := s.Config.AdvancedMounts[currentMount]; ok && adv != nil && adv.BurstSize > 0 {
+		burst = adv.BurstSize
+	}
+	offset, signal := stream.Subscribe(id, burst)
 	defer stream.Unsubscribe(id)
 
 	// For Ogg streams (Opus / Vorbis / FLAC-in-Ogg) route all output through

@@ -2,6 +2,8 @@ package updater
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -68,7 +70,11 @@ func (u *Updater) CheckAndApply() {
 
 	if newHash != u.lastHash {
 		logger.L.Infof("New update detected! Checksum changed: %s -> %s", u.lastHash, newHash)
-		if err := u.applyUpdate(); err != nil {
+		// Pass the expected sha256 to applyUpdate so the downloaded bytes
+		// are verified before they replace the running binary. Previously
+		// we blindly renamed whatever showed up at UpdateURL — a
+		// man-in-the-middle or a compromised CDN could drop in anything.
+		if err := u.applyUpdate(newHash); err != nil {
 			logger.L.Errorf("Failed to apply update: %v", err)
 		} else {
 			u.lastHash = newHash
@@ -96,24 +102,36 @@ func (u *Updater) getLatestChecksum() (string, error) {
 		return "", err
 	}
 
-	// Find the hash for our specific binary
+	// Find the hash for our specific binary. We refuse to fall back to
+	// "use the whole file as a hash" here: without a specific row for
+	// this GOOS/GOARCH we can't verify the downloaded binary later, and
+	// applying an unverified update is exactly the bug we're closing.
 	targetName := u.getBinaryName()
 	lines := strings.Split(string(body), "\n")
 	for _, line := range lines {
-		if strings.Contains(line, targetName) {
-			parts := strings.Fields(line)
-			if len(parts) >= 1 {
-				return parts[0], nil
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.Fields(line)
+		if len(parts) < 2 {
+			continue
+		}
+		// Accept either "<hex>  filename" or "filename  <hex>" layouts,
+		// and tolerate GNU coreutils' binary-mode "*" prefix on the
+		// filename.
+		name := strings.TrimPrefix(parts[1], "*")
+		if name == targetName || parts[0] == targetName {
+			if parts[0] == targetName {
+				return strings.ToLower(parts[1]), nil
 			}
+			return strings.ToLower(parts[0]), nil
 		}
 	}
-
-	// If not found in checksums.txt, just use the whole file content as hash
-	// (GitHub's checksums.txt format varies)
-	return string(body), nil
+	return "", fmt.Errorf("no checksum row for %s in checksums.txt", targetName)
 }
 
-func (u *Updater) applyUpdate() error {
+func (u *Updater) applyUpdate(expectedHash string) error {
 	url := u.config.UpdateURL
 	url = strings.ReplaceAll(url, "{{os}}", runtime.GOOS)
 	url = strings.ReplaceAll(url, "{{arch}}", runtime.GOARCH)
@@ -134,25 +152,38 @@ func (u *Updater) applyUpdate() error {
 		return err
 	}
 
-	// Use a temporary file to download
+	// Stream the download into a temp file while simultaneously hashing
+	// it. Delete the temp file if we bail for any reason — we refuse to
+	// overwrite the running binary with unverified bytes.
 	tmpFile := exe + ".tmp"
 	f, err := os.OpenFile(tmpFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
 
-	if _, err := io.Copy(f, resp.Body); err != nil {
+	hasher := sha256.New()
+	if _, err := io.Copy(io.MultiWriter(f, hasher), resp.Body); err != nil {
+		f.Close()
+		os.Remove(tmpFile)
 		return err
 	}
-	f.Close()
+	if err := f.Close(); err != nil {
+		os.Remove(tmpFile)
+		return err
+	}
 
-	// Atomically replace binary
+	gotHash := hex.EncodeToString(hasher.Sum(nil))
+	if !strings.EqualFold(gotHash, expectedHash) {
+		os.Remove(tmpFile)
+		return fmt.Errorf("checksum mismatch: expected %s, got %s — refusing to install", expectedHash, gotHash)
+	}
+
+	// Verified — atomically replace the binary.
 	if err := os.Rename(tmpFile, exe); err != nil {
-		// On windows rename might fail if file is locked, but on unix it works
+		os.Remove(tmpFile)
 		return err
 	}
-
+	logger.L.Infow("Update verified and installed", "sha256", gotHash)
 	return nil
 }
 

@@ -137,6 +137,7 @@ func (s *Server) handlePasskeyRegisterFinish(w http.ResponseWriter, r *http.Requ
 	s.configMu.Unlock()
 
 	logger.L.Infow("Passkey registered", "user", user.Username, "name", name)
+	s.Audit(r, "passkey_registered", "user", user.Username, name)
 	jsonResponse(w, map[string]any{"success": true, "name": name})
 }
 
@@ -237,6 +238,7 @@ func (s *Server) handlePasskeyLoginFinish(w http.ResponseWriter, r *http.Request
 	s.recordAuthSuccess(host)
 	s.createSession(w, r, loginUser)
 	logger.L.Infow("Passkey login successful", "user", loginUser.Username, "ip", host)
+	s.Audit(r, "login", "user", loginUser.Username, "passkey")
 
 	jsonResponse(w, map[string]any{"success": true, "redirect": "/admin"})
 }

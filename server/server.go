@@ -144,7 +144,10 @@ func NewServer(cfg *config.Config, authLog *zap.SugaredLogger, version, commit, 
 		AttestationPreference: protocol.PreferNoAttestation,
 	})
 
-	healthM := relay.NewHealthMonitor(r)
+	// Default the health monitor to auto-remove streams that have been
+	// silent for 2 minutes — without this the feature exists but is
+	// dormant and dead sources linger forever in the admin UI / status.
+	healthM := relay.NewHealthMonitor(r).WithAutoRemove(2 * time.Minute)
 	healthM.OnEvent(func(e relay.StreamHealthEvent) {
 		logger.L.Infow("Stream health event",
 			"mount", e.Mount,
@@ -416,7 +419,8 @@ func (s *Server) setupRoutes() *http.ServeMux {
 			"/playlist/reorder", "/playlist/playnext",
 			"/playlist/save", "/playlist/load",
 			"/files", "/playlist", "/queue",
-			"/play", "/pause", "/next", "/shuffle", "/loop",
+			"/play", "/pause", "/next", "/prev", "/previous",
+			"/shuffle", "/loop",
 			"/metadata", "/volume",
 		}
 		for _, suffix := range actionSuffixes {
@@ -485,6 +489,8 @@ func (s *Server) setupRoutes() *http.ServeMux {
 			s.apiAutoDJPause(w, r)
 		case "next":
 			s.apiAutoDJNext(w, r)
+		case "prev", "previous":
+			s.apiAutoDJPrev(w, r)
 		case "shuffle":
 			s.apiAutoDJShuffle(w, r)
 		case "loop":
@@ -492,7 +498,7 @@ func (s *Server) setupRoutes() *http.ServeMux {
 		case "metadata":
 			s.handlePlayerMetadata(w, r)
 		case "volume":
-			s.handlePlayerMetadata(w, r) // volume handled by player handler
+			s.apiAutoDJVolume(w, r)
 		default:
 			http.NotFound(w, r)
 		}

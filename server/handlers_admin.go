@@ -232,6 +232,7 @@ func (s *Server) handleKick(w http.ResponseWriter, r *http.Request) {
 	mount := r.FormValue("mount")
 	if ok && s.hasAccess(user, mount) {
 		s.Relay.RemoveStream(mount)
+		s.Audit(r, "stream_kicked", "stream", mount, "")
 	}
 	http.Redirect(w, r, "/admin", http.StatusSeeOther)
 }
@@ -244,6 +245,7 @@ func (s *Server) handleKickAllListeners(w http.ResponseWriter, r *http.Request) 
 	user, ok := s.checkAuth(r)
 	if ok && user.Role == config.RoleSuperAdmin {
 		s.Relay.DisconnectAllListeners()
+		s.Audit(r, "listeners_kicked_all", "server", "", "")
 	}
 	http.Redirect(w, r, "/admin", http.StatusSeeOther)
 }
@@ -259,6 +261,9 @@ func (s *Server) handleToggleMount(w http.ResponseWriter, r *http.Request) {
 		s.Config.DisabledMounts[mount] = !s.Config.DisabledMounts[mount]
 		if s.Config.DisabledMounts[mount] {
 			s.Relay.RemoveStream(mount)
+			s.Audit(r, "mount_disabled", "stream", mount, "")
+		} else {
+			s.Audit(r, "mount_enabled", "stream", mount, "")
 		}
 		s.Config.SaveConfig()
 	}
@@ -282,6 +287,11 @@ func (s *Server) handleToggleVisible(w http.ResponseWriter, r *http.Request) {
 		}
 		s.Config.SaveConfig()
 		logger.L.Infow("Admin toggled visibility", "mount", mount, "visible", s.Config.VisibleMounts[mount])
+		action := "mount_hidden"
+		if s.Config.VisibleMounts[mount] {
+			action = "mount_made_visible"
+		}
+		s.Audit(r, action, "stream", mount, "")
 	}
 	http.Redirect(w, r, "/admin", http.StatusSeeOther)
 }
