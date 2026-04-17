@@ -125,8 +125,9 @@ chmod +x tinyice-*
 mv tinyice-* tinyice
 
 # Or Docker — pre-built multi-arch images on GHCR (linux/amd64, linux/arm64)
-docker run --rm -p 8000:8000 -v tinyice-data:/data ghcr.io/datanoisetv/tinyice:latest
-# Or pin a specific release: ghcr.io/datanoisetv/tinyice:v2.0.0-beta.6
+# Use :beta while we're in the 2.0 beta line; :latest mirrors the newest release.
+docker run --rm -p 8000:8000 -v tinyice-data:/data ghcr.io/datanoisetv/tinyice:beta
+# Pin a specific release: ghcr.io/datanoisetv/tinyice:v2.0.0-beta.8
 
 # Or from source — Go 1.25+, Node 20+
 git clone https://github.com/DatanoiseTV/tinyice.git
