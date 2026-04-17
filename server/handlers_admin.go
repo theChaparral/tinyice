@@ -126,7 +126,11 @@ func (s *Server) handleAddMount(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	hashed, _ := config.HashPassword(password)
+	hashed, err := config.HashPassword(password)
+	if err != nil {
+		http.Error(w, "Failed to hash password: "+err.Error(), http.StatusBadRequest)
+		return
+	}
 	if user.Role == config.RoleSuperAdmin {
 		s.Config.Mounts[mount] = hashed
 	} else {
@@ -290,7 +294,11 @@ func (s *Server) handleAddUser(w http.ResponseWriter, r *http.Request) {
 	if ok && user.Role == config.RoleSuperAdmin {
 		un, pw := r.FormValue("username"), r.FormValue("password")
 		if un != "" && pw != "" {
-			hp, _ := config.HashPassword(pw)
+			hp, err := config.HashPassword(pw)
+			if err != nil {
+				http.Error(w, "Failed to hash password: "+err.Error(), http.StatusBadRequest)
+				return
+			}
 			s.Config.Users[un] = &config.User{Username: un, Password: hp, Role: config.RoleAdmin, Mounts: make(map[string]string)}
 			s.Config.SaveConfig()
 		}
@@ -307,6 +315,13 @@ func (s *Server) handleRemoveUser(w http.ResponseWriter, r *http.Request) {
 		un := r.FormValue("username")
 		if un != user.Username {
 			delete(s.Config.Users, un)
+			s.sessionsMu.Lock()
+			for sid, sess := range s.sessions {
+				if sess.User != nil && sess.User.Username == un {
+					delete(s.sessions, sid)
+				}
+			}
+			s.sessionsMu.Unlock()
 			s.Config.SaveConfig()
 		}
 	}

@@ -178,8 +178,12 @@ func (tm *TranscoderManager) performTranscode(ctx context.Context, inst *Transco
 
 	var reader io.Reader
 	if isOgg {
-		aligned := FindNextPageBoundary(input.Buffer.Data, bufSize, bufHead, offset)
-		if aligned < bufHead {
+		// FindNextPageBoundaryLocked holds the buffer's mutex so it can run
+		// safely while the ingest goroutine is still writing new bytes.
+		aligned := input.Buffer.FindNextPageBoundaryLocked(offset)
+		_ = bufSize
+		_ = bufHead
+		if aligned < input.Buffer.Head {
 			offset = aligned
 		}
 		live := NewStreamReader(input.Buffer, offset, signal, ctx, id).WithOggSync(input)
@@ -206,15 +210,24 @@ func (tm *TranscoderManager) performTranscode(ctx context.Context, inst *Transco
 		return
 	}
 
-	// 4. Create Output Stream
+	// 4. Create Output Stream. Take the stream mutex for the whole
+	// metadata block so concurrent Snapshot / listener reads see a
+	// coherent set of fields.
 	output := tm.relay.GetOrCreateStream(inst.Config.OutputMount)
-	output.Name = fmt.Sprintf("%s (%s %dK)", input.Name, inst.Config.Format, inst.Config.Bitrate)
+	input.mu.RLock()
+	inputName := input.Name
+	input.mu.RUnlock()
+	output.mu.Lock()
+	output.Name = fmt.Sprintf("%s (%s %dK)", inputName, inst.Config.Format, inst.Config.Bitrate)
 	output.Bitrate = fmt.Sprintf("%d", inst.Config.Bitrate)
 	output.IsTranscoded = true
 	output.Visible = tm.relay.GetStreamVisibility(inst.Config.InputMount) // Follow input visibility
+	output.mu.Unlock()
 
 	if inst.Config.Format == "mp3" {
+		output.mu.Lock()
 		output.ContentType = "audio/mpeg"
+		output.mu.Unlock()
 		sr := inst.Config.SampleRate
 		if sr == 0 {
 			sr = decoder.SampleRate()
@@ -228,7 +241,9 @@ func (tm *TranscoderManager) performTranscode(ctx context.Context, inst *Transco
 		}
 		EncodeMP3(ctx, tm.relay, output, pcm, inst.Config.Bitrate, &inst.BytesEncoded, false, sr)
 	} else if inst.Config.Format == "opus" {
+		output.mu.Lock()
 		output.ContentType = "audio/ogg"
+		output.mu.Unlock()
 		// Opus is always 48 kHz internally. Anything else needs a
 		// resampler; without this the encoder plays 44.1 kHz MP3 input
 		// ~8.8 % too fast (chipmunk voice).
@@ -438,8 +453,10 @@ func EncodeOpus(ctx context.Context, relay *Relay, output *Stream, decoder io.Re
 	pw.Flush()
 
 	// Store for mid-stream listeners
-	output.OggHead = writer.headerBuf.Bytes()
-	output.OggHeaderOffset = output.Buffer.Head
+	// Store captured headers + the buffer offset at which the first audio
+	// byte will be written, under the stream mutex so listeners that
+	// subscribe concurrently see a consistent pair.
+	output.StoreOggHead(writer.headerBuf.Bytes(), output.Buffer.Head)
 	writer.capture = false // Stop capturing headers
 
 	pcmBuf := make([]byte, frameSize*channels*2)

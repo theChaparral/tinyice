@@ -108,6 +108,14 @@ func (s *Stream) IsOgg() bool {
 	return strings.Contains(ct, "ogg") || strings.Contains(ct, "opus")
 }
 
+// SetSourceIP records the source address under the stream mutex so readers
+// (Snapshot, listener handlers, status handlers) see a consistent value.
+func (s *Stream) SetSourceIP(ip string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.SourceIP = ip
+}
+
 // StoreOggHead atomically records the Ogg header bytes and the buffer offset
 // at which audio data begins. Late-joining listeners prepend OggHead to their
 // output and skip buffer content before OggHeaderOffset so they get a complete

@@ -149,16 +149,22 @@ func (h *rtmpHandler) OnPublish(_ *rtmp.StreamContext, timestamp uint32, cmd *rt
 
 	h.mount = mount
 	h.stream = h.relay.GetOrCreateStream(mount)
+	h.stream.mu.Lock()
 	h.stream.SourceIP = h.conn.RemoteAddr().String()
 	h.stream.ContentType = "audio/mpeg" // default, may be updated on first audio data
+	h.stream.mu.Unlock()
 	h.started = time.Now()
 
-	// Create a separate video stream
+	// Create a separate video stream with an 8 MB buffer up front, so we
+	// never have to swap the Buffer pointer under listeners that are
+	// already reading. GetOrCreateStreamSized leaves existing streams
+	// untouched.
 	h.videoMount = mount + "/video"
-	h.videoStream = h.relay.GetOrCreateStream(h.videoMount)
+	h.videoStream = h.relay.GetOrCreateStreamSized(h.videoMount, 8*1024*1024)
+	h.videoStream.mu.Lock()
 	h.videoStream.SourceIP = h.conn.RemoteAddr().String()
 	h.videoStream.ContentType = "video/h264"
-	h.videoStream.Buffer = NewCircularBuffer(8 * 1024 * 1024) // 8MB for video
+	h.videoStream.mu.Unlock()
 
 	logger.L.Infow("RTMP: Publishing started",
 		"mount", mount,
@@ -189,12 +195,28 @@ func (h *rtmpHandler) OnAudio(timestamp uint32, payload io.Reader) error {
 		return nil
 	}
 
-	// Determine content type from codec
+	// Determine content type from codec. Only take the stream mutex when
+	// the content type actually changes to avoid locking on every audio
+	// packet.
 	switch audioTag.SoundFormat {
 	case flvtag.SoundFormatMP3:
-		h.stream.ContentType = "audio/mpeg"
+		h.stream.mu.RLock()
+		needsUpdate := h.stream.ContentType != "audio/mpeg"
+		h.stream.mu.RUnlock()
+		if needsUpdate {
+			h.stream.mu.Lock()
+			h.stream.ContentType = "audio/mpeg"
+			h.stream.mu.Unlock()
+		}
 	case flvtag.SoundFormatAAC:
-		h.stream.ContentType = "audio/aac"
+		h.stream.mu.RLock()
+		needsUpdate := h.stream.ContentType != "audio/aac"
+		h.stream.mu.RUnlock()
+		if needsUpdate {
+			h.stream.mu.Lock()
+			h.stream.ContentType = "audio/aac"
+			h.stream.mu.Unlock()
+		}
 		// Skip AAC sequence header (AudioSpecificConfig), only pass raw frames
 		if audioTag.AACPacketType == flvtag.AACPacketTypeSequenceHeader {
 			return nil

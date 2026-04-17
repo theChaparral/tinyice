@@ -215,7 +215,11 @@ func (s *Server) apiCreateStream(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	hashed, _ := config.HashPassword(body.Password)
+	hashed, err := config.HashPassword(body.Password)
+	if err != nil {
+		jsonError(w, "Failed to hash password: "+err.Error(), http.StatusBadRequest)
+		return
+	}
 	if user.Role == config.RoleSuperAdmin {
 		s.Config.Mounts[body.Mount] = hashed
 	} else {
@@ -1631,7 +1635,11 @@ func (s *Server) apiCreateUser(w http.ResponseWriter, r *http.Request) {
 		body.Role = config.RoleAdmin
 	}
 
-	hp, _ := config.HashPassword(body.Password)
+	hp, err := config.HashPassword(body.Password)
+	if err != nil {
+		jsonError(w, "Failed to hash password: "+err.Error(), http.StatusBadRequest)
+		return
+	}
 	s.Config.Users[body.Username] = &config.User{
 		Username: body.Username,
 		Password: hp,
@@ -1678,7 +1686,11 @@ func (s *Server) apiUpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if body.Password != "" {
-		hp, _ := config.HashPassword(body.Password)
+		hp, err := config.HashPassword(body.Password)
+		if err != nil {
+			jsonError(w, "Failed to hash password: "+err.Error(), http.StatusBadRequest)
+			return
+		}
 		u.Password = hp
 	}
 	if body.Role != "" {
@@ -1718,6 +1730,16 @@ func (s *Server) apiDeleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	delete(s.Config.Users, username)
+	// Invalidate any live sessions belonging to the deleted user; otherwise
+	// their cookie keeps working until it expires even though the account
+	// no longer exists.
+	s.sessionsMu.Lock()
+	for sid, sess := range s.sessions {
+		if sess.User != nil && sess.User.Username == username {
+			delete(s.sessions, sid)
+		}
+	}
+	s.sessionsMu.Unlock()
 	s.Config.SaveConfig()
 	jsonResponse(w, map[string]string{"status": "deleted"})
 	s.Audit(r, "user_deleted", "user", username, "")

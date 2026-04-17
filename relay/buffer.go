@@ -139,6 +139,24 @@ func (cb *CircularBuffer) ReadAt(start int64, p []byte) (int, int64, bool) {
 	return actual, start + int64(actual), skipped
 }
 
+// HeadOffset returns the buffer's current write head under the buffer mutex.
+// Use this from any goroutine other than the exclusive writer.
+func (cb *CircularBuffer) HeadOffset() int64 {
+	cb.mu.RLock()
+	defer cb.mu.RUnlock()
+	return cb.Head
+}
+
+// FindNextPageBoundaryLocked holds the buffer's RWMutex for the duration of
+// the scan, so it's safe to use against a buffer that may be concurrently
+// written by a source goroutine. Returns the absolute offset of the next
+// valid Ogg page boundary at-or-after `start`, or Head if none is found.
+func (cb *CircularBuffer) FindNextPageBoundaryLocked(start int64) int64 {
+	cb.mu.RLock()
+	defer cb.mu.RUnlock()
+	return FindNextPageBoundary(cb.Data, cb.Size, cb.Head, start)
+}
+
 // Available returns the number of bytes currently available in the buffer.
 // If the buffer has not yet been filled, it returns Head (total bytes written).
 // Once the buffer has been filled at least once, it returns the buffer Size.

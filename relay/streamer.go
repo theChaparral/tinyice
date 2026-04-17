@@ -933,18 +933,27 @@ func (sm *StreamerManager) streamFile(ctx context.Context, s *Streamer, path str
 	s.CurrentFileDuration = 0 // PCM length isn't known up-front for non-MP3 inputs
 	s.mu.Unlock()
 
-	// Update stream metadata
+	// Update stream metadata under the output stream's mutex so concurrent
+	// Snapshot / listener reads see a coherent set of fields.
 	output := sm.relay.GetOrCreateStream(s.OutputMount)
+	output.mu.Lock()
 	if s.InjectMetadata {
 		output.CurrentSong = s.CurrentFile
 		output.Name = s.Name
 		output.Visible = true
-		sm.relay.UpdateMetadata(s.OutputMount, s.CurrentFile)
 	}
 	output.Bitrate = fmt.Sprintf("%d", s.Bitrate)
-
 	if s.Format == "opus" {
 		output.ContentType = "audio/ogg"
+	} else {
+		output.ContentType = "audio/mpeg"
+	}
+	output.mu.Unlock()
+	if s.InjectMetadata {
+		sm.relay.UpdateMetadata(s.OutputMount, s.CurrentFile)
+	}
+
+	if s.Format == "opus" {
 		// Opus encoder is locked at 48 kHz; resample if the file is at a
 		// different rate so playback isn't sped up / slowed down.
 		var pcm io.Reader = decoder
@@ -953,7 +962,6 @@ func (sm *StreamerManager) streamFile(ctx context.Context, s *Streamer, path str
 		}
 		EncodeOpus(ctx, sm.relay, output, pcm, s.Bitrate, &s.BytesStreamed, true)
 	} else {
-		output.ContentType = "audio/mpeg"
 		EncodeMP3(ctx, sm.relay, output, decoder, s.Bitrate, &s.BytesStreamed, true, decoder.SampleRate())
 	}
 

@@ -74,17 +74,29 @@ func NewRelay(lowLatency bool, history *HistoryManager) *Relay {
 //	stream := relay.GetOrCreateStream("/live")
 //	stream.Broadcast(audioData, relay)
 func (r *Relay) GetOrCreateStream(mount string) *Stream {
+	return r.GetOrCreateStreamSized(mount, 512*1024)
+}
+
+// GetOrCreateStreamSized returns the existing stream for the mount (leaving
+// its buffer untouched) or creates a new one with a buffer of `bufferSize`
+// bytes. Use this for mounts that need larger buffers up front (e.g. the
+// RTMP video sub-mount) so we never have to swap the buffer pointer under
+// an already-subscribed listener.
+func (r *Relay) GetOrCreateStreamSized(mount string, bufferSize int) *Stream {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	if s, ok := r.Streams[mount]; ok {
 		return s
 	}
+	if bufferSize <= 0 {
+		bufferSize = 512 * 1024
+	}
 
 	s := &Stream{
 		MountName:   mount,
 		listeners:   make(map[string]chan struct{}),
-		Buffer:      NewCircularBuffer(512 * 1024), // 2MB shared buffer per stream
+		Buffer:      NewCircularBuffer(bufferSize),
 		Started:     time.Now(),
 		Name:        "Unnamed Stream",
 		Description: "No description",

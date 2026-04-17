@@ -165,8 +165,10 @@ func (ss *SRTServer) handlePublish(conn srt.Conn) {
 	mount := info.mount
 
 	stream := ss.relay.GetOrCreateStream(mount)
+	stream.mu.Lock()
 	stream.SourceIP = remoteAddr.String()
 	stream.ContentType = "audio/mpeg" // default for MPEG-TS with MP3
+	stream.mu.Unlock()
 
 	logger.L.Infow("SRT: Publishing started",
 		"mount", mount,

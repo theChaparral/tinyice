@@ -490,7 +490,7 @@ func (s *Server) handleGoLiveChunk(w http.ResponseWriter, r *http.Request) {
 	}
 
 	stream := s.Relay.GetOrCreateStream(mount)
-	stream.SourceIP = "webaudio-http"
+	stream.SetSourceIP("webaudio-http")
 	stream.Broadcast(body, s.Relay)
 
 	w.WriteHeader(http.StatusOK)

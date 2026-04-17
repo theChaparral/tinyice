@@ -161,6 +161,7 @@ func (wm *WebRTCManager) HandleSourceOffer(mount string, offer webrtc.SessionDes
 		logger.L.Infow("WebRTC Source: Received track", "track", track.ID(), "mount", mount)
 
 		stream := wm.relay.GetOrCreateStream(mount)
+		headOffset := stream.Buffer.HeadOffset()
 		stream.mu.Lock()
 		stream.ContentType = "audio/ogg"
 		stream.IsOggStream = true
@@ -168,7 +169,7 @@ func (wm *WebRTCManager) HandleSourceOffer(mount string, offer webrtc.SessionDes
 		// Reset page offsets so we don't sync to old pages from a previous session
 		stream.PageOffsets = make([]int64, 128)
 		stream.PageIndex = 0
-		stream.OggHeaderOffset = stream.Buffer.Head
+		stream.OggHeaderOffset = headOffset
 		stream.mu.Unlock()
 
 		// Capture headers written by oggwriter.NewWith

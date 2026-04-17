@@ -165,7 +165,7 @@ func (s *Server) handleSource(w http.ResponseWriter, r *http.Request) {
 	})
 
 	stream := s.Relay.GetOrCreateStream(mount)
-	stream.SourceIP = r.RemoteAddr
+	stream.SetSourceIP(r.RemoteAddr)
 
 	s.updateSourceMetadata(stream, mount, r)
 
@@ -174,7 +174,7 @@ func (s *Server) handleSource(w http.ResponseWriter, r *http.Request) {
 	// codec. Capture those pages while forwarding the byte stream.
 	captureHeaders := isOggContentType(r.Header.Get("Content-Type")) || stream.IsOgg()
 	var headerBuf []byte
-	captureStartOffset := stream.Buffer.Head
+	captureStartOffset := stream.Buffer.HeadOffset()
 
 	buf := make([]byte, 8192)
 	for {
@@ -434,7 +434,7 @@ func (s *Server) serveStreamData(w http.ResponseWriter, r *http.Request, stream 
 						)
 						return false
 					}
-					offset = relay.FindNextPageBoundary(stream.Buffer.Data, stream.Buffer.Size, stream.Buffer.Head, next)
+					offset = stream.Buffer.FindNextPageBoundaryLocked(next)
 					continue
 				}
 				if n == 0 {

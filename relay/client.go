@@ -228,7 +228,7 @@ func (rm *RelayManager) performPull(ctx context.Context, inst *RelayInstance) {
 	inst.mu.Unlock()
 
 	stream := rm.relay.GetOrCreateStream(inst.Mount)
-	stream.SourceIP = "relay-pull"
+	stream.SetSourceIP("relay-pull")
 
 	// Metadata
 	name := resp.Header.Get("Ice-Name")

@@ -109,12 +109,12 @@ func (r *StreamReader) Read(p []byte) (int, error) {
 	for {
 		n, next, skipped := r.buffer.ReadAt(r.offset, p)
 
-		// Handle Ogg synchronization if enabled
+		// Handle Ogg synchronization if enabled. Use the buffer's own
+		// mutex rather than the stream mutex, since the slice we're
+		// scanning is protected by the buffer's lock (not the stream's).
 		if skipped && r.oggSync && r.stream != nil {
-			r.stream.mu.RLock()
-			r.offset = FindNextPageBoundary(r.stream.Buffer.Data, r.stream.Buffer.Size, r.stream.Buffer.Head, next)
-			r.stream.mu.RUnlock()
-			continue // Retry read at aligned offset
+			r.offset = r.stream.Buffer.FindNextPageBoundaryLocked(next)
+			continue
 		}
 
 		if n > 0 {
