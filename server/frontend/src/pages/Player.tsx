@@ -16,6 +16,19 @@ const artist = signal(data.artist || 'Unknown Artist')
 const mode = signal<'http' | 'webrtc'>('http')
 const volume = signal(80)
 const listeners = signal(data.listeners || 0)
+// Seconds of continuous playback since the user most recently pressed play.
+// Resets to 0 on pause so the number always reflects "how long the current
+// listening session has been running" rather than page-open time.
+const elapsed = signal(0)
+
+function formatElapsed(secs: number): string {
+  secs = Math.max(0, Math.floor(secs))
+  const h = Math.floor(secs / 3600)
+  const m = Math.floor((secs % 3600) / 60)
+  const s = secs % 60
+  const pad = (n: number) => n.toString().padStart(2, '0')
+  return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`
+}
 
 // hlsRef holds the live hls.js instance so handlePause and unmount can tear
 // it down. Import is dynamic (see attachHLS) so audio-only pages don't
@@ -132,6 +145,23 @@ export function Player() {
     }
   }, [])
 
+  // Drive the "playing for …" readout from a 1 s interval that only runs
+  // while playing=true. We tick seconds locally rather than reading
+  // el.currentTime because live Icecast audio streams don't expose a
+  // sensible currentTime (and HLS currentTime resets on segment changes).
+  useEffect(() => {
+    if (!playing.value) {
+      elapsed.value = 0
+      return
+    }
+    const start = Date.now()
+    const base = elapsed.value
+    const id = setInterval(() => {
+      elapsed.value = base + Math.floor((Date.now() - start) / 1000)
+    }, 1000)
+    return () => clearInterval(id)
+  }, [playing.value])
+
   const handleModeChange = useCallback((m: 'http' | 'webrtc') => {
     mode.value = m
   }, [])
@@ -202,6 +232,14 @@ export function Player() {
               <span class="font-mono text-[9px] tracking-widest text-text-tertiary/60 uppercase">
                 {listeners} {listeners.value === 1 ? 'listener' : 'listeners'}
               </span>
+              {playing.value && (
+                <span
+                  class="font-mono text-[9px] tracking-widest text-accent uppercase tabular-nums"
+                  title="Time since you pressed play"
+                >
+                  ● {formatElapsed(elapsed.value)}
+                </span>
+              )}
               <VolumeKnob value={volume.value} onChange={handleVolumeChange} />
             </div>
           </div>
@@ -304,6 +342,14 @@ export function Player() {
           <span class="font-mono text-[9px] tracking-widest text-text-tertiary/50 uppercase">
             {listeners} {listeners.value === 1 ? 'listener' : 'listeners'}
           </span>
+          {playing.value && (
+            <span
+              class="font-mono text-[9px] tracking-widest text-accent uppercase tabular-nums"
+              title="Time since you pressed play"
+            >
+              ● {formatElapsed(elapsed.value)}
+            </span>
+          )}
         </div>
       </div>
     </div>
