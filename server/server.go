@@ -658,12 +658,34 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		s.StreamerM.StopStreamer(st.OutputMount)
 	}
 
+	// Run RTMP and SRT Stop in parallel. Either can hang briefly while
+	// in-flight connections close; we don't want one to gate the other
+	// and we don't want either to gate the HTTP shutdown below.
+	var ingestWG sync.WaitGroup
 	if s.RTMP != nil {
-		s.RTMP.Stop()
+		ingestWG.Add(1)
+		go func() {
+			defer ingestWG.Done()
+			s.RTMP.Stop()
+		}()
 	}
-
 	if s.SRT != nil {
-		s.SRT.Stop()
+		ingestWG.Add(1)
+		go func() {
+			defer ingestWG.Done()
+			s.SRT.Stop()
+		}()
+	}
+	// Don't block forever on ingest shutdown.
+	ingestDone := make(chan struct{})
+	go func() {
+		ingestWG.Wait()
+		close(ingestDone)
+	}()
+	select {
+	case <-ingestDone:
+	case <-time.After(4 * time.Second):
+		logger.L.Warnw("Shutdown: ingest servers didn't stop in time, continuing")
 	}
 
 	var wg sync.WaitGroup

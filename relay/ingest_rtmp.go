@@ -22,6 +22,13 @@ type RTMPServer struct {
 	listener net.Listener
 	server   *rtmp.Server
 	mu       sync.Mutex
+
+	// Active connections tracked so Stop can close them all — closing
+	// only the listener leaves existing handler goroutines blocked in
+	// conn.Read forever, which in turn makes rtmp.Server.Close() hang.
+	// That's what was preventing Ctrl+C from quitting the process.
+	conns   map[net.Conn]struct{}
+	connsMu sync.Mutex
 }
 
 // NewRTMPServer creates a new RTMP ingest server.
@@ -29,6 +36,36 @@ func NewRTMPServer(r *Relay, cfg *config.Config) *RTMPServer {
 	return &RTMPServer{
 		relay:  r,
 		config: cfg,
+		conns:  make(map[net.Conn]struct{}),
+	}
+}
+
+// trackConn registers a connection so Stop can close it. Returns a
+// function the handler should defer to un-register when the connection
+// ends normally.
+func (rs *RTMPServer) trackConn(c net.Conn) func() {
+	rs.connsMu.Lock()
+	rs.conns[c] = struct{}{}
+	rs.connsMu.Unlock()
+	return func() {
+		rs.connsMu.Lock()
+		delete(rs.conns, c)
+		rs.connsMu.Unlock()
+	}
+}
+
+// closeAllConns closes every tracked connection. Used on shutdown to
+// unblock handlers that are parked in conn.Read.
+func (rs *RTMPServer) closeAllConns() {
+	rs.connsMu.Lock()
+	conns := make([]net.Conn, 0, len(rs.conns))
+	for c := range rs.conns {
+		conns = append(conns, c)
+	}
+	rs.conns = make(map[net.Conn]struct{})
+	rs.connsMu.Unlock()
+	for _, c := range conns {
+		_ = c.Close()
 	}
 }
 
@@ -50,10 +87,14 @@ func (rs *RTMPServer) Start() error {
 
 	rs.server = rtmp.NewServer(&rtmp.ServerConfig{
 		OnConnect: func(conn net.Conn) (io.ReadWriteCloser, *rtmp.ConnConfig) {
+			// Track so Stop() can close it later. Handler also holds
+			// the untrack func to remove itself on clean close.
+			untrack := rs.trackConn(conn)
 			h := &rtmpHandler{
-				relay:  rs.relay,
-				config: rs.config,
-				conn:   conn,
+				relay:   rs.relay,
+				config:  rs.config,
+				conn:    conn,
+				untrack: untrack,
 			}
 			return conn, &rtmp.ConnConfig{
 				Handler: h,
@@ -77,17 +118,38 @@ func (rs *RTMPServer) Start() error {
 	return nil
 }
 
-// Stop shuts down the RTMP server.
+// Stop shuts down the RTMP server. Closes the listener (so no new
+// connections accept), closes every currently-tracked connection (so
+// handler goroutines stuck in conn.Read return), then calls the library
+// Close with a short deadline so a misbehaving client can't hold the
+// process open forever.
 func (rs *RTMPServer) Stop() {
 	rs.mu.Lock()
-	defer rs.mu.Unlock()
-	if rs.listener != nil {
-		rs.listener.Close()
-		rs.listener = nil
+	listener := rs.listener
+	server := rs.server
+	rs.listener = nil
+	rs.server = nil
+	rs.mu.Unlock()
+
+	if listener != nil {
+		_ = listener.Close()
 	}
-	if rs.server != nil {
-		rs.server.Close()
-		rs.server = nil
+	// Unblock every handler goroutine synchronously before asking the
+	// rtmp library to finalise; otherwise rtmp.Server.Close() will
+	// happily wait forever for handlers parked in Read.
+	rs.closeAllConns()
+
+	if server != nil {
+		done := make(chan struct{})
+		go func() {
+			server.Close()
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+			logger.L.Warnw("RTMP: Close() didn't return within 3s — abandoning")
+		}
 	}
 }
 
@@ -97,6 +159,7 @@ type rtmpHandler struct {
 	relay   *Relay
 	config  *config.Config
 	conn    net.Conn
+	untrack func() // removes this conn from RTMPServer.conns
 	app     string // RTMP application name from the connect command
 	mount   string
 	stream  *Stream
@@ -370,6 +433,9 @@ func (h *rtmpHandler) prependParameterSets(annexB []byte) []byte {
 // disconnects-and-reconnects with a tiny gap would have its successor's
 // stream killed by the predecessor's delayed OnClose.
 func (h *rtmpHandler) OnClose() {
+	if h.untrack != nil {
+		h.untrack()
+	}
 	if h.mount != "" {
 		logger.L.Infow("RTMP: Source disconnected",
 			"mount", h.mount,
