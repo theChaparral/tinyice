@@ -1,6 +1,7 @@
 import { Router, Route } from 'preact-router'
 import { useState } from 'preact/hooks'
 import { Sidebar } from '../../components/Sidebar'
+import { Toasts } from '../../components/Toasts'
 import { Dashboard } from './Dashboard'
 import { Streams } from './Streams'
 import { Relays } from './Relays'
@@ -36,6 +37,7 @@ export function AdminLayout() {
           <Route path="/admin/settings" component={Settings} />
         </Router>
       </main>
+      <Toasts />
     </div>
   )
 }

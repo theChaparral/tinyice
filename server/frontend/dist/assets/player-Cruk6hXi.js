@@ -1,4 +1,4 @@
-import{u as e,A as h,q as c,y as g,J as A}from"./hooks.module-CwL493yS.js";import{y as o}from"./signals.module-Dyr4q9uh.js";import{V as _,a as T}from"./VolumeKnob-CPCWn3F7.js";import{c as V}from"./sse-DTpFXPzr.js";import{u as P}from"./useAlbumArt-1PUDQAmM.js";function q({mode:n,onChange:a}){return e("div",{class:"inline-flex rounded-lg bg-surface-raised border border-border p-0.5",children:[e("button",{onClick:()=>a("http"),class:`
+import{u as e,A as h,q as c,y as g,J as A}from"./hooks.module-C5o85aFh.js";import{y as o}from"./signals.module-CFv0e36H.js";import{V as _,a as T}from"./VolumeKnob-C_32ZcnJ.js";import{c as V}from"./sse-BzDsymyq.js";import{u as P}from"./useAlbumArt-C_ZFIa_y.js";function q({mode:n,onChange:a}){return e("div",{class:"inline-flex rounded-lg bg-surface-raised border border-border p-0.5",children:[e("button",{onClick:()=>a("http"),class:`
           font-mono text-[10px] tracking-wider uppercase px-3 py-1.5 rounded-md
           transition-all duration-200
           ${n==="http"?"bg-accent text-surface-base font-bold":"text-text-tertiary hover:text-text-secondary"}

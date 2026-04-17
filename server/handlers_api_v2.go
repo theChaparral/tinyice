@@ -577,6 +577,125 @@ func (s *Server) apiCreateAutoDJ(w http.ResponseWriter, r *http.Request) {
 	s.Audit(r, "autodj_created", "autodj", body.Mount, body.Name)
 }
 
+// apiUpdateAutoDJ edits an existing AutoDJ in place, keyed by its current
+// mount (passed as the "mount" query parameter, since the body may change
+// the mount). The running streamer is stopped and, if still enabled,
+// restarted against the new configuration. Existing playlist/queue state is
+// preserved across the restart.
+func (s *Server) apiUpdateAutoDJ(w http.ResponseWriter, r *http.Request) {
+	if !s.isCSRFSafe(r) {
+		jsonError(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	user, authed := s.checkAuth(r)
+	if !authed {
+		jsonError(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	originalMount := r.URL.Query().Get("mount")
+	if originalMount == "" {
+		jsonError(w, "Query parameter 'mount' is required", http.StatusBadRequest)
+		return
+	}
+	if !s.hasAccess(user, originalMount) {
+		jsonError(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	var body struct {
+		Name               string `json:"name"`
+		Mount              string `json:"mount"`
+		MusicDir           string `json:"music_dir"`
+		Format             string `json:"format"`
+		Bitrate            int    `json:"bitrate"`
+		Loop               bool   `json:"loop"`
+		InjectMetadata     bool   `json:"inject_metadata"`
+		MPDEnabled         bool   `json:"mpd_enabled"`
+		MPDPort            string `json:"mpd_port"`
+		MPDPassword        string `json:"mpd_password"`
+		Visible            bool   `json:"visible"`
+		SongCommand        string `json:"song_command"`
+		SongCommandTimeout int    `json:"song_command_timeout"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		jsonError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	var target *config.AutoDJConfig
+	for _, adj := range s.Config.AutoDJs {
+		if adj.Mount == originalMount {
+			target = adj
+			break
+		}
+	}
+	if target == nil {
+		jsonError(w, "AutoDJ not found", http.StatusNotFound)
+		return
+	}
+
+	newMount := body.Mount
+	if newMount == "" {
+		newMount = originalMount
+	}
+	if newMount[0] != '/' {
+		newMount = "/" + newMount
+	}
+	if body.MusicDir == "" && body.SongCommand == "" {
+		jsonError(w, "Either music_dir or song_command is required", http.StatusBadRequest)
+		return
+	}
+
+	absMusicDir := ""
+	if body.MusicDir != "" {
+		absMusicDir, _ = filepath.Abs(body.MusicDir)
+	}
+
+	// Stop the old instance before mutating config.
+	s.StreamerM.DeleteStreamer(originalMount)
+
+	if body.Name != "" {
+		target.Name = body.Name
+	}
+	target.Mount = newMount
+	target.MusicDir = absMusicDir
+	if body.Format != "" {
+		target.Format = body.Format
+	}
+	if body.Bitrate != 0 {
+		target.Bitrate = body.Bitrate
+	}
+	target.Loop = body.Loop
+	target.InjectMetadata = body.InjectMetadata
+	target.MPDEnabled = body.MPDEnabled
+	target.MPDPort = body.MPDPort
+	if body.MPDPassword != "" {
+		target.MPDPassword = body.MPDPassword
+	}
+	target.Visible = body.Visible
+	target.SongCommand = body.SongCommand
+	target.SongCommandTimeout = body.SongCommandTimeout
+
+	s.Config.SaveConfig()
+
+	streamer, err := s.StreamerM.StartStreamer(
+		target.Name, target.Mount, target.MusicDir, target.Loop, target.Format, target.Bitrate,
+		target.InjectMetadata, target.Playlist, target.MPDEnabled, target.MPDPort, target.MPDPassword,
+		target.Visible, target.LastPlaylist, target.SongCommand, target.SongCommandTimeout,
+	)
+	if err != nil {
+		jsonError(w, fmt.Sprintf("Failed to restart AutoDJ: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if target.MusicDir != "" {
+		streamer.ScanMusicDir()
+	}
+	streamer.Play()
+	jsonResponse(w, map[string]string{"status": "updated", "mount": target.Mount})
+	s.Audit(r, "autodj_updated", "autodj", target.Mount, target.Name)
+}
+
 func (s *Server) apiDeleteAutoDJ(w http.ResponseWriter, r *http.Request) {
 	if !s.isCSRFSafe(r) {
 		jsonError(w, "Forbidden", http.StatusForbidden)

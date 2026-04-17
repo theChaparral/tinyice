@@ -1,6 +1,7 @@
 import { signal } from '@preact/signals'
 import { useEffect } from 'preact/hooks'
 import { api } from '../../lib/api'
+import { reportError, showToast } from '../../lib/toast'
 import { Toggle } from '../../components/Toggle'
 
 interface Relay {
@@ -56,7 +57,9 @@ async function load() {
   loading.value = true
   try {
     relays.value = await api.get<Relay[]>('/api/relays')
-  } catch { /* empty */ }
+  } catch (e) {
+    reportError(e, 'Failed to load relays')
+  }
   loading.value = false
 }
 
@@ -78,12 +81,21 @@ async function saveRelay() {
 }
 
 async function toggleRelay(mount: string) {
-  await api.post('/api/relays/toggle', { mount })
+  try {
+    await api.post('/api/relays/toggle', { mount })
+  } catch (e) {
+    reportError(e, `Failed to toggle relay ${mount}`)
+  }
   load()
 }
 
 async function removeRelay(mount: string) {
-  await api.del(`/api/relays?mount=${encodeURIComponent(mount)}`)
+  try {
+    await api.del(`/api/relays?mount=${encodeURIComponent(mount)}`)
+    showToast('success', `Relay ${mount} removed`)
+  } catch (e) {
+    reportError(e, `Failed to remove relay ${mount}`)
+  }
   load()
 }
 

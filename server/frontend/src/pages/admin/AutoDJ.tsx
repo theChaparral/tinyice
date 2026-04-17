@@ -83,8 +83,10 @@ const formLoop = signal(true)
 const formInjectMetadata = signal(true)
 const formSongCommand = signal('')
 const formSongCommandTimeout = signal(5)
+const saveError = signal('')
 
 function resetForm() {
+  saveError.value = ''
   formName.value = ''
   formMount.value = ''
   formMusicDir.value = ''
@@ -112,11 +114,8 @@ function openEditForm(inst: AutoDJInstance) {
 }
 
 async function saveAutoDJ() {
-  // If editing, delete the old instance first then re-create
-  if (editingMount.value) {
-    await api.del(`/api/autodj?mount=${encodeURIComponent(editingMount.value)}`)
-  }
-  await api.post('/api/autodj', {
+  saveError.value = ''
+  const body = {
     name: formName.value,
     mount: formMount.value,
     music_dir: formMusicDir.value,
@@ -126,10 +125,23 @@ async function saveAutoDJ() {
     inject_metadata: formInjectMetadata.value,
     song_command: formSongCommand.value || undefined,
     song_command_timeout: formSongCommandTimeout.value || undefined,
-  })
-  showForm.value = false
-  resetForm()
-  loadAutoDJ()
+  }
+  try {
+    if (editingMount.value) {
+      // PUT updates in place — server keeps playlist/queue state and
+      // reverts cleanly if validation fails, instead of the previous
+      // delete-then-recreate which would lose the instance entirely
+      // on any 400.
+      await api.put(`/api/autodj?mount=${encodeURIComponent(editingMount.value)}`, body)
+    } else {
+      await api.post('/api/autodj', body)
+    }
+    showForm.value = false
+    resetForm()
+    loadAutoDJ()
+  } catch (e) {
+    saveError.value = (e as Error).message || 'Save failed'
+  }
 }
 
 async function deleteAutoDJ(mount: string) {
@@ -543,6 +555,9 @@ export function AutoDJ() {
                 </div>
               )}
             </div>
+            {saveError.value && (
+              <div class="mt-4 text-danger font-mono text-xs">{saveError.value}</div>
+            )}
             <div class="flex justify-end gap-2 mt-6">
               <button
                 onClick={() => { showForm.value = false; resetForm() }}

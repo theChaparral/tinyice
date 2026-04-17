@@ -1,6 +1,7 @@
 import { useEffect } from 'preact/hooks'
 import { signal } from '@preact/signals'
 import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 import { Nav } from '@/components/Nav'
 import { StreamCard } from '@/components/StreamCard'
 import { createSSE } from '@/lib/sse'
@@ -11,6 +12,15 @@ const streams = signal<StreamInfo[]>(data.streams ?? [])
 
 // Configure marked for safe rendering
 marked.setOptions({ breaks: true, gfm: true })
+
+// Any admin can edit the landing markdown via Settings → Branding. Without
+// sanitisation, marked happily renders <script> / <img onerror=…> straight
+// into every visitor's DOM — admin-to-visitor XSS. Run every render through
+// DOMPurify before handing it to dangerouslySetInnerHTML.
+function renderSafeMarkdown(md: string): string {
+  const raw = marked.parse(md) as string
+  return DOMPurify.sanitize(raw, { USE_PROFILES: { html: true } })
+}
 
 export function Landing() {
   useEffect(() => {
@@ -104,7 +114,7 @@ export function Landing() {
               {landingMarkdown ? (
                 <div
                   class="max-w-lg markdown-content"
-                  dangerouslySetInnerHTML={{ __html: marked.parse(landingMarkdown) as string }}
+                  dangerouslySetInnerHTML={{ __html: renderSafeMarkdown(landingMarkdown) }}
                 />
               ) : (
                 <p class="text-text-tertiary text-base leading-relaxed max-w-md">

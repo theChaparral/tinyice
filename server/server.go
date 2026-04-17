@@ -357,6 +357,8 @@ func (s *Server) setupRoutes() *http.ServeMux {
 			s.apiGetAutoDJ(w, r)
 		case http.MethodPost:
 			s.apiCreateAutoDJ(w, r)
+		case http.MethodPut, http.MethodPatch:
+			s.apiUpdateAutoDJ(w, r)
 		case http.MethodDelete:
 			s.apiDeleteAutoDJ(w, r)
 		default:

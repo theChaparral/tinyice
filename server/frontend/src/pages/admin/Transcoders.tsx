@@ -1,6 +1,7 @@
 import { signal } from '@preact/signals'
 import { useEffect } from 'preact/hooks'
 import { api } from '../../lib/api'
+import { reportError, showToast } from '../../lib/toast'
 
 interface Transcoder {
   name: string
@@ -80,7 +81,9 @@ async function load() {
   loading.value = true
   try {
     transcoders.value = await api.get<Transcoder[]>('/api/transcoders')
-  } catch { /* empty */ }
+  } catch (e) {
+    reportError(e, 'Failed to load transcoders')
+  }
   loading.value = false
 }
 
@@ -117,7 +120,12 @@ async function saveTranscoder() {
 }
 
 async function removeTranscoder(name: string) {
-  await api.del(`/api/transcoders?name=${encodeURIComponent(name)}`)
+  try {
+    await api.del(`/api/transcoders?name=${encodeURIComponent(name)}`)
+    showToast('success', `Transcoder "${name}" removed`)
+  } catch (e) {
+    reportError(e, `Failed to remove transcoder "${name}"`)
+  }
   load()
 }
 

@@ -1,6 +1,7 @@
 import { signal } from '@preact/signals'
 import { useEffect } from 'preact/hooks'
 import { api } from '../../lib/api'
+import { reportError, showToast } from '../../lib/toast'
 
 interface Stream {
   mount: string
@@ -54,7 +55,9 @@ async function load() {
   loading.value = true
   try {
     streams.value = await api.get<Stream[]>('/api/streams')
-  } catch { /* empty */ }
+  } catch (e) {
+    reportError(e, 'Failed to load streams')
+  }
   loading.value = false
 }
 
@@ -87,17 +90,30 @@ async function saveMount() {
 }
 
 async function removeMount(mount: string) {
-  await api.del(`/api/streams?mount=${encodeURIComponent(mount)}`)
+  try {
+    await api.del(`/api/streams?mount=${encodeURIComponent(mount)}`)
+    showToast('success', `Mount ${mount} removed`)
+  } catch (e) {
+    reportError(e, `Failed to remove ${mount}`)
+  }
   load()
 }
 
 async function kickSource(mount: string) {
-  await api.post('/api/streams/kick', { mount, type: 'source' })
+  try {
+    await api.post('/api/streams/kick', { mount, type: 'source' })
+  } catch (e) {
+    reportError(e, `Failed to kick source on ${mount}`)
+  }
   load()
 }
 
 async function kickListeners(mount: string) {
-  await api.post('/api/streams/kick', { mount, type: 'listeners' })
+  try {
+    await api.post('/api/streams/kick', { mount, type: 'listeners' })
+  } catch (e) {
+    reportError(e, `Failed to kick listeners on ${mount}`)
+  }
   load()
 }
 
