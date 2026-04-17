@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"bytes"
 	"context"
 	"strings"
 	"sync"
@@ -8,6 +9,13 @@ import (
 
 	"github.com/DatanoiseTV/tinyice/logger"
 )
+
+// pesUnit is a single access unit queued for inclusion in the next HLS
+// segment, already tagged with its 90 kHz PTS.
+type pesUnit struct {
+	pts  int64
+	data []byte
+}
 
 // HLSConfig holds configuration for HLS output.
 type HLSConfig struct {
@@ -124,10 +132,129 @@ func (h *HLSOutput) Playlist() string {
 	return h.ring.GenerateM3U8(h.mount, h.config.WindowSize)
 }
 
-// segmentLoop reads from the audio stream (and optional video stream),
-// accumulates a segment's worth of each, and every SegmentDuration flushes
-// what we have into a TS segment.
+// segmentLoop picks the right implementation: if there's a video track,
+// use the frame-hub driven path so each frame gets its own PES with the
+// real FLV timestamp. Audio-only mounts that only produce bytes
+// (Icecast SOURCE of MP3 / Opus) stay on the byte-buffer path.
 func (h *HLSOutput) segmentLoop(ctx context.Context, audio *Track, video *Track) {
+	if video != nil && video.Stream != nil && video.Stream.Frames != nil &&
+		audio != nil && audio.Stream != nil && audio.Stream.Frames != nil {
+		h.segmentLoopFramed(ctx, audio, video)
+		return
+	}
+	h.segmentLoopByteBuffer(ctx, audio, video)
+}
+
+// segmentLoopFramed consumes per-frame records from the audio + video
+// FrameHubs and emits one PES per frame with the correct PTS. Flushes a
+// segment roughly every SegmentDuration, preferring keyframe boundaries
+// for the segment start so HLS clients that join mid-stream get a fresh
+// IDR at segment-0 of their window.
+func (h *HLSOutput) segmentLoopFramed(ctx context.Context, audio, video *Track) {
+	audioFrames := audio.Stream.Frames.Subscribe(ctx)
+	videoFrames := video.Stream.Frames.Subscribe(ctx)
+
+	audioStreamType := audioStreamTypeMP3
+	if ct := strings.ToLower(audio.Stream.ContentType); strings.Contains(ct, "aac") {
+		audioStreamType = audioStreamTypeAAC
+	}
+
+	var (
+		audioBatch []pesUnit
+		videoBatch []pesUnit
+		segStart   = time.Now()
+		segHasIDR  bool
+		emittedOne bool
+	)
+
+	flush := func() {
+		if len(audioBatch) == 0 && len(videoBatch) == 0 {
+			return
+		}
+		tsData := h.buildAVSegment(audioBatch, videoBatch, audioStreamType)
+		// Use the first video PTS (or audio PTS as a fallback) as the
+		// segment's nominal start so the ring records a sensible time.
+		startPTS := int64(0)
+		if len(videoBatch) > 0 {
+			startPTS = videoBatch[0].pts
+		} else if len(audioBatch) > 0 {
+			startPTS = audioBatch[0].pts
+		}
+		h.ring.Push(tsData, h.config.SegmentDuration, startPTS, false)
+		logger.L.Debugw("HLS: framed segment",
+			"mount", h.mount,
+			"bytes", len(tsData),
+			"audio_frames", len(audioBatch),
+			"video_frames", len(videoBatch),
+			"sequence", h.ring.Sequence()-1,
+		)
+		audioBatch = audioBatch[:0]
+		videoBatch = videoBatch[:0]
+		segHasIDR = false
+		emittedOne = true
+		segStart = time.Now()
+	}
+
+	// Flush on a coarse timer in case frame arrival is bursty / paused.
+	timer := time.NewTicker(h.config.SegmentDuration)
+	defer timer.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case f, ok := <-audioFrames:
+			if !ok {
+				return
+			}
+			audioBatch = append(audioBatch, pesUnit{pts: f.PTS, data: f.Data})
+		case f, ok := <-videoFrames:
+			if !ok {
+				return
+			}
+			// Prefer to start segments on keyframes: if we've already
+			// got a keyframe and SegmentDuration's worth of wall time
+			// has passed, flush the previous segment before appending
+			// the new IDR to the new one.
+			if f.Keyframe {
+				if emittedOne || time.Since(segStart) >= h.config.SegmentDuration {
+					if segHasIDR || len(videoBatch) > 0 || len(audioBatch) > 0 {
+						flush()
+					}
+				}
+				segHasIDR = true
+			}
+			videoBatch = append(videoBatch, pesUnit{pts: f.PTS, data: f.Data})
+		case <-timer.C:
+			// Time-based flush safety net.
+			if time.Since(segStart) >= h.config.SegmentDuration {
+				flush()
+			}
+		}
+	}
+}
+
+// buildAVSegment muxes a list of audio + video access units into a single
+// MPEG-TS segment. Each frame becomes its own PES packet with its own
+// PTS.
+func (h *HLSOutput) buildAVSegment(audioBatch, videoBatch []pesUnit, audioStreamType byte) []byte {
+	var buf bytes.Buffer
+	h.muxer.writePAT(&buf)
+	h.muxer.writePMTAV(&buf, audioStreamType)
+	for _, v := range videoBatch {
+		h.muxer.writeVideoPES(&buf, v.data, v.pts)
+	}
+	for _, a := range audioBatch {
+		h.muxer.writeAudioPES(&buf, a.data, a.pts)
+	}
+	return buf.Bytes()
+}
+
+// segmentLoopByteBuffer is the old byte-level Icecast SOURCE path — one
+// PES per segment, approximate PTS derived from wall-clock segment
+// duration. Still correct for MP3 / Opus audio-only mounts where the
+// source doesn't hand us frame timestamps.
+func (h *HLSOutput) segmentLoopByteBuffer(ctx context.Context, audio *Track, video *Track) {
 	id := "hls-" + h.mount
 
 	audioOffset, audioSignal := audio.Stream.Subscribe(id, 8192)

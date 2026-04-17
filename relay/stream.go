@@ -77,6 +77,13 @@ type Stream struct {
 	// the first IDR — otherwise they get "non-existing PPS referenced"
 	// / "no frame" errors from ffmpeg until the next keyframe cycles.
 	VideoHeaders []byte
+
+	// Frames fans out per-frame (audio + video) records with PTS on the
+	// MPEG 90 kHz clock to consumers like the HLS segmenter. It's used
+	// alongside the byte-level Buffer: raw Icecast-style listeners read
+	// bytes, frame-level consumers subscribe to the hub. nil on streams
+	// that never see a frame-level producer (e.g. relay pull).
+	Frames *FrameHub
 	LastPageOffset  int64   // Absolute offset of the last valid Ogg page start
 	PageOffsets     []int64 // Circular list of last ~100 page starts
 	PageIndex       int     // Index for managing PageOffsets circular list
@@ -180,6 +187,11 @@ func (s *Stream) StoreOggHead(head []byte, audioStartOffset int64) {
 //	relay.RemoveStream("/live")
 func (s *Stream) Close() {
 	atomic.StoreInt32(&s.closed, 1)
+	// Tear down the frame hub so HLS / other frame subscribers exit
+	// their select loops cleanly.
+	if s.Frames != nil {
+		s.Frames.Close()
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for id, ch := range s.listeners {

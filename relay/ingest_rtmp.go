@@ -251,6 +251,12 @@ func (h *rtmpHandler) OnPublish(_ *rtmp.StreamContext, timestamp uint32, cmd *rt
 	return nil
 }
 
+// ptsFromFLVTimestamp converts an FLV timestamp (milliseconds, uint32) into
+// a 90 kHz PTS value, which is what the MPEG-TS PES header expects.
+func ptsFromFLVTimestamp(ms uint32) int64 {
+	return int64(ms) * 90
+}
+
 // OnAudio handles incoming audio data from the RTMP stream.
 func (h *rtmpHandler) OnAudio(timestamp uint32, payload io.Reader) error {
 	if h.stream == nil {
@@ -335,8 +341,19 @@ func (h *rtmpHandler) OnAudio(timestamp uint32, payload io.Reader) error {
 		// Unknown format, pass through
 	}
 
-	// Broadcast the raw audio data to the stream
+	// Broadcast the raw audio data to the stream (for byte-level
+	// Icecast listeners) and publish a Frame to the hub (for HLS /
+	// other per-frame consumers).
 	h.stream.Broadcast(data, h.relay)
+	if h.stream.Frames != nil {
+		frameData := make([]byte, len(data))
+		copy(frameData, data)
+		h.stream.Frames.Publish(Frame{
+			Kind: FrameAudio,
+			PTS:  ptsFromFLVTimestamp(timestamp),
+			Data: frameData,
+		})
+	}
 	return nil
 }
 
@@ -383,12 +400,26 @@ func (h *rtmpHandler) OnVideo(timestamp uint32, payload io.Reader) error {
 			// who tunes in mid-stream never receives them (RTMP only
 			// delivers AVCDecoderConfigurationRecord once, at stream
 			// start) and can't decode until the publisher reconnects.
-			if ContainsKeyframe(annexB) {
+			isKeyframe := ContainsKeyframe(annexB)
+			if isKeyframe {
 				annexB = h.prependParameterSets(annexB)
 				h.videoStream.Buffer.RecordKeyframe(h.videoStream.Buffer.Head)
 			}
 
 			h.videoStream.Broadcast(annexB, h.relay)
+			// Also publish a per-frame record with the real FLV timestamp
+			// so the HLS segmenter can emit one PES per frame with the
+			// right PTS instead of faking a single timestamp per segment.
+			if h.videoStream.Frames != nil {
+				frameData := make([]byte, len(annexB))
+				copy(frameData, annexB)
+				h.videoStream.Frames.Publish(Frame{
+					Kind:     FrameVideo,
+					PTS:      ptsFromFLVTimestamp(timestamp),
+					Data:     frameData,
+					Keyframe: isKeyframe,
+				})
+			}
 		}
 	}
 

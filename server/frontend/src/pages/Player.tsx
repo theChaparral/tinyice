@@ -140,6 +140,77 @@ export function Player() {
     volume.value = v
   }, [])
 
+  // Video-first layout: the stream's video element is the hero. The audio
+  // vinyl visualizer + mode toggle are hidden because the video already
+  // carries the audio track. Keeps just the essentials: title / artist,
+  // play+pause overlay, volume, and the standard bottom-strip metadata.
+  if (data.hasVideo) {
+    return (
+      <div class="min-h-screen bg-surface-base relative overflow-hidden flex flex-col">
+        {/* Mini nav top-left */}
+        <div class="fixed top-0 left-0 z-20 flex items-center gap-3 px-5 py-4">
+          <a href="/" class="font-heading text-sm font-bold text-text-primary tracking-tight">
+            Ti
+          </a>
+          <div class="flex items-center gap-1.5">
+            <span
+              class="w-1.5 h-1.5 rounded-full bg-live"
+              style={{ animation: 'pulse-glow 2s ease-in-out infinite' }}
+            />
+            <span class="font-mono text-[9px] tracking-widest text-live uppercase">LIVE</span>
+          </div>
+        </div>
+
+        {/* Video surface, 16:9 locked, centred */}
+        <main class="flex-1 flex items-center justify-center px-4 pt-16 pb-24">
+          <div class="relative w-full max-w-[min(92vw,calc(82vh*16/9))] aspect-video">
+            <video
+              ref={audioRef as any}
+              crossOrigin="anonymous"
+              preload="none"
+              playsInline
+              controls
+              class="absolute inset-0 w-full h-full rounded-xl bg-black shadow-2xl"
+            />
+            {!playing.value && (
+              <button
+                onClick={handlePlay}
+                class="absolute inset-0 flex items-center justify-center group"
+                aria-label="Play"
+              >
+                <span class="w-20 h-20 rounded-full bg-accent/90 flex items-center justify-center shadow-[0_0_32px_rgba(255,102,0,0.45)] group-hover:scale-105 transition-transform">
+                  <svg class="w-10 h-10 text-surface-base ml-1" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M8 5v14l11-7z" />
+                  </svg>
+                </span>
+              </button>
+            )}
+          </div>
+        </main>
+
+        {/* Title + volume tray */}
+        <div class="fixed bottom-0 inset-x-0 z-20 border-t border-border bg-surface-base/90 backdrop-blur">
+          <div class="mx-auto max-w-7xl px-4 py-3 flex flex-wrap items-center gap-x-6 gap-y-2">
+            <div class="min-w-0 flex-1">
+              <div class="text-sm font-bold text-text-primary truncate">{title}</div>
+              <div class="font-mono text-[11px] text-text-tertiary truncate">{artist}</div>
+            </div>
+            <div class="flex items-center gap-4">
+              <span class="font-mono text-[9px] tracking-widest text-text-tertiary/60 uppercase hidden sm:inline">
+                {data.mount}
+              </span>
+              <span class="font-mono text-[9px] tracking-widest text-text-tertiary/60 uppercase">
+                {listeners} {listeners.value === 1 ? 'listener' : 'listeners'}
+              </span>
+              <VolumeKnob value={volume.value} onChange={handleVolumeChange} />
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Audio-only layout — unchanged vinyl visualizer design.
   return (
     <div class="min-h-screen bg-surface-base relative overflow-hidden flex flex-col items-center justify-center">
       {/* Dot grid texture */}
@@ -164,23 +235,7 @@ export function Player() {
         }}
       />
 
-      {/* Audio / video element — hidden for audio-only mounts, shown for
-          A/V mounts so the viewer sees the stream. The underlying element
-          is a <video> either way because HTMLVideoElement is a
-          superset of HTMLAudioElement; playAudio analyser attaches fine
-          to it. */}
-      {data.hasVideo ? (
-        <video
-          ref={audioRef as any}
-          crossOrigin="anonymous"
-          preload="none"
-          playsInline
-          controls
-          class="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10 max-w-[80vw] max-h-[70vh] rounded-xl bg-black shadow-2xl"
-        />
-      ) : (
-        <audio ref={audioRef} crossOrigin="anonymous" preload="none" />
-      )}
+      <audio ref={audioRef} crossOrigin="anonymous" preload="none" />
 
       {/* Mini nav top-left */}
       <div class="fixed top-0 left-0 z-20 flex items-center gap-3 px-5 py-4">

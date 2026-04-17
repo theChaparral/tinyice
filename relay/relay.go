@@ -107,6 +107,7 @@ func (r *Relay) GetOrCreateStreamSized(mount string, bufferSize int) *Stream {
 		Enabled:     true,
 		CurrentSong: "N/A",
 		PageOffsets: make([]int64, 128), // Track last 128 Ogg pages
+		Frames:      NewFrameHub(),
 	}
 	r.Streams[mount] = s
 	return s
