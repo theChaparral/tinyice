@@ -48,6 +48,9 @@ type OggPageRewriter struct {
 	// granule so the listener sees a timeline that starts near zero.
 	granuleOffset  int64
 	haveFirstAudio bool
+
+	// Scratch buffer reused across pages to avoid an allocation per page.
+	scratch []byte
 }
 
 // NewOggPageRewriter allocates a rewriter with a random bitstream serial.
@@ -73,17 +76,20 @@ func randomSerial() uint32 {
 func (r *OggPageRewriter) Write(p []byte) (int, error) {
 	r.buf = append(r.buf, p...)
 	for {
-		// Drop any leading garbage before the next "OggS" marker. This
-		// keeps us robust against an initial misaligned byte or a corrupt
-		// chunk inside the circular buffer.
-		if idx := bytes.Index(r.buf, []byte("OggS")); idx < 0 {
+		// Find the next candidate page start.
+		idx := bytes.Index(r.buf, []byte("OggS"))
+		if idx < 0 {
 			// Retain the last 3 bytes so a partial "OggS" spanning a
 			// Write boundary still resyncs.
 			if len(r.buf) > 3 {
 				r.buf = r.buf[len(r.buf)-3:]
 			}
 			break
-		} else if idx > 0 {
+		}
+		if idx > 0 {
+			// Discard any leading bytes that aren't part of a page — this
+			// is normal right after a slow-listener seek, and also skips
+			// past the bytes of a fake-OggS page we rejected below.
 			r.buf = r.buf[idx:]
 		}
 		if len(r.buf) < 27 {
@@ -102,9 +108,26 @@ func (r *OggPageRewriter) Write(p []byte) (int, error) {
 		if len(r.buf) < pageLen {
 			break
 		}
-		page := append([]byte(nil), r.buf[:pageLen]...)
-		r.rewritePage(page)
-		if _, err := r.dst.Write(page); err != nil {
+		// Verify the CRC on the source page before trusting it. "OggS" is
+		// only 4 bytes and can appear inside Opus / Vorbis audio data —
+		// without this check the rewriter would emit a bogus rewritten
+		// page, and the decoder would give up.
+		pageBytes := r.buf[:pageLen]
+		claimedCRC := binary.LittleEndian.Uint32(pageBytes[22:26])
+		// Zero CRC field in a scratch slice, recompute, and compare.
+		if cap(r.scratch) < pageLen {
+			r.scratch = make([]byte, pageLen)
+		}
+		r.scratch = r.scratch[:pageLen]
+		copy(r.scratch, pageBytes)
+		r.scratch[22], r.scratch[23], r.scratch[24], r.scratch[25] = 0, 0, 0, 0
+		if oggCRC(r.scratch) != claimedCRC {
+			// Fake OggS — advance one byte and keep scanning.
+			r.buf = r.buf[1:]
+			continue
+		}
+		r.rewritePage(r.scratch)
+		if _, err := r.dst.Write(r.scratch); err != nil {
 			return 0, err
 		}
 		r.buf = r.buf[pageLen:]

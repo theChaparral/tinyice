@@ -173,6 +173,44 @@ func TestOggCRC_InteropWithKazzmir(t *testing.T) {
 	}
 }
 
+// TestOggPageRewriter_RejectsFakeOggS simulates the real-world failure mode:
+// a real page is preceded by payload bytes that happen to contain the four
+// ASCII characters "OggS" inside audio data. Before CRC verification the
+// rewriter would parse that as a page header, emit garbage, and desync for
+// the rest of the connection. After CRC verification the fake marker is
+// skipped and the real page is emitted cleanly.
+func TestOggPageRewriter_RejectsFakeOggS(t *testing.T) {
+	real := buildPage(0x00, 9_600_000, 5, 100, 64)
+	// Build a buffer: [fake "OggS" + plausible-looking nonsense] + [real page].
+	var stream []byte
+	stream = append(stream, "OggS"...)
+	// Plausible-looking header bytes that WILL fail CRC.
+	stream = append(stream, 0, 0) // version, type
+	var gp [8]byte
+	binary.LittleEndian.PutUint64(gp[:], 12345)
+	stream = append(stream, gp[:]...)
+	stream = append(stream, 1, 2, 3, 4) // serial
+	stream = append(stream, 5, 6, 7, 8) // seq
+	stream = append(stream, 9, 10, 11, 12) // fake CRC — definitely wrong
+	stream = append(stream, 1)             // num_segments
+	stream = append(stream, 8)             // one segment, 8 bytes
+	stream = append(stream, "garbage!"...)
+	stream = append(stream, real...)
+
+	var out bytes.Buffer
+	rw := NewOggPageRewriter(&out)
+	if _, err := rw.Write(stream); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	pages := parsePages(out.Bytes())
+	if len(pages) != 1 {
+		t.Fatalf("expected exactly 1 valid page, got %d", len(pages))
+	}
+	if pages[0]["granule"] != 960 {
+		t.Errorf("surviving page granule=%d, want 960 (rebased)", pages[0]["granule"])
+	}
+}
+
 // TestOggPageRewriter_CRCRoundTrip makes sure the CRC the rewriter writes
 // back onto a page matches what the Ogg spec expects: CRC over the entire
 // page with the CRC field zeroed.
