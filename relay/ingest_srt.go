@@ -133,11 +133,18 @@ func (ss *SRTServer) Start() error {
 	return nil
 }
 
-// Stop shuts down the SRT server.
+// Stop shuts down the SRT server. The underlying gosrt.Server.Shutdown()
+// closes the listener and terminates Serve, so goroutines waiting on
+// accept exit cleanly — the previous implementation only flipped the
+// running flag and left the listener up.
 func (ss *SRTServer) Stop() {
 	ss.mu.Lock()
-	defer ss.mu.Unlock()
+	server := ss.server
 	ss.running = false
+	ss.mu.Unlock()
+	if server != nil {
+		server.Shutdown()
+	}
 }
 
 // IsRunning returns whether the SRT server is currently running.

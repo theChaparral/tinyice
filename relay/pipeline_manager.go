@@ -39,9 +39,13 @@ func (pm *PipelineManager) GetOrCreatePipeline(mount string) *Pipeline {
 	// Create underlying stream via Relay (backward compat)
 	stream := pm.relay.GetOrCreateStream(mount)
 
-	// Wrap in pipeline with an audio track
+	// Wrap in pipeline with an audio track. The codec hint we assign now
+	// is provisional — a freshly-created Stream has no content-type yet,
+	// so IsOgg() always returns false and we'd mislabel Opus sources as
+	// MP3. Consumers that care (HLS / WebRTC output) should call
+	// track.ResolveCodec() once data has started flowing.
 	p := NewPipeline(mount)
-	codec := "mp3" // default
+	codec := "mp3"
 	if stream.IsOgg() {
 		codec = "opus"
 	}

@@ -357,7 +357,11 @@ func (h *rtmpHandler) prependParameterSets(annexB []byte) []byte {
 	return out
 }
 
-// OnClose is called when the connection is closed.
+// OnClose is called when the connection is closed. It only removes the
+// relay stream entries that still point at THIS handler's Stream object.
+// Without that check, an auto-reconnecting publisher that briefly
+// disconnects-and-reconnects with a tiny gap would have its successor's
+// stream killed by the predecessor's delayed OnClose.
 func (h *rtmpHandler) OnClose() {
 	if h.mount != "" {
 		logger.L.Infow("RTMP: Source disconnected",
@@ -365,10 +369,14 @@ func (h *rtmpHandler) OnClose() {
 			"remote", h.conn.RemoteAddr(),
 			"duration", time.Since(h.started),
 		)
-		h.relay.RemoveStream(h.mount)
+		if st, ok := h.relay.GetStream(h.mount); ok && st == h.stream {
+			h.relay.RemoveStream(h.mount)
+		}
 	}
 	if h.videoMount != "" {
-		h.relay.RemoveStream(h.videoMount)
+		if st, ok := h.relay.GetStream(h.videoMount); ok && st == h.videoStream {
+			h.relay.RemoveStream(h.videoMount)
+		}
 	}
 }
 

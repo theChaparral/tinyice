@@ -37,9 +37,25 @@ type TrackMetadata struct {
 // Wraps the existing Stream type for buffer/listener management.
 type Track struct {
 	Type     MediaType
-	Codec    string // "opus", "mp3", "aac", "h264", "vp8"
+	Codec    string // cached hint; may be updated by ResolveCodec below
 	Stream   *Stream
 	Metadata TrackMetadata
+}
+
+// ResolveCodec (re)detects the track's codec from the wrapped Stream's
+// current ContentType / Ogg-sniff state. Call this after ingest has started
+// producing data — the codec hint captured at track creation may be wrong,
+// because Stream metadata isn't populated until the first bytes arrive.
+func (t *Track) ResolveCodec() string {
+	if t == nil || t.Stream == nil {
+		return t.Codec
+	}
+	if t.Stream.IsOgg() {
+		t.Codec = "opus"
+	} else if t.Codec == "" {
+		t.Codec = "mp3"
+	}
+	return t.Codec
 }
 
 // NewAudioTrack creates a Track wrapping an existing Stream for audio.

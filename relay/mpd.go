@@ -14,11 +14,42 @@ import (
 	"github.com/DatanoiseTV/tinyice/logger"
 )
 
+// maxMPDLineLen caps how many bytes we'll read before declaring a single
+// MPD command line malformed. The real protocol never uses lines this
+// large; the bound is here so a client that holds the connection open and
+// streams bytes with no newline can't force unbounded buffer growth.
+const maxMPDLineLen = 64 * 1024
+
 type MPDServer struct {
 	Port     string
 	Password string
 	streamer *Streamer
 	listener net.Listener
+}
+
+// readMPDLine reads up to and including the next '\n', or returns
+// io.ErrShortBuffer once total bytes seen exceed maxLen. Replacement for
+// bufio.Reader.ReadString('\n') which has no upper bound.
+func readMPDLine(r *bufio.Reader, maxLen int) (string, error) {
+	var sb strings.Builder
+	for {
+		chunk, err := r.ReadSlice('\n')
+		sb.Write(chunk)
+		if err == nil {
+			return sb.String(), nil
+		}
+		if err == bufio.ErrBufferFull {
+			if sb.Len() > maxLen {
+				return "", io.ErrShortBuffer
+			}
+			continue
+		}
+		// EOF / real error
+		if sb.Len() > 0 && err == io.EOF {
+			return sb.String(), nil
+		}
+		return "", err
+	}
 }
 
 func NewMPDServer(port, password string, s *Streamer) *MPDServer {
@@ -64,7 +95,9 @@ func (m *MPDServer) Stop() {
 func (m *MPDServer) handleConnection(conn net.Conn) {
 	defer conn.Close()
 	writer := bufio.NewWriter(conn)
-	reader := bufio.NewReader(conn)
+	// Use a sized buffered reader and readMPDLine so a client that streams
+	// megabytes without a newline can't grow our buffer until we OOM.
+	reader := bufio.NewReaderSize(conn, 8192)
 
 	resp := NewMPDResponse(writer)
 
@@ -80,7 +113,7 @@ func (m *MPDServer) handleConnection(conn net.Conn) {
 	var commandListBuffer []string
 
 	for {
-		line, err := reader.ReadString('\n')
+		line, err := readMPDLine(reader, maxMPDLineLen)
 		if err != nil {
 			if err != io.EOF {
 				logger.L.Errorf("MPD: Connection error: %v", err)
