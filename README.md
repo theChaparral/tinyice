@@ -2,9 +2,9 @@
 
 ![TinyIce Logo](https://raw.githubusercontent.com/DatanoiseTV/tinyice/main/assets/logo.png?v=2)
 
-**One binary. Pure audio.**
+**One binary. Audio + video.**
 
-> High-performance Icecast-compatible streaming with WebRTC, AutoDJ, transcoding, and a world-class web interface. Deploy anywhere in seconds.
+> High-performance Icecast-compatible streaming server with RTMP/SRT/WebRTC ingest, AutoDJ, live audio transcoding, HLS audio/video output, and a built-in admin SPA. Deploy anywhere in seconds.
 
 ### Landing Page
 ![Landing Page](assets/screenshots/landing.png)
@@ -22,24 +22,91 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/DatanoiseTV/tinyice)](https://goreportcard.com/report/github.com/DatanoiseTV/tinyice)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-## What's New in v2.0 Beta
+## What's New in v2.0.0-beta.5 — Video
 
-- **Complete Admin UI Rewrite** — Modern single-page app built with Preact, real-time SSE updates, dark theme
-- **Bearer Token API Auth** — Create API access tokens for scripts and integrations, with expiry and usage tracking
-- **Full Branding System** — Custom site name, tagline, logo upload, accent color picker, Markdown landing page
-- **Interactive API Docs** — Built-in Swagger UI at `/api/docs` with complete OpenAPI 3.0 spec
-- **WebRTC Go Live** — Broadcast from your browser with audio device selection, spectrum analyzer, level meters with headroom (dB)
-- **AutoDJ Studio** — 3-column studio interface with library browser, transport controls, visualizer, playlist editor, and mount selector
-- **AutoDJ Editing** — Edit existing AutoDJ instances directly (name, mount, format, bitrate, etc.)
-- **Dashboard Improvements** — Split inbound/outbound bandwidth stats, real-time stream health
-- **Stream Management** — Configured-but-offline mounts now visible, proper create/delete/kick workflows
-- **Relay & Transcoder Management** — Full CRUD with live status indicators
-- **Markdown Landing Page** — Full GFM support via `marked` — headings, lists, code blocks, links, images
-- **Color Picker** — Visual accent color selection with 10 presets + native OS color picker + hex input
-- **Logo Upload** — PNG/JPG/SVG logo served at `/branding/logo`, shown in nav bar
-- **No CSRF for API** — JSON API requests no longer need CSRF tokens
-- **Makefile + go:generate** — `make build` rebuilds everything; frontend builds automatically via `go generate`
-- **Multi-auth** — Session cookies, Bearer tokens, Basic Auth, Passkeys (WebAuthn), OIDC/OAuth2
+This release turns TinyIce from an audio-only streaming server into an
+A/V one, and does a security / correctness pass on top.
+
+### Video streaming
+
+- **RTMP with H.264 video** — OBS / FFmpeg / any RTMP publisher can push
+  H.264 + MP3 or H.264 + AAC into a `/mount`. The RTMP app name is
+  honoured as the tinyice mount and the stream key as the source
+  password, matching the UX OBS expects.
+- **SRT video ingest** — MPEG-TS A/V publishers land in the same
+  `/mount` + `/mount/video` layout as RTMP.
+- **HLS audio + video output** — every mount exposes
+  `/mount/playlist.m3u8`; when a `/mount/video` sub-mount exists the
+  segments are muxed A/V. PCR is emitted; `TARGETDURATION` is tight;
+  `EXTINF` / PTS advance by the configured segment duration. MP3 and
+  AAC audio codecs are both supported (AAC is ADTS-wrapped and the
+  PMT `stream_type` switches to `0x0F`).
+- **Keyframe-aware raw video listeners** — a direct
+  `GET /mount/video` seeks back to the latest IDR and prepends the
+  cached SPS/PPS so `mpv http://host/mount/video` plays immediately.
+- **Browser player** — the in-page Player automatically switches from
+  `<audio>` to `<video>` when the mount has video. Safari / iOS play
+  HLS natively; Chromium / Firefox get `hls.js` dynamically loaded.
+
+### Audio correctness
+
+- Pure-Go multi-codec decode for the transcoder + AutoDJ — MP3, Ogg
+  Opus, Ogg Vorbis, FLAC, FLAC-in-Ogg, WAV (8/16/24/32-bit PCM + IEEE
+  float, mono/stereo).
+- Automatic resampler so **MP3 / Vorbis / FLAC / WAV → Opus** plays at
+  the right speed (the Opus encoder is locked at 48 kHz).
+- **MP3 bitrate** is actually honoured (the bundled `shine` encoder
+  has its bitrate index / slots-per-frame reached into explicitly).
+- **Ogg page rewriter per listener** — BOS / Tags / granule are
+  regenerated so late joiners don't see the minutes-long granule jump
+  that strict decoders fill with silence (the "robotic voice" bug).
+- **Icecast SOURCE** captures the initial Ogg BOS + setup pages so
+  new listeners get a playable start.
+
+### Operations & security
+
+- OIDC state is session-bound, nonce-validated, and rejects OIDC
+  accounts whose email isn't verified. GitHub `/user/emails` is
+  consulted; only primary+verified addresses log in.
+- Sessions have absolute and sliding expiry with a periodic reaper;
+  login rotates the cookie (no session fixation); deleted users have
+  their active sessions purged.
+- Login timing is constant — always runs bcrypt so unknown usernames
+  don't return faster than known ones.
+- `TrustedProxies` config + `X-Forwarded-For` handling so scan
+  detection / bans work behind nginx / Caddy / Traefik without
+  auto-whitelisting loopback.
+- Auto-updater verifies SHA-256 from `checksums.txt` before
+  overwriting the running binary.
+- RTMP shutdown closes live publisher connections so `Ctrl+C` quits
+  within seconds even mid-stream.
+- CSRF on every mutating admin form; super-admin gates on transcoder
+  + webhook CRUD; webhook / relay URLs reject loopback / RFC1918
+  targets (SSRF).
+- `SaveConfig` is serialised across goroutines so concurrent admin
+  writes can't shred the JSON.
+- Auto-remove dormant streams after 2 min of silence (was defined
+  but never enabled).
+- YP directory reporter emits proper `add` / `touch` / `remove`
+  lifecycle instead of repeated `add`s.
+
+### Admin UI
+
+- **Edit** for Streams, Transcoders, Relays, AutoDJ (in-place updates,
+  no more destroy-and-recreate on edit).
+- Transcoder editor surfaces Opus application / frame size / complexity
+  / VBR, plus a custom sample rate override.
+- Landing markdown is DOMPurified before it hits the DOM (was an
+  admin → visitor XSS).
+- Error toasts on every mutation path so 403 / 500 don't silently
+  disappear.
+- SSE reconnect no longer duplicates event delivery.
+
+### Build / packaging
+
+- Multi-stage `Dockerfile` (+ `.dockerignore`) for container deploys.
+- `make build` rebuilds frontend + binary; `go generate ./server/...`
+  pulls in hls.js + dompurify as lazy chunks.
 
 ## Why TinyIce?
 
@@ -60,15 +127,17 @@ Traditional streaming servers can be complex to configure and resource-heavy. Ti
 
 ### Streaming & Protocols
 -   **Icecast2 Compatible**: Works with standard source clients (BUTT, OBS, Mixxx, LadioCast) and players (VLC, web browsers).
+-   **RTMP Ingest**: OBS / ffmpeg / any RTMP publisher can push H.264 + MP3 or H.264 + AAC. OBS's Server-path = mount, Stream-key = password UX just works.
+-   **SRT Ingest**: Low-latency SRT with MPEG-TS demux for both audio and video.
 -   **WebRTC Source & Playback**: Ultra-low-latency browser-based broadcasting and listening via the Go Live page.
+-   **HLS A/V Output**: `/mount/playlist.m3u8` serves audio-only or audio+video segments depending on what the source pushes. PMT advertises MP3 or ADTS-AAC correctly; PCR is emitted; SPS/PPS are injected on every keyframe so late joiners can decode.
 -   **High-Performance Distribution**: Shared circular buffer architecture designed for 100,000+ concurrent listeners per stream.
 -   **Instant Start**: Listeners receive a 64KB audio burst upon connection, eliminating the "buffering" delay.
--   **Built-in Transcoding**: Pure Go transcoding (MP3/Opus) to provide multiple quality options from a single source. No FFmpeg required.
+-   **Multi-Codec Transcoding**: Pure-Go transcoder and AutoDJ accept MP3 / Ogg Opus / Ogg Vorbis / FLAC / FLAC-in-Ogg / WAV as input and re-encode to MP3 or Opus with automatic resampling. No FFmpeg required.
 -   **Edge Relaying**: Pull streams from upstream servers with automatic reconnection.
 -   **Smart Fallback & Auto-Recovery**: Automatically switch listeners to a backup stream if the primary drops.
 -   **Outbound ICY Metadata**: Injects song titles into the audio stream for traditional radio players.
 -   **Playlist Support**: `.m3u8`, `.m3u`, and `.pls` playlists for VLC, Winamp, mobile apps.
--   **HLS Output**: Automatic HLS segmentation for each mount point.
 
 ### AutoDJ
 -   **Multi-Instance Orchestration**: Multiple independent AutoDJs on different mounts from a single server.
@@ -171,6 +240,50 @@ Point your encoder (BUTT, OBS, Mixxx) to:
 -   **Mount**: /live
 
 Or use the **Go Live** page in the admin panel to broadcast directly from your browser via WebRTC.
+
+## Streaming video from OBS
+
+TinyIce accepts H.264 + AAC (or H.264 + MP3) over RTMP and produces
+HLS audio+video at `/<mount>/playlist.m3u8`.
+
+1. **Enable RTMP** in `tinyice.json`:
+
+   ```json
+   "ingest": {
+       "rtmp_enabled": true,
+       "rtmp_port": "1935"
+   }
+   ```
+
+2. **Create a mount** in the admin UI (Streams → Add Mount). Give it
+   a password — that password becomes your OBS Stream Key.
+
+3. **OBS → Settings → Stream** (Service: Custom):
+
+   - **Server**: `rtmp://<your-host>/<mount>` — e.g. `rtmp://radio.example.com/live`
+   - **Stream Key**: your mount's source password
+
+   (The classic layout `rtmp://<host>/` + Stream Key `mount?key=password`
+   also works.)
+
+4. **OBS → Settings → Output** — set Video Encoder to `x264` (or a
+   hardware H.264 encoder) and Audio Encoder to AAC (default) or
+   MP3. 2-second keyframe interval is a good default for HLS latency.
+
+5. **Click Start Streaming.** The server log will show
+   `RTMP: Publishing started mount=/live` followed by
+   `RTMP: Parsed AVC config` and `RTMP: Parsed AAC ASC`.
+
+6. **Watch it** three ways:
+
+   - **Built-in player**: `https://<your-host>/player/<mount>`. If the
+     source has video, the player renders an HTML5 `<video>`; Safari
+     plays HLS natively, other browsers get `hls.js` loaded on
+     demand.
+   - **Direct HLS**: `https://<your-host>/<mount>/playlist.m3u8` —
+     works in VLC, mpv, ffplay, and any HLS-capable client.
+   - **Raw video**: `http://<your-host>/<mount>/video` plays the
+     H.264 Annex-B bytes directly (useful for debugging with mpv).
 
 ## API Usage
 

@@ -47,17 +47,30 @@ func (m *TSMuxer) MuxMP3Segment(mp3Data []byte, pts int64) []byte {
 	return buf.Bytes()
 }
 
+// Audio stream_type values used in the MPEG-TS PMT.
+const (
+	audioStreamTypeMP3 byte = 0x03
+	audioStreamTypeAAC byte = 0x0F // ADTS-wrapped AAC
+)
+
 // MuxAVSegment wraps audio and video data into a complete MPEG-TS segment.
-// audioData is MP3 audio, videoData is H.264 Annex B data.
-// audioPTS and videoPTS are presentation timestamps in 90kHz units.
-func (m *TSMuxer) MuxAVSegment(audioData []byte, videoData []byte, audioPTS, videoPTS int64) []byte {
+// audioData is MP3 or ADTS-AAC (pick via audioStreamType); videoData is
+// H.264 Annex-B. audioPTS and videoPTS are 90 kHz PTS values.
+//
+// The PES stream_id field stays mp3StreamID for MP3 and switches to
+// 0xC0 for AAC as well (both are "audio stream 1" in ISO 13818-1 terms;
+// the stream_type in the PMT is what actually distinguishes them).
+func (m *TSMuxer) MuxAVSegment(audioData []byte, videoData []byte, audioPTS, videoPTS int64, audioStreamType byte) []byte {
+	if audioStreamType == 0 {
+		audioStreamType = audioStreamTypeMP3
+	}
 	var buf bytes.Buffer
 
 	// Write PAT
 	m.writePAT(&buf)
 
-	// Write PMT (updated for A/V)
-	m.writePMTAV(&buf)
+	// Write PMT (updated for A/V, with the correct audio stream_type)
+	m.writePMTAV(&buf, audioStreamType)
 
 	// Write video PES first (usually larger, keyframe-aligned)
 	if len(videoData) > 0 {
@@ -72,7 +85,7 @@ func (m *TSMuxer) MuxAVSegment(audioData []byte, videoData []byte, audioPTS, vid
 	return buf.Bytes()
 }
 
-func (m *TSMuxer) writePMTAV(buf *bytes.Buffer) {
+func (m *TSMuxer) writePMTAV(buf *bytes.Buffer, audioStreamType byte) {
 	packet := make([]byte, tsPacketSize)
 
 	packet[0] = tsSyncByte
@@ -104,8 +117,8 @@ func (m *TSMuxer) writePMTAV(buf *bytes.Buffer) {
 	pmt[15] = 0xF0
 	pmt[16] = 0x00
 
-	// Audio stream: MP3
-	pmt[17] = 0x03 // stream_type = 0x03 (MP3)
+	// Audio stream: MP3 (0x03) or ADTS AAC (0x0F) — chosen by caller.
+	pmt[17] = audioStreamType
 	pmt[18] = 0xE0 | byte(audioPID>>8)
 	pmt[19] = byte(audioPID & 0xFF)
 	pmt[20] = 0xF0

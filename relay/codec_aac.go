@@ -85,6 +85,34 @@ func ParseADTSFrames(data []byte) ([]ADTSFrame, []byte) {
 	return frames, remaining
 }
 
+// BuildADTSHeader builds a 7-byte ADTS header for a raw AAC frame of
+// `payloadLen` bytes. Used to wrap raw AAC frames coming out of RTMP
+// (which carries AAC without ADTS) so the MPEG-TS muxer can declare
+// stream_type=0x0F (ADTS-AAC) in the PMT and downstream decoders
+// (ffmpeg, Safari, hls.js) can parse the audio.
+//
+// profile          — AAC profile from the AudioSpecificConfig
+//                    (0=Main, 1=LC, 2=SSR, 3=LTP)
+// sampleRateIdx    — index into the AAC sample-rate table (0–12)
+// channelConfig    — AAC channel configuration (1=mono, 2=stereo, …)
+func BuildADTSHeader(profile, sampleRateIdx, channelConfig byte, payloadLen int) []byte {
+	frameLen := payloadLen + 7
+	h := make([]byte, 7)
+	h[0] = 0xFF
+	// 0b11110001 — sync continued, MPEG-4 version (ID=0), layer=00,
+	// protection_absent=1 (no CRC).
+	h[1] = 0xF1
+	h[2] = (profile << 6) | ((sampleRateIdx & 0x0F) << 2) | ((channelConfig >> 2) & 0x01)
+	h[3] = ((channelConfig & 0x03) << 6) | byte((frameLen>>11)&0x03)
+	h[4] = byte((frameLen >> 3) & 0xFF)
+	// bottom 3 bits of frame_length plus top 5 bits of buffer_fullness
+	// (0x7FF VBR sentinel → top five bits are all 1).
+	h[5] = byte(((frameLen & 0x07) << 5) | 0x1F)
+	// Low 6 bits of buffer_fullness (0x3F) + num_raw_data_blocks (00).
+	h[6] = 0xFC
+	return h
+}
+
 // BuildAudioSpecificConfig creates the 2-byte AudioSpecificConfig
 // used in MP4/fMP4 init segments for AAC-LC.
 func BuildAudioSpecificConfig(profile, sampleRateIdx, channelConfig byte) []byte {

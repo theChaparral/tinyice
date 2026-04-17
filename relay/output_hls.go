@@ -2,6 +2,7 @@ package relay
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"time"
 
@@ -149,6 +150,19 @@ func (h *HLSOutput) segmentLoop(ctx context.Context, audio *Track, video *Track)
 	segStart := time.Now()
 	var audioPTS, videoPTS int64
 
+	// Pick the PMT stream_type for the audio track. Anything the client
+	// has said is AAC (RTMP ingest, or a Content-Type advertised as
+	// such) goes out as ADTS — the RTMP path prepends the ADTS header
+	// to the payload before broadcast so the bytes are already in the
+	// right shape.
+	audioStreamType := audioStreamTypeMP3
+	if audio != nil && audio.Stream != nil {
+		ct := strings.ToLower(audio.Stream.ContentType)
+		if strings.Contains(ct, "aac") {
+			audioStreamType = audioStreamTypeAAC
+		}
+	}
+
 	flushIfReady := func(force bool) {
 		elapsed := time.Since(segStart)
 		if (!force && elapsed < h.config.SegmentDuration) || len(audioBuf) == 0 {
@@ -157,7 +171,7 @@ func (h *HLSOutput) segmentLoop(ctx context.Context, audio *Track, video *Track)
 		segDur := h.config.SegmentDuration
 		var tsData []byte
 		if videoStream != nil && len(videoBuf) > 0 {
-			tsData = h.muxer.MuxAVSegment(audioBuf, videoBuf, audioPTS, videoPTS)
+			tsData = h.muxer.MuxAVSegment(audioBuf, videoBuf, audioPTS, videoPTS, audioStreamType)
 		} else {
 			tsData = h.muxer.MuxMP3Segment(audioBuf, audioPTS)
 		}

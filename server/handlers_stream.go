@@ -397,6 +397,25 @@ func (s *Server) serveStreamData(w http.ResponseWriter, r *http.Request, stream 
 		logger.L.Debugf("Ogg Listener %s: Sending stored headers (%d bytes), then starting burst at %d", id, len(stream.OggHead), offset)
 	}
 
+	// For raw H.264 video listeners, seek back to the most recent
+	// keyframe (so playback doesn't start on a P-frame whose reference
+	// frames aren't in the listener's buffer) and prepend the cached
+	// SPS/PPS Annex-B headers. Without this the decoder spends the
+	// first GOP spamming "non-existing PPS" / "mmco: unref short
+	// failure" errors until the next keyframe cycles through.
+	isH264, videoHeaders := stream.VideoInfo()
+	if isH264 {
+		if kf := stream.Buffer.LatestKeyframe(); kf >= 0 && kf > offset {
+			offset = kf
+		}
+		if len(videoHeaders) > 0 {
+			if _, err := out.Write(videoHeaders); err != nil {
+				return false
+			}
+			logger.L.Debugf("H264 Listener %s: Sent SPS/PPS (%d bytes), starting at keyframe %d", id, len(videoHeaders), offset)
+		}
+	}
+
 	// was 16384
 	buf := make([]byte, 4096)
 	flusher, _ := w.(http.Flusher)

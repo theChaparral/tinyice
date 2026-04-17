@@ -72,6 +72,11 @@ type Stream struct {
 	// These fields enable new listeners to start at proper page boundaries
 	OggHead         []byte  // Store Ogg headers for Opus/Ogg streams
 	OggHeaderOffset int64   // Absolute buffer offset where headers end
+	// VideoHeaders is the Annex-B SPS + PPS bytes for an H.264 video
+	// stream. Listeners that tune in mid-GOP need these injected before
+	// the first IDR — otherwise they get "non-existing PPS referenced"
+	// / "no frame" errors from ffmpeg until the next keyframe cycles.
+	VideoHeaders []byte
 	LastPageOffset  int64   // Absolute offset of the last valid Ogg page start
 	PageOffsets     []int64 // Circular list of last ~100 page starts
 	PageIndex       int     // Index for managing PageOffsets circular list
@@ -114,6 +119,30 @@ func (s *Stream) SetSourceIP(ip string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.SourceIP = ip
+}
+
+// StoreVideoHeaders records the Annex-B SPS and PPS bytes for an H.264
+// stream. The listener handler prepends these (and seeks to the most
+// recent keyframe) so mpv / ffmpeg / a browser's `<video>` decoder can
+// start without waiting for the next IDR.
+func (s *Stream) StoreVideoHeaders(headers []byte) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.VideoHeaders = headers
+}
+
+// VideoInfo returns the flags that the HTTP listener path needs to
+// decide whether a stream is video and what headers to prepend, under
+// the stream mutex. Callers outside the relay package can't read the
+// unexported mu directly.
+func (s *Stream) VideoInfo() (isH264 bool, headers []byte) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	isH264 = strings.Contains(strings.ToLower(s.ContentType), "h264")
+	if len(s.VideoHeaders) > 0 {
+		headers = append(headers, s.VideoHeaders...)
+	}
+	return
 }
 
 // StoreOggHead atomically records the Ogg header bytes and the buffer offset

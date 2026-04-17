@@ -171,6 +171,14 @@ type rtmpHandler struct {
 	sps         []byte  // cached SPS NALU
 	pps         []byte  // cached PPS NALU
 	naluLenSize int     // AVCC NALU length size (usually 4)
+
+	// AAC state parsed from the AudioSpecificConfig (first AAC
+	// SequenceHeader received). Used to wrap raw AAC frames in ADTS
+	// headers before broadcasting so downstream TS muxing / HLS works.
+	aacProfile       byte
+	aacSampleRateIdx byte
+	aacChannelConfig byte
+	aacConfigReady   bool
 }
 
 // OnServe is called when the connection is established.
@@ -287,9 +295,41 @@ func (h *rtmpHandler) OnAudio(timestamp uint32, payload io.Reader) error {
 			h.stream.ContentType = "audio/aac"
 			h.stream.mu.Unlock()
 		}
-		// Skip AAC sequence header (AudioSpecificConfig), only pass raw frames
 		if audioTag.AACPacketType == flvtag.AACPacketTypeSequenceHeader {
+			// Parse AudioSpecificConfig so we can ADTS-wrap later frames.
+			// ASC layout (ISO 14496-3):
+			//   5 bits objectType, 4 bits samplingFreqIdx,
+			//   4 bits channelConfiguration, 3 bits GASpecificConfig.
+			if len(data) >= 2 {
+				objType := (data[0] >> 3) & 0x1F
+				sri := ((data[0] & 0x07) << 1) | ((data[1] >> 7) & 0x01)
+				ch := (data[1] >> 3) & 0x0F
+				h.aacProfile = 0
+				if objType > 0 {
+					h.aacProfile = objType - 1 // ADTS profile = objectType - 1
+				}
+				h.aacSampleRateIdx = sri
+				h.aacChannelConfig = ch
+				h.aacConfigReady = true
+				logger.L.Infow("RTMP: Parsed AAC ASC",
+					"mount", h.mount,
+					"profile", h.aacProfile,
+					"sr_idx", h.aacSampleRateIdx,
+					"ch", h.aacChannelConfig,
+				)
+			}
 			return nil
+		}
+		// Raw AAC payload — prepend ADTS so the MPEG-TS muxer / HLS
+		// clients can actually decode it. Without this the bytes leave
+		// the server as "naked" AAC and any container-based consumer
+		// fails silently.
+		if h.aacConfigReady {
+			hdr := BuildADTSHeader(h.aacProfile, h.aacSampleRateIdx, h.aacChannelConfig, len(data))
+			wrapped := make([]byte, 0, len(hdr)+len(data))
+			wrapped = append(wrapped, hdr...)
+			wrapped = append(wrapped, data...)
+			data = wrapped
 		}
 	default:
 		// Unknown format, pass through
@@ -395,6 +435,23 @@ func (h *rtmpHandler) parseAVCConfig(data []byte) {
 				offset += ppsLen
 			}
 		}
+	}
+
+	// Publish SPS+PPS as Annex-B on the video stream so a listener that
+	// subscribes via HTTP gets them prepended by the listener handler.
+	// Each NALU is preceded by the 4-byte 00 00 00 01 start code.
+	if h.videoStream != nil && (len(h.sps) > 0 || len(h.pps) > 0) {
+		sc := []byte{0x00, 0x00, 0x00, 0x01}
+		out := make([]byte, 0, len(h.sps)+len(h.pps)+8)
+		if len(h.sps) > 0 {
+			out = append(out, sc...)
+			out = append(out, h.sps...)
+		}
+		if len(h.pps) > 0 {
+			out = append(out, sc...)
+			out = append(out, h.pps...)
+		}
+		h.videoStream.StoreVideoHeaders(out)
 	}
 
 	logger.L.Infow("RTMP: Parsed AVC config",
