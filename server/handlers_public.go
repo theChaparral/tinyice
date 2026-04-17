@@ -34,6 +34,11 @@ func (s *Server) handlePlayer(w http.ResponseWriter, r *http.Request) {
 	pageData["bitrate"] = snap.Bitrate
 	pageData["listeners"] = snap.ListenersCount
 	pageData["hasWebRTC"] = true
+	// hasVideo is true iff a live /video sub-mount exists; the frontend
+	// uses it to decide between <audio> and <video> and between the raw
+	// mount URL and the HLS playlist.
+	_, hasVideo := s.Relay.GetStream(mount + "/video")
+	pageData["hasVideo"] = hasVideo
 	s.shell.Render(w, "player", snap.Name+" — "+s.Config.PageTitle, pageData)
 }
 

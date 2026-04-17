@@ -19,7 +19,15 @@ func (s *Server) handleHLSPlaylist(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Lazily register an HLS output on first request. This keeps us from
+	// segmenting mounts nobody ever asks for, and lets ingest paths
+	// (RTMP, SRT, Icecast SOURCE) just broadcast bytes without caring
+	// about HLS. If the mount has a sibling /video sub-mount, the
+	// registered output automatically runs in A/V mode.
 	hls := s.getHLSOutput(mount)
+	if hls == nil {
+		hls = s.RegisterHLS(mount)
+	}
 	if hls == nil {
 		http.NotFound(w, r)
 		return
@@ -62,6 +70,9 @@ func (s *Server) handleHLSSegment(w http.ResponseWriter, r *http.Request) {
 
 	hls := s.getHLSOutput(mount)
 	if hls == nil {
+		hls = s.RegisterHLS(mount)
+	}
+	if hls == nil {
 		http.NotFound(w, r)
 		return
 	}
@@ -86,7 +97,10 @@ func (s *Server) getHLSOutput(mount string) *relay.HLSOutput {
 	return s.hlsOutputs[mount]
 }
 
-// RegisterHLS creates and starts an HLS output for a stream mount.
+// RegisterHLS creates and starts an HLS output for a stream mount. If a
+// sibling "/video" sub-mount exists for this mount (created by the RTMP or
+// SRT ingest when an H.264 track is present), the output is started with
+// both tracks and the resulting segments interleave audio + video.
 func (s *Server) RegisterHLS(mount string) *relay.HLSOutput {
 	stream, ok := s.Relay.GetStream(mount)
 	if !ok {
@@ -102,14 +116,17 @@ func (s *Server) RegisterHLS(mount string) *relay.HLSOutput {
 		codec = "opus"
 	}
 
-	track := relay.NewAudioTrack(stream, codec)
-	hls.Start(s.hlsCtx, []*relay.Track{track})
+	tracks := []*relay.Track{relay.NewAudioTrack(stream, codec)}
+	if vs, ok := s.Relay.GetStream(mount + "/video"); ok {
+		tracks = append(tracks, relay.NewTrackFromStream(relay.MediaVideo, "h264", vs))
+	}
+	hls.Start(s.hlsCtx, tracks)
 
 	s.hlsMu.Lock()
 	s.hlsOutputs[mount] = hls
 	s.hlsMu.Unlock()
 
-	logger.L.Infow("HLS: Registered output", "mount", mount)
+	logger.L.Infow("HLS: Registered output", "mount", mount, "has_video", len(tracks) > 1)
 	return hls
 }
 

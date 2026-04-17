@@ -59,7 +59,18 @@ export function Player() {
     if (!analyserRef.current) {
       analyserRef.current = connectAudio(el)
     }
-    el.src = data.mount.startsWith('/') ? data.mount : `/${data.mount}`
+    // When the mount advertises a video track we play the HLS playlist —
+    // the segments muxed by the server interleave audio and video, so a
+    // single <video> element covers both. Browsers that don't play HLS
+    // natively (non-Safari) will need hls.js, but Safari + many TVs
+    // handle it out of the box. Audio-only mounts keep using the raw
+    // Icecast stream URL.
+    const mountPath = data.mount.startsWith('/') ? data.mount : `/${data.mount}`
+    if (data.hasVideo) {
+      el.src = `${mountPath}/playlist.m3u8`
+    } else {
+      el.src = mountPath
+    }
     el.play()
     playing.value = true
   }, [])
@@ -68,7 +79,8 @@ export function Player() {
     const el = audioRef.current
     if (!el) return
     el.pause()
-    el.src = ''
+    // Previously we cleared src to ''; some browsers warn on that. Leave
+    // the src in place so resume is instant and no console noise fires.
     playing.value = false
   }, [])
 
@@ -104,8 +116,23 @@ export function Player() {
         }}
       />
 
-      {/* Hidden audio element */}
-      <audio ref={audioRef} crossOrigin="anonymous" preload="none" />
+      {/* Audio / video element — hidden for audio-only mounts, shown for
+          A/V mounts so the viewer sees the stream. The underlying element
+          is a <video> either way because HTMLVideoElement is a
+          superset of HTMLAudioElement; playAudio analyser attaches fine
+          to it. */}
+      {data.hasVideo ? (
+        <video
+          ref={audioRef as any}
+          crossOrigin="anonymous"
+          preload="none"
+          playsInline
+          controls
+          class="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10 max-w-[80vw] max-h-[70vh] rounded-xl bg-black shadow-2xl"
+        />
+      ) : (
+        <audio ref={audioRef} crossOrigin="anonymous" preload="none" />
+      )}
 
       {/* Mini nav top-left */}
       <div class="fixed top-0 left-0 z-20 flex items-center gap-3 px-5 py-4">

@@ -99,6 +99,16 @@ func (s *Server) apiGetStreams(w http.ResponseWriter, r *http.Request) {
 	}
 
 	allStreams := s.Relay.Snapshot()
+	// Build a set of mounts that currently have a live /video sub-mount
+	// so we can report has_video per parent mount (the frontend flips
+	// the player between <audio> and <video> based on this).
+	videoMounts := make(map[string]bool)
+	for _, st := range allStreams {
+		if strings.HasSuffix(st.MountName, "/video") {
+			videoMounts[strings.TrimSuffix(st.MountName, "/video")] = true
+		}
+	}
+
 	type streamInfo struct {
 		Mount       string  `json:"mount"`
 		ContentType string  `json:"content_type"`
@@ -111,11 +121,17 @@ func (s *Server) apiGetStreams(w http.ResponseWriter, r *http.Request) {
 		Uptime      string  `json:"uptime"`
 		CurrentSong string  `json:"current_song"`
 		Name        string  `json:"name"`
+		HasVideo    bool    `json:"has_video"`
 	}
 
 	var result []streamInfo
 	seen := make(map[string]bool)
 	for _, st := range allStreams {
+		// Don't surface the /video sub-mount as its own top-level entry;
+		// it's an implementation detail of the parent audio mount.
+		if strings.HasSuffix(st.MountName, "/video") {
+			continue
+		}
 		if s.hasAccess(user, st.MountName) {
 			seen[st.MountName] = true
 			result = append(result, streamInfo{
@@ -130,6 +146,7 @@ func (s *Server) apiGetStreams(w http.ResponseWriter, r *http.Request) {
 				Uptime:      st.Uptime,
 				CurrentSong: st.CurrentSong,
 				Name:        st.Name,
+				HasVideo:    videoMounts[st.MountName],
 			})
 		}
 	}

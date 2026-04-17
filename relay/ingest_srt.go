@@ -177,6 +177,13 @@ func (ss *SRTServer) handlePublish(conn srt.Conn) {
 	stream.ContentType = "audio/mpeg" // default for MPEG-TS with MP3
 	stream.mu.Unlock()
 
+	// Mirror the RTMP ingest: spin up a dedicated /video sub-mount with
+	// an 8 MB buffer so demuxed H.264 bytes have somewhere to go. The
+	// sub-mount is created lazily on first video packet so audio-only
+	// SRT sources don't pollute the stream list.
+	videoMount := mount + "/video"
+	var videoStream *Stream
+
 	logger.L.Infow("SRT: Publishing started",
 		"mount", mount,
 		"remote", remoteAddr,
@@ -185,6 +192,23 @@ func (ss *SRTServer) handlePublish(conn srt.Conn) {
 	demuxer := NewTSDemuxer()
 	demuxer.OnAudio(func(data []byte, pts int64) {
 		stream.Broadcast(data, ss.relay)
+	})
+	// Previously the demuxer's OnVideo callback was never registered, so
+	// SRT video packets were parsed, tagged with keyframe status and
+	// then silently dropped. Broadcast them to the /video sub-mount so
+	// HLS (and any other video-aware consumer) can pick them up.
+	demuxer.OnVideo(func(data []byte, pts int64, isKeyframe bool) {
+		if videoStream == nil {
+			videoStream = ss.relay.GetOrCreateStreamSized(videoMount, 8*1024*1024)
+			videoStream.mu.Lock()
+			videoStream.SourceIP = remoteAddr.String()
+			videoStream.ContentType = "video/h264"
+			videoStream.mu.Unlock()
+		}
+		if isKeyframe {
+			videoStream.Buffer.RecordKeyframe(videoStream.Buffer.HeadOffset())
+		}
+		videoStream.Broadcast(data, ss.relay)
 	})
 
 	buf := make([]byte, 4096)
@@ -210,7 +234,17 @@ func (ss *SRTServer) handlePublish(conn srt.Conn) {
 		"remote", remoteAddr,
 		"duration", time.Since(started),
 	)
-	ss.relay.RemoveStream(mount)
+	// Only tear down the streams that this handler actually owns, matching
+	// the RTMP path — prevents a delayed OnClose from killing a successor
+	// publisher's mount.
+	if st, ok := ss.relay.GetStream(mount); ok && st == stream {
+		ss.relay.RemoveStream(mount)
+	}
+	if videoStream != nil {
+		if st, ok := ss.relay.GetStream(videoMount); ok && st == videoStream {
+			ss.relay.RemoveStream(videoMount)
+		}
+	}
 }
 
 // parseSRTStreamID extracts mount, password, and mode from an SRT stream ID.

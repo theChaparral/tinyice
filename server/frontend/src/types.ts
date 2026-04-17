@@ -19,6 +19,10 @@ export interface PlayerData extends TinyIceBase {
   bitrate: number
   listeners: number
   hasWebRTC: boolean
+  // hasVideo is true when the mount has a companion /video sub-mount —
+  // the player then swaps its <audio> for a <video> bound to the HLS
+  // playlist so the user sees picture + audio together.
+  hasVideo?: boolean
 }
 
 export interface AdminData extends TinyIceBase {
@@ -38,6 +42,7 @@ export interface StreamInfo {
   bitrate: number
   listeners: number
   live: boolean
+  has_video?: boolean
 }
 
 // SSE Events

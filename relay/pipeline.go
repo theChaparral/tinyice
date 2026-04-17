@@ -67,6 +67,18 @@ func NewAudioTrack(stream *Stream, codec string) *Track {
 	}
 }
 
+// NewTrackFromStream wraps an existing Stream as a Track of the requested
+// media type / codec. Used by outputs that want to attach an already-live
+// Stream (e.g. the /video sub-mount RTMP/SRT ingest created) without
+// allocating yet another Stream + buffer.
+func NewTrackFromStream(media MediaType, codec string, stream *Stream) *Track {
+	return &Track{
+		Type:   media,
+		Codec:  codec,
+		Stream: stream,
+	}
+}
+
 // NewVideoTrack creates a Track for video with a dedicated buffer.
 func NewVideoTrack(codec string, bufferSize int) *Track {
 	return &Track{

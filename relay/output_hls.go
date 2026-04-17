@@ -24,8 +24,11 @@ func DefaultHLSConfig() HLSConfig {
 	}
 }
 
-// HLSOutput implements OutputAdapter for HLS streaming.
-// It reads audio from the stream, segments it into TS chunks, and stores them.
+// HLSOutput implements OutputAdapter for HLS streaming. It accumulates audio
+// (and optionally video) bytes from the attached tracks and emits MPEG-TS
+// segments every SegmentDuration. With an audio track only it produces
+// MP3-in-MPEG-TS audio segments; with a video track too it produces
+// interleaved A/V segments via MuxAVSegment.
 type HLSOutput struct {
 	mount  string
 	config HLSConfig
@@ -34,6 +37,11 @@ type HLSOutput struct {
 	tracks []*Track
 	cancel context.CancelFunc
 	mu     sync.RWMutex
+
+	// hasVideo is a cached flag so the HTTP layer / status API can tell
+	// clients whether this HLS mount is A/V without reaching into the
+	// pipeline state.
+	hasVideo bool
 }
 
 // NewHLSOutput creates a new HLS output for the given mount.
@@ -46,31 +54,55 @@ func NewHLSOutput(mount string, config HLSConfig) *HLSOutput {
 	}
 }
 
-func (h *HLSOutput) Protocol() string                    { return "hls" }
-func (h *HLSOutput) SupportsMediaType(mt MediaType) bool { return mt == MediaAudio }
+func (h *HLSOutput) Protocol() string { return "hls" }
 
-// Start begins the segmentation loop, reading from the audio track's stream.
+// SupportsMediaType now advertises video support too, since Start accepts a
+// video track and segmentLoop muxes it in if present.
+func (h *HLSOutput) SupportsMediaType(mt MediaType) bool {
+	return mt == MediaAudio || mt == MediaVideo
+}
+
+// HasVideo reports whether this HLS output was started with a video track
+// alongside audio. The frontend uses this to decide between <audio> and
+// <video> playback.
+func (h *HLSOutput) HasVideo() bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.hasVideo
+}
+
+// Start begins the segmentation loop. Pass an audio track (required) and
+// optionally a video track. When both are present, segments are muxed A/V.
 func (h *HLSOutput) Start(ctx context.Context, tracks []*Track) error {
 	h.mu.Lock()
 	h.tracks = tracks
 	h.mu.Unlock()
 
-	// Find the audio track
-	var audioTrack *Track
+	var audioTrack, videoTrack *Track
 	for _, t := range tracks {
-		if t.Type == MediaAudio {
-			audioTrack = t
-			break
+		switch t.Type {
+		case MediaAudio:
+			if audioTrack == nil {
+				audioTrack = t
+			}
+		case MediaVideo:
+			if videoTrack == nil {
+				videoTrack = t
+			}
 		}
 	}
 	if audioTrack == nil {
 		return nil // No audio track, nothing to do
 	}
 
+	h.mu.Lock()
+	h.hasVideo = videoTrack != nil
+	h.mu.Unlock()
+
 	segCtx, cancel := context.WithCancel(ctx)
 	h.cancel = cancel
 
-	go h.segmentLoop(segCtx, audioTrack)
+	go h.segmentLoop(segCtx, audioTrack, videoTrack)
 	return nil
 }
 
@@ -91,24 +123,67 @@ func (h *HLSOutput) Playlist() string {
 	return h.ring.GenerateM3U8(h.mount, h.config.WindowSize)
 }
 
-// segmentLoop reads from the audio stream and creates TS segments.
-func (h *HLSOutput) segmentLoop(ctx context.Context, track *Track) {
-	stream := track.Stream
+// segmentLoop reads from the audio stream (and optional video stream),
+// accumulates a segment's worth of each, and every SegmentDuration flushes
+// what we have into a TS segment.
+func (h *HLSOutput) segmentLoop(ctx context.Context, audio *Track, video *Track) {
 	id := "hls-" + h.mount
 
-	// Subscribe to the stream with a small burst
-	offset, signal := stream.Subscribe(id, 8192)
-	defer stream.Unsubscribe(id)
+	audioOffset, audioSignal := audio.Stream.Subscribe(id, 8192)
+	defer audio.Stream.Unsubscribe(id)
+	audioReader := NewStreamReader(audio.Stream.Buffer, audioOffset, audioSignal, ctx, id)
 
-	reader := NewStreamReader(stream.Buffer, offset, signal, ctx, id)
+	var videoStream *Stream
+	var videoReader *StreamReader
+	if video != nil && video.Stream != nil {
+		videoStream = video.Stream
+		videoOffset, videoSignal := videoStream.Subscribe(id, 64*1024)
+		defer videoStream.Unsubscribe(id)
+		videoReader = NewStreamReader(videoStream.Buffer, videoOffset, videoSignal, ctx, id)
+	}
 
-	segBuf := make([]byte, 0, 256*1024) // accumulate audio data for one segment
+	audioBuf := make([]byte, 0, 256*1024)
+	videoBuf := make([]byte, 0, 512*1024)
 	readBuf := make([]byte, 4096)
 
-	// Use a time-based approach — accumulate for segmentDuration
 	segStart := time.Now()
-	var ptsCounter int64
+	var audioPTS, videoPTS int64
 
+	flushIfReady := func(force bool) {
+		elapsed := time.Since(segStart)
+		if (!force && elapsed < h.config.SegmentDuration) || len(audioBuf) == 0 {
+			return
+		}
+		segDur := h.config.SegmentDuration
+		var tsData []byte
+		if videoStream != nil && len(videoBuf) > 0 {
+			tsData = h.muxer.MuxAVSegment(audioBuf, videoBuf, audioPTS, videoPTS)
+		} else {
+			tsData = h.muxer.MuxMP3Segment(audioBuf, audioPTS)
+		}
+		h.ring.Push(tsData, segDur, audioPTS, false)
+		inc := int64(segDur.Seconds() * tsClockRate)
+		audioPTS += inc
+		videoPTS += inc
+
+		logger.L.Debugw("HLS: Created segment",
+			"mount", h.mount,
+			"declared_duration", segDur,
+			"wallclock_elapsed", elapsed,
+			"bytes", len(tsData),
+			"audio_bytes", len(audioBuf),
+			"video_bytes", len(videoBuf),
+			"has_video", videoStream != nil,
+			"sequence", h.ring.Sequence()-1,
+		)
+		audioBuf = audioBuf[:0]
+		videoBuf = videoBuf[:0]
+		segStart = time.Now()
+	}
+
+	// Drive both readers off select-like polling: read whichever has data
+	// available without blocking too long, and check the segment timer on
+	// every iteration.
 	for {
 		select {
 		case <-ctx.Done():
@@ -116,45 +191,37 @@ func (h *HLSOutput) segmentLoop(ctx context.Context, track *Track) {
 		default:
 		}
 
-		n, err := reader.Read(readBuf)
+		// Non-blocking-ish audio read: audioReader.Read blocks waiting for
+		// the signal, which is fine here — audio arrives at roughly
+		// real-time. We drain a single chunk per iteration then pick up
+		// any buffered video before flushing.
+		n, err := audioReader.Read(readBuf)
 		if err != nil {
 			return
 		}
-		if n == 0 {
-			continue
+		if n > 0 {
+			audioBuf = append(audioBuf, readBuf[:n]...)
 		}
 
-		segBuf = append(segBuf, readBuf[:n]...)
-
-		// Check if we've accumulated enough for a segment
-		elapsed := time.Since(segStart)
-		if elapsed >= h.config.SegmentDuration && len(segBuf) > 0 {
-			// Mux the accumulated audio into a TS segment.
-			tsData := h.muxer.MuxMP3Segment(segBuf, ptsCounter)
-
-			// Advertise the CONFIGURED segment duration rather than the
-			// wall-clock elapsed. Using elapsed meant a single slow read
-			// could inflate EXTINF past TARGETDURATION (which strict
-			// players reject) and drift the PTS off the audio by the
-			// same delta — after many segments the decoder's clock and
-			// the sample timeline would disagree noticeably. The target
-			// duration is the stable reference both the player and the
-			// PTS counter should share.
-			segDur := h.config.SegmentDuration
-			h.ring.Push(tsData, segDur, ptsCounter, false)
-			ptsCounter += int64(segDur.Seconds() * tsClockRate)
-
-			logger.L.Debugw("HLS: Created segment",
-				"mount", h.mount,
-				"declared_duration", segDur,
-				"wallclock_elapsed", elapsed,
-				"bytes", len(tsData),
-				"sequence", h.ring.Sequence()-1,
-			)
-
-			// Reset for next segment
-			segBuf = segBuf[:0]
-			segStart = time.Now()
+		// Drain whatever video is available at this moment without
+		// blocking. If nothing is there we just move on — the next
+		// audio read will give video time to catch up via its own
+		// signal channel.
+		if videoReader != nil {
+			for {
+				vn, verr := videoReader.Read(readBuf)
+				if vn > 0 {
+					videoBuf = append(videoBuf, readBuf[:vn]...)
+				}
+				if verr != nil || vn == 0 {
+					break
+				}
+				if vn < len(readBuf) {
+					break
+				}
+			}
 		}
+
+		flushIfReady(false)
 	}
 }
