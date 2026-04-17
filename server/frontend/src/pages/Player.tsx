@@ -17,9 +17,38 @@ const mode = signal<'http' | 'webrtc'>('http')
 const volume = signal(80)
 const listeners = signal(data.listeners || 0)
 
+// hlsRef holds the live hls.js instance so handlePause and unmount can tear
+// it down. Import is dynamic (see attachHLS) so audio-only pages don't
+// download the hls.js bundle at all.
+type HlsLike = {
+  loadSource(url: string): void
+  attachMedia(el: HTMLMediaElement): void
+  destroy(): void
+}
+
+async function attachHLS(url: string, el: HTMLMediaElement): Promise<HlsLike | null> {
+  // Safari / iOS / tvOS / Android Chrome handle HLS natively — feed the
+  // playlist URL straight into the element and skip the 120 KB bundle.
+  if (el.canPlayType('application/vnd.apple.mpegurl')) {
+    el.src = url
+    return null
+  }
+  const { default: Hls } = await import('hls.js')
+  if (!Hls.isSupported()) {
+    // Nothing we can do — neither native HLS nor MSE support.
+    el.src = url
+    return null
+  }
+  const hls = new Hls({ enableWorker: true, lowLatencyMode: true })
+  hls.loadSource(url)
+  hls.attachMedia(el)
+  return hls as unknown as HlsLike
+}
+
 export function Player() {
   const audioRef = useRef<HTMLAudioElement>(null)
   const analyserRef = useRef<AnalyserNode | null>(null)
+  const hlsRef = useRef<HlsLike | null>(null)
   const albumArt = useAlbumArt(artist.value, title.value)
 
   const getFreqData = useCallback(() => {
@@ -52,7 +81,7 @@ export function Player() {
     el.volume = volume.value / 100
   }, [volume.value])
 
-  const handlePlay = useCallback(() => {
+  const handlePlay = useCallback(async () => {
     const el = audioRef.current
     if (!el) return
     resumeAudio()
@@ -61,17 +90,25 @@ export function Player() {
     }
     // When the mount advertises a video track we play the HLS playlist —
     // the segments muxed by the server interleave audio and video, so a
-    // single <video> element covers both. Browsers that don't play HLS
-    // natively (non-Safari) will need hls.js, but Safari + many TVs
-    // handle it out of the box. Audio-only mounts keep using the raw
-    // Icecast stream URL.
-    const mountPath = data.mount.startsWith('/') ? data.mount : `/${data.mount}`
+    // single <video> element covers both. Safari/iOS play HLS natively;
+    // on Firefox/Chromium attachHLS dynamically loads hls.js and drives
+    // the element via Media Source Extensions. Audio-only mounts keep
+    // using the raw Icecast stream URL.
+    const mountPath = data.mount!.startsWith('/') ? data.mount! : `/${data.mount}`
     if (data.hasVideo) {
-      el.src = `${mountPath}/playlist.m3u8`
+      hlsRef.current = await attachHLS(`${mountPath}/playlist.m3u8`, el)
     } else {
       el.src = mountPath
     }
-    el.play()
+    try {
+      await el.play()
+    } catch (err) {
+      // Autoplay / gesture failure is expected on first click in some
+      // environments; leave the user to press again. Propagate anything
+      // unexpected to the console for debugging.
+      // eslint-disable-next-line no-console
+      console.warn('play() failed:', err)
+    }
     playing.value = true
   }, [])
 
@@ -82,6 +119,17 @@ export function Player() {
     // Previously we cleared src to ''; some browsers warn on that. Leave
     // the src in place so resume is instant and no console noise fires.
     playing.value = false
+  }, [])
+
+  // Tear down the hls.js instance on unmount so we don't leak MediaSource
+  // workers or keep fetching segments for a closed page.
+  useEffect(() => {
+    return () => {
+      if (hlsRef.current) {
+        hlsRef.current.destroy()
+        hlsRef.current = null
+      }
+    }
   }, [])
 
   const handleModeChange = useCallback((m: 'http' | 'webrtc') => {
