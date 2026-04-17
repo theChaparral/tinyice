@@ -140,14 +140,19 @@ func (s *Server) recordScanAttempt(ip, path string) {
 	attempt.Paths[path] = true
 	attempt.Count++
 
-	if attempt.Count >= 10 {
+	// Require a large spread of distinct 404 paths before locking an IP
+	// out: real vuln scanners probe dozens of unrelated paths, whereas a
+	// legitimate listener reconnecting to an offline mount hits the same
+	// path repeatedly. Counting distinct paths rather than raw hits stops
+	// well-behaved clients from tripping the lockout.
+	if len(attempt.Paths) >= 25 {
 		attempt.LockoutBy = time.Now().Add(15 * time.Minute)
-		logger.L.Warnf("IP %s locked out for 15 minutes due to 10 scanning attempts (404s)", ip)
+		logger.L.Warnf("IP %s locked out for 15 minutes after %d distinct 404 paths (likely scanner)", ip, len(attempt.Paths))
 		s.dispatchWebhook("security_lockout", map[string]interface{}{
 			"ip":      ip,
 			"reason":  "connection_scanning",
 			"until":   attempt.LockoutBy.Format(time.RFC3339),
-			"details": "10 connection scanning attempts (404s)",
+			"details": fmt.Sprintf("%d distinct 404 paths", len(attempt.Paths)),
 		})
 	}
 }

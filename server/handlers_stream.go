@@ -212,6 +212,47 @@ func (s *Server) handleSource(w http.ResponseWriter, r *http.Request) {
 	s.Relay.RemoveStream(mount)
 }
 
+// looksLikeUnknownMount reports whether a 404 for this path should count
+// toward the vuln-scanner lockout. Anything that is configured as a stream
+// (even if no source is currently connected) is a legitimate listener URL;
+// browser prefetch paths with static file extensions are also ignored.
+func (s *Server) looksLikeUnknownMount(mount string) bool {
+	// Known configured mount — always legitimate.
+	if _, ok := s.Config.Mounts[mount]; ok {
+		return false
+	}
+	if _, ok := s.Config.AdvancedMounts[mount]; ok {
+		return false
+	}
+	if _, ok := s.Config.VisibleMounts[mount]; ok {
+		return false
+	}
+	if _, ok := s.Config.FallbackMounts[mount]; ok {
+		return false
+	}
+	for _, u := range s.Config.Users {
+		if _, ok := u.Mounts[mount]; ok {
+			return false
+		}
+	}
+	// Browser prefetch paths — not a stream attempt.
+	lower := strings.ToLower(mount)
+	if strings.HasPrefix(lower, "/.well-known/") {
+		return false
+	}
+	staticSuffixes := []string{
+		".ico", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp",
+		".css", ".js", ".map", ".json", ".xml", ".txt", ".webmanifest",
+		".woff", ".woff2", ".ttf",
+	}
+	for _, ext := range staticSuffixes {
+		if strings.HasSuffix(lower, ext) {
+			return false
+		}
+	}
+	return true
+}
+
 // isOggContentType returns true if the given HTTP Content-Type indicates an
 // Ogg-container stream (Vorbis, Opus, FLAC-in-Ogg, etc.).
 func isOggContentType(ct string) bool {
@@ -329,8 +370,15 @@ func (s *Server) handleListener(w http.ResponseWriter, r *http.Request) {
 				time.Sleep(1 * time.Second)
 				continue
 			}
-			host, _, _ := net.SplitHostPort(r.RemoteAddr)
-			s.recordScanAttempt(host, mount)
+			// Only count as a scan attempt when the mount is something
+			// we've never known — a configured mount that's currently
+			// offline is a legitimate listener, not an attacker probing
+			// paths. Similarly, obvious non-stream prefetch paths
+			// (favicon.ico, manifest.json, *.png …) don't deserve a ban.
+			if s.looksLikeUnknownMount(mount) {
+				host, _, _ := net.SplitHostPort(r.RemoteAddr)
+				s.recordScanAttempt(host, mount)
+			}
 			http.NotFound(w, r)
 			return
 		}

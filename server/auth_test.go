@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/DatanoiseTV/tinyice/config"
@@ -45,29 +46,35 @@ func TestIPWhitelistAndBanning(t *testing.T) {
 		t.Errorf("::1 should be always whitelisted")
 	}
 
-	// Verify scan attempt lockout behavior
+	// Verify scan attempt lockout behavior: a legit listener hammering a
+	// single offline mount path should *never* trigger the ban — only a
+	// scanner touching many distinct paths should.
 	ip := "8.8.8.8"
-	path := "/wp-admin"
 
-	// Record 9 attempts on SAME path
-	for i := 0; i < 9; i++ {
-		s.recordScanAttempt(ip, path)
+	for i := 0; i < 200; i++ {
+		s.recordScanAttempt(ip, "/live")
 	}
-
 	if s.isBanned(ip) {
-		t.Errorf("IP %s should not be banned yet after 9 attempts", ip)
+		t.Errorf("IP %s should NOT be banned for repeated 404s on the same path", ip)
 	}
 
-	// 10th attempt should ban it
-	s.recordScanAttempt(ip, path)
-	if !s.isBanned(ip) {
-		t.Errorf("IP %s should be banned after 10 attempts on SAME path (due to fix)", ip)
+	// 25 distinct paths is the scanner threshold.
+	scanner := "8.8.4.4"
+	for i := 0; i < 24; i++ {
+		s.recordScanAttempt(scanner, fmt.Sprintf("/probe-%d", i))
+	}
+	if s.isBanned(scanner) {
+		t.Errorf("IP %s should not be banned yet after 24 distinct paths", scanner)
+	}
+	s.recordScanAttempt(scanner, "/probe-24")
+	if !s.isBanned(scanner) {
+		t.Errorf("IP %s should be banned after 25 distinct paths", scanner)
 	}
 
 	// Verify whitelisted IP is NOT banned even after many attempts
 	wip := "192.168.1.1"
-	for i := 0; i < 20; i++ {
-		s.recordScanAttempt(wip, path)
+	for i := 0; i < 50; i++ {
+		s.recordScanAttempt(wip, fmt.Sprintf("/wp-%d", i))
 	}
 	if s.isBanned(wip) {
 		t.Errorf("Whitelisted IP %s should NOT be banned even after many attempts", wip)
