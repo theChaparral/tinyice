@@ -58,25 +58,86 @@ func TestTSMuxerPATAndPMT(t *testing.T) {
 
 func TestTSMuxerPTS(t *testing.T) {
 	muxer := NewTSMuxer()
-	// Use PTS = 90000 (1 second at 90kHz)
-	// Use enough data so the first audio packet has no adaptation field stuffing
+	// Use PTS = 90000 (1 second at 90kHz). 1000 bytes of payload plus the
+	// PES header is large enough that the first audio packet has no
+	// non-PCR stuffing — just the required adaptation field carrying the
+	// PCR (1 byte length + 1 byte flags + 6 bytes PCR = 8 bytes).
 	result := muxer.MuxMP3Segment(make([]byte, 1000), 90000)
 
-	// Find the audio PES start (third packet, after TS header)
 	audioStart := 2 * tsPacketSize
-	// payload_unit_start_indicator should be set
 	if result[audioStart+1]&0x40 == 0 {
 		t.Fatal("audio packet should have payload_unit_start_indicator set")
 	}
-	// First audio packet should have payload only (no adaptation field) since data is large
-	// PES start code should be 00 00 01 at byte 4
-	pesOffset := audioStart + 4
+	// adaptation_field_control must be 0b11 (adaptation + payload) since
+	// we emit a PCR on the first packet.
+	if result[audioStart+3]&0x30 != 0x30 {
+		t.Fatalf("expected adaptation+payload, got TS flags=0x%02X", result[audioStart+3])
+	}
+	adaptLen := int(result[audioStart+4])
+	if adaptLen < 7 {
+		t.Fatalf("adaptation field too short for PCR: %d", adaptLen)
+	}
+	// PES starts after adaptation field.
+	pesOffset := audioStart + 5 + adaptLen
 	if result[pesOffset] != 0x00 || result[pesOffset+1] != 0x00 || result[pesOffset+2] != 0x01 {
 		t.Fatalf("missing PES start code at offset %d", pesOffset)
 	}
-	// Stream ID should be 0xC0 (MP3 audio)
 	if result[pesOffset+3] != mp3StreamID {
 		t.Fatalf("expected stream ID 0xC0, got 0x%02X", result[pesOffset+3])
+	}
+}
+
+// TestTSMuxerNoTruncationAt183 targets the previous off-by-one: when the
+// remaining payload bytes equal payloadCapacity-1 (183), the old code
+// silently dropped one byte. The muxer should now emit a length-0
+// adaptation field and keep every byte.
+func TestTSMuxerNoTruncationAt183(t *testing.T) {
+	// Construct MP3 data whose PES-encapsulated payload length ends
+	// exactly one byte short of a TS packet on the final packet. PES
+	// header is 14 bytes; the first packet consumes 184 bytes (or less
+	// with PCR adaptation). We'll look for the 183-byte case by checking
+	// every packet and asserting no byte is lost by reassembling.
+	mp3 := make([]byte, 3000)
+	for i := range mp3 {
+		mp3[i] = byte(i & 0xFF)
+	}
+	muxer := NewTSMuxer()
+	out := muxer.MuxMP3Segment(mp3, 0)
+
+	// Walk TS packets, peel adaptation field, concatenate audio PID
+	// payload, and compare the reconstructed PES body to the original
+	// MP3 bytes.
+	var reassembled []byte
+	for off := 0; off+tsPacketSize <= len(out); off += tsPacketSize {
+		p := out[off : off+tsPacketSize]
+		if p[0] != tsSyncByte {
+			t.Fatalf("bad sync at %d", off)
+		}
+		pid := (uint16(p[1]&0x1F) << 8) | uint16(p[2])
+		if pid != audioPID {
+			continue
+		}
+		afc := (p[3] >> 4) & 0x3
+		payloadStart := 4
+		if afc == 0x3 || afc == 0x2 {
+			adaptLen := int(p[4])
+			payloadStart = 5 + adaptLen
+		}
+		if afc == 0x2 {
+			continue // adaptation-only, no payload
+		}
+		reassembled = append(reassembled, p[payloadStart:]...)
+	}
+	// The reassembled data starts with the PES header (14 bytes) then
+	// the MP3 bytes. Verify the MP3 body is intact.
+	if len(reassembled) < 14+len(mp3) {
+		t.Fatalf("reassembled %d bytes, expected at least %d — truncation likely", len(reassembled), 14+len(mp3))
+	}
+	body := reassembled[14 : 14+len(mp3)]
+	for i := range mp3 {
+		if body[i] != mp3[i] {
+			t.Fatalf("byte mismatch at %d: got 0x%02X want 0x%02X", i, body[i], mp3[i])
+		}
 	}
 }
 

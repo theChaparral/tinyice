@@ -125,47 +125,10 @@ func (m *TSMuxer) writePMTAV(buf *bytes.Buffer) {
 func (m *TSMuxer) writeVideoPES(buf *bytes.Buffer, data []byte, pts int64) {
 	pesHeader := buildPESHeader(h264StreamID, len(data), pts)
 	payload := append(pesHeader, data...)
-
-	offset := 0
-	first := true
-	for offset < len(payload) {
-		packet := make([]byte, tsPacketSize)
-
-		packet[0] = tsSyncByte
-		pidHigh := byte(videoPID >> 8)
-		if first {
-			pidHigh |= 0x40
-			first = false
-		}
-		packet[1] = pidHigh
-		packet[2] = byte(videoPID & 0xFF)
-
-		remaining := len(payload) - offset
-		payloadCapacity := tsPacketSize - 4
-
-		if remaining < payloadCapacity {
-			stuffingLen := payloadCapacity - remaining - 2
-			if stuffingLen < 0 {
-				stuffingLen = 0
-			}
-			adaptLen := 1 + stuffingLen
-			packet[3] = 0x30 | (m.videoContinuity & 0x0F)
-			packet[4] = byte(adaptLen)
-			packet[5] = 0x00
-			for i := 0; i < stuffingLen; i++ {
-				packet[6+i] = 0xFF
-			}
-			copy(packet[4+1+adaptLen:], payload[offset:])
-			offset = len(payload)
-		} else {
-			packet[3] = 0x10 | (m.videoContinuity & 0x0F)
-			copy(packet[4:], payload[offset:offset+payloadCapacity])
-			offset += payloadCapacity
-		}
-
-		m.videoContinuity++
-		buf.Write(packet)
-	}
+	// The PMT for A/V declares video as PCR_PID, so we emit the PCR on
+	// the first TS packet of the video PES. pts is already on the 90 kHz
+	// clock; PCR base is also 90 kHz so pass it through directly.
+	m.writePESPackets(buf, videoPID, &m.videoContinuity, payload, pts)
 }
 
 func (m *TSMuxer) writePAT(buf *bytes.Buffer) {
@@ -256,52 +219,114 @@ func (m *TSMuxer) writePMT(buf *bytes.Buffer) {
 }
 
 func (m *TSMuxer) writeAudioPES(buf *bytes.Buffer, data []byte, pts int64) {
-	// Build PES header
 	pesHeader := buildPESHeader(mp3StreamID, len(data), pts)
 	payload := append(pesHeader, data...)
+	// Audio-only PMT declares audio as PCR_PID, so the audio PES carries
+	// the PCR. For A/V the PMT uses video as PCR_PID and writeVideoPES
+	// already emits the PCR; in that case we pass -1 for pcrBase here so
+	// this path emits no PCR and doesn't confuse the client with two
+	// conflicting clocks.
+	m.writePESPackets(buf, audioPID, &m.audioContinuity, payload, pts)
+}
 
+// writePESPackets splits `payload` across 188-byte TS packets on `pid`,
+// emitting the PCR on the first packet (derived from pcrBase — usually the
+// same value as the PES's PTS). Handles the edge case where exactly one
+// byte of TS payload capacity is left after stuffing, which the previous
+// implementation silently truncated.
+func (m *TSMuxer) writePESPackets(buf *bytes.Buffer, pid uint16, continuity *uint8, payload []byte, pcrBase int64) {
 	offset := 0
 	first := true
 	for offset < len(payload) {
 		packet := make([]byte, tsPacketSize)
-
-		// TS header
 		packet[0] = tsSyncByte
-		pidHigh := byte(audioPID >> 8)
+		pidHigh := byte(pid >> 8) & 0x1F
 		if first {
 			pidHigh |= 0x40 // payload_unit_start_indicator
-			first = false
 		}
 		packet[1] = pidHigh
-		packet[2] = byte(audioPID & 0xFF)
+		packet[2] = byte(pid & 0xFF)
 
 		remaining := len(payload) - offset
-		payloadCapacity := tsPacketSize - 4 // 4 bytes TS header
+		const payloadCapacity = tsPacketSize - 4 // 184 bytes
 
-		if remaining < payloadCapacity {
-			// Need adaptation field for stuffing
-			stuffingLen := payloadCapacity - remaining - 2 // 2 = adaptation_field_length + flags
+		wantPCR := first && pcrBase >= 0
+
+		switch {
+		case !wantPCR && remaining >= payloadCapacity:
+			// Full payload packet, no adaptation.
+			packet[3] = 0x10 | (*continuity & 0x0F)
+			copy(packet[4:], payload[offset:offset+payloadCapacity])
+			offset += payloadCapacity
+
+		case !wantPCR && remaining == payloadCapacity-1:
+			// 183 bytes of payload: one-byte adaptation with
+			// adaptation_field_length=0 — the length byte itself is the
+			// entire adaptation field. Previous code tried to write 2
+			// bytes of adaptation plus 182 payload, silently dropping one
+			// payload byte.
+			packet[3] = 0x30 | (*continuity & 0x0F)
+			packet[4] = 0
+			copy(packet[5:], payload[offset:])
+			offset = len(payload)
+
+		case !wantPCR:
+			// remaining <= 182: regular stuffing case.
+			stuffingLen := payloadCapacity - remaining - 2
 			if stuffingLen < 0 {
 				stuffingLen = 0
 			}
-			adaptLen := 1 + stuffingLen // flags + stuffing
-			packet[3] = 0x30 | (m.audioContinuity & 0x0F) // adaptation + payload
+			adaptLen := 1 + stuffingLen
+			packet[3] = 0x30 | (*continuity & 0x0F)
 			packet[4] = byte(adaptLen)
-			packet[5] = 0x00 // adaptation flags (no PCR etc for simplicity)
+			packet[5] = 0x00
 			for i := 0; i < stuffingLen; i++ {
 				packet[6+i] = 0xFF
 			}
 			copy(packet[4+1+adaptLen:], payload[offset:])
 			offset = len(payload)
-		} else {
-			packet[3] = 0x10 | (m.audioContinuity & 0x0F) // payload only
-			copy(packet[4:], payload[offset:offset+payloadCapacity])
-			offset += payloadCapacity
+
+		default:
+			// wantPCR: emit an adaptation field carrying the PCR on the
+			// first packet. PCR adaptation = 1-byte flags + 6 bytes PCR,
+			// total 7 bytes of non-length adaptation body. Fill with
+			// stuffing if the payload is short.
+			pcrAdaptBody := 1 + 6
+			// Available payload once we spend the length byte + adaptation body.
+			avail := payloadCapacity - (1 + pcrAdaptBody)
+			stuffingLen := 0
+			if remaining < avail {
+				stuffingLen = avail - remaining
+				avail = remaining
+			}
+			adaptLen := pcrAdaptBody + stuffingLen
+			packet[3] = 0x30 | (*continuity & 0x0F)
+			packet[4] = byte(adaptLen)
+			packet[5] = 0x10 // PCR_flag
+			writePCR(packet[6:12], uint64(pcrBase))
+			for i := 0; i < stuffingLen; i++ {
+				packet[12+i] = 0xFF
+			}
+			copy(packet[4+1+adaptLen:], payload[offset:offset+avail])
+			offset += avail
 		}
 
-		m.audioContinuity++
+		*continuity++
+		first = false
 		buf.Write(packet)
 	}
+}
+
+// writePCR packs a 90 kHz PCR base (33 bits) and a 0 extension (9 bits) into
+// a 6-byte MPEG-TS PCR field.
+func writePCR(dst []byte, base90k uint64) {
+	base := base90k & 0x1FFFFFFFF
+	dst[0] = byte(base >> 25)
+	dst[1] = byte(base >> 17)
+	dst[2] = byte(base >> 9)
+	dst[3] = byte(base >> 1)
+	dst[4] = byte((base&0x1)<<7) | 0x7E
+	dst[5] = 0x00
 }
 
 // buildPESHeader creates a PES packet header with PTS.

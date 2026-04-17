@@ -268,8 +268,13 @@ func (h *rtmpHandler) OnVideo(timestamp uint32, payload io.Reader) error {
 				return nil
 			}
 
-			// Check for keyframe and record in buffer
+			// For every IDR (keyframe) inject the cached SPS and PPS
+			// immediately before the IDR NALU — otherwise a new viewer
+			// who tunes in mid-stream never receives them (RTMP only
+			// delivers AVCDecoderConfigurationRecord once, at stream
+			// start) and can't decode until the publisher reconnects.
 			if ContainsKeyframe(annexB) {
+				annexB = h.prependParameterSets(annexB)
 				h.videoStream.Buffer.RecordKeyframe(h.videoStream.Buffer.Head)
 			}
 
@@ -328,6 +333,28 @@ func (h *rtmpHandler) parseAVCConfig(data []byte) {
 		"pps_len", len(h.pps),
 		"nalu_len_size", h.naluLenSize,
 	)
+}
+
+// prependParameterSets returns Annex-B bytes consisting of the cached SPS
+// and PPS followed by `annexB`. Used to ensure every IDR access unit the
+// relay hands to downstream players is preceded by the parameter sets, so
+// late joiners can decode without waiting for a republish.
+func (h *rtmpHandler) prependParameterSets(annexB []byte) []byte {
+	if len(h.sps) == 0 && len(h.pps) == 0 {
+		return annexB
+	}
+	startCode := []byte{0x00, 0x00, 0x00, 0x01}
+	out := make([]byte, 0, len(h.sps)+len(h.pps)+len(annexB)+8)
+	if len(h.sps) > 0 {
+		out = append(out, startCode...)
+		out = append(out, h.sps...)
+	}
+	if len(h.pps) > 0 {
+		out = append(out, startCode...)
+		out = append(out, h.pps...)
+	}
+	out = append(out, annexB...)
+	return out
 }
 
 // OnClose is called when the connection is closed.

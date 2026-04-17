@@ -129,16 +129,25 @@ func (h *HLSOutput) segmentLoop(ctx context.Context, track *Track) {
 		// Check if we've accumulated enough for a segment
 		elapsed := time.Since(segStart)
 		if elapsed >= h.config.SegmentDuration && len(segBuf) > 0 {
-			// Mux the accumulated audio into a TS segment
+			// Mux the accumulated audio into a TS segment.
 			tsData := h.muxer.MuxMP3Segment(segBuf, ptsCounter)
-			h.ring.Push(tsData, elapsed, ptsCounter, false)
 
-			// Advance PTS
-			ptsCounter += int64(elapsed.Seconds() * tsClockRate)
+			// Advertise the CONFIGURED segment duration rather than the
+			// wall-clock elapsed. Using elapsed meant a single slow read
+			// could inflate EXTINF past TARGETDURATION (which strict
+			// players reject) and drift the PTS off the audio by the
+			// same delta — after many segments the decoder's clock and
+			// the sample timeline would disagree noticeably. The target
+			// duration is the stable reference both the player and the
+			// PTS counter should share.
+			segDur := h.config.SegmentDuration
+			h.ring.Push(tsData, segDur, ptsCounter, false)
+			ptsCounter += int64(segDur.Seconds() * tsClockRate)
 
 			logger.L.Debugw("HLS: Created segment",
 				"mount", h.mount,
-				"duration", elapsed,
+				"declared_duration", segDur,
+				"wallclock_elapsed", elapsed,
 				"bytes", len(tsData),
 				"sequence", h.ring.Sequence()-1,
 			)

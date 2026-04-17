@@ -2,6 +2,7 @@ package relay
 
 import (
 	"fmt"
+	"math"
 	"sync"
 	"time"
 )
@@ -118,14 +119,20 @@ func (r *SegmentRing) GenerateM3U8(mountPath string, windowSize int) string {
 		return "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:4\n#EXT-X-MEDIA-SEQUENCE:0\n"
 	}
 
-	// Find max duration for TARGETDURATION (must be integer, rounded up)
+	// TARGETDURATION must be an integer that is >= ceil of every EXTINF in
+	// the playlist. The previous implementation used int(s)+1 which
+	// rounded 4.000 s up to 5 (slightly inflating advertised latency) and
+	// 4.5 s to 5 (fine) — use math.Ceil for a tight upper bound.
 	maxDur := time.Duration(0)
 	for _, s := range segments {
 		if s.Duration > maxDur {
 			maxDur = s.Duration
 		}
 	}
-	targetDuration := int(maxDur.Seconds()) + 1
+	targetDuration := int(math.Ceil(maxDur.Seconds()))
+	if targetDuration < 1 {
+		targetDuration = 1
+	}
 
 	mediaSequence := segments[0].Index
 

@@ -91,7 +91,9 @@ func TestGenerateM3U8(t *testing.T) {
 	if !strings.Contains(m3u8, "#EXTM3U") {
 		t.Fatal("missing EXTM3U header")
 	}
-	if !strings.Contains(m3u8, "#EXT-X-TARGETDURATION:5") {
+	// With math.Ceil on exact 4-second segments we expect TARGETDURATION=4;
+	// the old off-by-one gave 5.
+	if !strings.Contains(m3u8, "#EXT-X-TARGETDURATION:4") {
 		t.Fatalf("wrong target duration in:\n%s", m3u8)
 	}
 	if !strings.Contains(m3u8, "#EXT-X-MEDIA-SEQUENCE:0") {
