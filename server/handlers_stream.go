@@ -365,11 +365,12 @@ func (s *Server) handleListener(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) serveStreamData(w http.ResponseWriter, r *http.Request, stream *relay.Stream, id, originalMount, currentMount string, recoveryTicker *time.Ticker, metaint int) bool {
-	// Burst size defaults to 128 KiB but can be overridden per mount via
+	// Burst size defaults to 512 KiB but can be overridden per mount via
 	// AdvancedMounts.BurstSize (the "Advanced Mount Settings" UI field).
-	// The value was previously written to config and then ignored; this
-	// lets operators trade join latency vs. first-byte-to-audio delay.
-	burst := 128 * 1024
+	// At typical listener bitrates (128–320 kbps) this puts 10–30 seconds
+	// of audio into the client's cache on connect, so a ~5 s network stall
+	// no longer drains the player's buffer and forces a reconnect.
+	burst := 512 * 1024
 	if adv, ok := s.Config.AdvancedMounts[currentMount]; ok && adv != nil && adv.BurstSize > 0 {
 		burst = adv.BurstSize
 	}
@@ -425,8 +426,11 @@ func (s *Server) serveStreamData(w http.ResponseWriter, r *http.Request, stream 
 		}
 	}
 
-	// was 16384
-	buf := make([]byte, 4096)
+	// 64 KiB read chunk: we flush after draining the buffer on each signal,
+	// so a larger chunk means fewer syscalls / TCP writes per second without
+	// adding latency. 4 KiB was causing tiny-segment writes whenever the
+	// source broadcast fast.
+	buf := make([]byte, 64*1024)
 	flusher, _ := w.(http.Flusher)
 
 	bytesSentSinceMeta := 0

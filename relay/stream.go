@@ -389,22 +389,37 @@ func (s *Stream) Subscribe(id string, burstSize int) (int64, chan struct{}) {
 			start = validStart
 		}
 
-		// Find the best page boundary that is >= start and still valid
-		bestAlign := s.LastPageOffset
-		found := false
+		// Prefer the oldest tracked page boundary that is still >= start and
+		// within the valid buffer range — this maximises the burst delivered
+		// to the listener. Falling back to LastPageOffset (newest page) used
+		// to cap the burst at near-zero whenever PageOffsets didn't happen
+		// to cover far enough back, which manifested as "client underrun
+		// every few seconds on reconnect".
+		bestAlign := int64(-1)
+		oldestValid := int64(-1)
 		for _, po := range s.PageOffsets {
-			// Find the smallest PO that is >= start AND is still valid
-			if po >= start && po >= validStart && po < bestAlign {
+			if po < validStart || po == 0 {
+				continue
+			}
+			if oldestValid < 0 || po < oldestValid {
+				oldestValid = po
+			}
+			if po >= start && (bestAlign < 0 || po < bestAlign) {
 				bestAlign = po
-				found = true
 			}
 		}
-		if found {
+		switch {
+		case bestAlign >= 0:
 			start = bestAlign
-		} else if bestAlign >= validStart && bestAlign > 0 {
-			start = bestAlign
-		} else {
-			// No valid Ogg page boundaries found — fall back to burst-based offset
+		case oldestValid >= 0:
+			// Intended start is older than any tracked page — use the
+			// oldest we have, which is still newer than the buffer tail.
+			start = oldestValid
+		case s.LastPageOffset >= validStart && s.LastPageOffset > 0:
+			// Absolute last resort: at least align on the most recent page.
+			start = s.LastPageOffset
+		default:
+			// Nothing tracked yet — fall back to burst-based offset.
 			start = s.Buffer.Head - int64(burstSize)
 			if start < validStart {
 				start = validStart

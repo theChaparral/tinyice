@@ -106,7 +106,11 @@ func (r *Relay) GetOrCreateStreamSized(mount string, bufferSize int) *Stream {
 		IsOggStream: false,
 		Enabled:     true,
 		CurrentSong: "N/A",
-		PageOffsets: make([]int64, 128), // Track last 128 Ogg pages
+		// Track last 2048 Ogg pages so Subscribe can find a page-boundary
+		// alignment anywhere in the buffer — 128 covered barely 3–5 s at
+		// typical Opus framing and truncated the actual burst delivered to
+		// listeners ("underrun every 4–5 s on reconnect").
+		PageOffsets: make([]int64, 2048),
 		Frames:      NewFrameHub(),
 	}
 	r.Streams[mount] = s

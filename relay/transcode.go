@@ -154,8 +154,10 @@ func (tm *TranscoderManager) performTranscode(ctx context.Context, inst *Transco
 
 	// 2. Subscribe to input
 	id := fmt.Sprintf("transcoder-%s", inst.Config.Name)
-	// We use a small burst to ensure the decoder gets enough data to start
-	offset, signal := input.Subscribe(id, 32*1024)
+	// Burst 256 KiB so the decoder has several seconds of data to initialise
+	// even when the source bitrate is low — 32 KiB left strict Opus / FLAC
+	// decoders short on bytes at startup, producing a noisy first packet.
+	offset, signal := input.Subscribe(id, 256*1024)
 	defer input.Unsubscribe(id)
 
 	// For live Ogg inputs, the subscribe offset lands mid-stream. The decoder

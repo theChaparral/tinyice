@@ -166,6 +166,12 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 
+	// Track previous byte counters to compute bandwidth as a rate. The UI
+	// formats bandwidth_in/out as "bytes per second"; sending cumulative
+	// totals made the dashboard display the session's entire ingest as MB/s.
+	var lastBytesIn, lastBytesOut int64
+	lastTime := time.Now()
+
 	send := func() error {
 		payload, err := s.collectStatsPayload(user)
 		if err != nil {
@@ -180,13 +186,39 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		var full map[string]interface{}
 		json.Unmarshal(payload, &full)
 
+		curIn, _ := full["bytes_in"].(float64)
+		curOut, _ := full["bytes_out"].(float64)
+		now := time.Now()
+		elapsed := now.Sub(lastTime).Seconds()
+		var rateIn, rateOut int64
+		if elapsed > 0 {
+			if lastTime.IsZero() || lastBytesIn == 0 && lastBytesOut == 0 {
+				// First tick: no prior sample, report 0 instead of a huge burst.
+				rateIn, rateOut = 0, 0
+			} else {
+				rateIn = int64(float64(int64(curIn)-lastBytesIn) / elapsed)
+				rateOut = int64(float64(int64(curOut)-lastBytesOut) / elapsed)
+				if rateIn < 0 {
+					rateIn = 0
+				}
+				if rateOut < 0 {
+					rateOut = 0
+				}
+			}
+		}
+		lastBytesIn = int64(curIn)
+		lastBytesOut = int64(curOut)
+		lastTime = now
+
 		// stats event
 		statsJSON, _ := json.Marshal(map[string]interface{}{
 			"listeners":     full["total_listeners"],
 			"streams":       full["total_sources"],
-			"bandwidth_in":  full["bytes_in"],
-			"bandwidth_out": full["bytes_out"],
-			"bandwidth":     full["bytes_out"], // backwards compat
+			"bandwidth_in":  rateIn,
+			"bandwidth_out": rateOut,
+			"bandwidth":     rateOut, // backwards compat
+			"bytes_in":      int64(curIn),
+			"bytes_out":     int64(curOut),
 			"uptime":        int(time.Since(s.startTime).Seconds()),
 			"goroutines":    full["goroutines"],
 			"memory":        full["heap_alloc"],

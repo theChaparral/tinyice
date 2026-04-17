@@ -167,7 +167,7 @@ func (wm *WebRTCManager) HandleSourceOffer(mount string, offer webrtc.SessionDes
 		stream.IsOggStream = true
 		stream.SourceIP = "webrtc-source"
 		// Reset page offsets so we don't sync to old pages from a previous session
-		stream.PageOffsets = make([]int64, 128)
+		stream.PageOffsets = make([]int64, 2048)
 		stream.PageIndex = 0
 		stream.OggHeaderOffset = headOffset
 		stream.mu.Unlock()

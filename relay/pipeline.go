@@ -90,7 +90,7 @@ func NewVideoTrack(codec string, bufferSize int) *Track {
 			Buffer:      NewCircularBuffer(bufferSize),
 			Started:     time.Now(),
 			Enabled:     true,
-			PageOffsets: make([]int64, 128),
+			PageOffsets: make([]int64, 2048),
 		},
 	}
 }
