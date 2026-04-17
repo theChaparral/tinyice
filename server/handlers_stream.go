@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"strings"
@@ -367,8 +368,22 @@ func (s *Server) serveStreamData(w http.ResponseWriter, r *http.Request, stream 
 	offset, signal := stream.Subscribe(id, 128*1024)
 	defer stream.Unsubscribe(id)
 
+	// For Ogg streams (Opus / Vorbis / FLAC-in-Ogg) route all output through
+	// a per-listener Ogg page rewriter. It regenerates the bitstream serial,
+	// resets the page sequence, and rebases the granule so the listener sees
+	// a clean timeline starting near zero — without this, replaying the
+	// cached BOS/Tags pages in front of live audio causes a multi-minute
+	// granule jump and strict decoders fill the gap with silence / robotic
+	// concealment.
+	var out io.Writer = w
+	var oggRewriter *relay.OggPageRewriter
+	if stream.IsOggStream {
+		oggRewriter = relay.NewOggPageRewriter(w)
+		out = oggRewriter
+	}
+
 	if stream.OggHead != nil {
-		if _, err := w.Write(stream.OggHead); err != nil {
+		if _, err := out.Write(stream.OggHead); err != nil {
 			return false
 		}
 		logger.L.Debugf("Ogg Listener %s: Sending stored headers (%d bytes), then starting burst at %d", id, len(stream.OggHead), offset)
@@ -440,7 +455,7 @@ func (s *Server) serveStreamData(w http.ResponseWriter, r *http.Request, stream 
 				}
 				offset = next
 
-				if _, err := w.Write(buf[:n]); err != nil {
+				if _, err := out.Write(buf[:n]); err != nil {
 					return false
 				}
 
