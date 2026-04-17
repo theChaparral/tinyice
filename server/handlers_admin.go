@@ -173,6 +173,13 @@ func (s *Server) handleToggleLatency(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleMetadata(w http.ResponseWriter, r *http.Request) {
+	// Only reject session-cookie POSTs without CSRF; the Basic-auth path
+	// below targets Icecast-compatible source clients that don't carry a
+	// session, so we let isCSRFSafe allow those through.
+	if r.Method != http.MethodGet && !s.isCSRFSafe(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
 	user, ok := s.checkAuth(r)
 	mount, song := r.URL.Query().Get("mount"), r.URL.Query().Get("song")
 	if !ok {
@@ -213,6 +220,10 @@ func (s *Server) handleMetadata(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleKick(w http.ResponseWriter, r *http.Request) {
+	if !s.isCSRFSafe(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
 	user, ok := s.checkAuth(r)
 	mount := r.FormValue("mount")
 	if ok && s.hasAccess(user, mount) {
@@ -222,6 +233,10 @@ func (s *Server) handleKick(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleKickAllListeners(w http.ResponseWriter, r *http.Request) {
+	if !s.isCSRFSafe(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
 	user, ok := s.checkAuth(r)
 	if ok && user.Role == config.RoleSuperAdmin {
 		s.Relay.DisconnectAllListeners()
@@ -230,6 +245,10 @@ func (s *Server) handleKickAllListeners(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Server) handleToggleMount(w http.ResponseWriter, r *http.Request) {
+	if !s.isCSRFSafe(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
 	user, ok := s.checkAuth(r)
 	mount := r.FormValue("mount")
 	if ok && s.hasAccess(user, mount) {
@@ -243,6 +262,10 @@ func (s *Server) handleToggleMount(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleToggleVisible(w http.ResponseWriter, r *http.Request) {
+	if !s.isCSRFSafe(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
 	user, ok := s.checkAuth(r)
 	if !ok {
 		return
@@ -428,7 +451,9 @@ func (s *Server) handleAddWebhook(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
-	if _, ok := s.checkAuth(r); !ok {
+	user, ok := s.checkAuth(r)
+	if !ok || user.Role != config.RoleSuperAdmin {
+		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 
@@ -437,6 +462,10 @@ func (s *Server) handleAddWebhook(w http.ResponseWriter, r *http.Request) {
 
 	if url == "" || len(events) == 0 {
 		http.Error(w, "URL and at least one event required", http.StatusBadRequest)
+		return
+	}
+	if err := validateOutboundURL(url); err != nil {
+		http.Error(w, "Webhook URL rejected: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -455,7 +484,9 @@ func (s *Server) handleDeleteWebhook(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
-	if _, ok := s.checkAuth(r); !ok {
+	user, ok := s.checkAuth(r)
+	if !ok || user.Role != config.RoleSuperAdmin {
+		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 

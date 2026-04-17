@@ -19,6 +19,10 @@ func (s *Server) handleAddRelay(w http.ResponseWriter, r *http.Request) {
 	if ok && user.Role == config.RoleSuperAdmin {
 		u, m, pw, bs := r.FormValue("url"), r.FormValue("mount"), r.FormValue("password"), r.FormValue("burst_size")
 		if u != "" && m != "" {
+			if err := validateOutboundURL(u); err != nil {
+				http.Error(w, "Upstream URL rejected: "+err.Error(), http.StatusBadRequest)
+				return
+			}
 			if m[0] != '/' {
 				m = "/" + m
 			}
@@ -112,8 +116,9 @@ func (s *Server) handleAddTranscoder(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
-	if _, ok := s.checkAuth(r); !ok {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+	user, ok := s.checkAuth(r)
+	if !ok || user.Role != config.RoleSuperAdmin {
+		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 
@@ -141,8 +146,13 @@ func (s *Server) handleAddTranscoder(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleToggleTranscoder(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.checkAuth(r); !ok {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+	if !s.isCSRFSafe(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	user, ok := s.checkAuth(r)
+	if !ok || user.Role != config.RoleSuperAdmin {
+		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 	name := r.FormValue("name")
@@ -162,8 +172,13 @@ func (s *Server) handleToggleTranscoder(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Server) handleDeleteTranscoder(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.checkAuth(r); !ok {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+	if !s.isCSRFSafe(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	user, ok := s.checkAuth(r)
+	if !ok || user.Role != config.RoleSuperAdmin {
+		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 	name := r.FormValue("name")

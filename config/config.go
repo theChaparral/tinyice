@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"os"
+	"sync"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -145,6 +146,13 @@ type MultiTenantConfig struct {
 	DefaultTenant string `json:"default_tenant"`
 	TenantStore   string `json:"tenant_store"` // "config", "database"
 }
+
+// configSaveMu serialises SaveConfig across concurrent admin / API /
+// background-task call sites. Without it, two simultaneous writes stomp the
+// .tmp file and can leave a truncated JSON on disk, plus later writes can
+// lose earlier mutations. It lives at package scope (rather than inside the
+// Config struct) so json.Marshal never copies a lock value.
+var configSaveMu sync.Mutex
 
 type Config struct {
 	BindHost              string            `json:"bind_host"`
@@ -428,6 +436,8 @@ func (config *Config) handleMigrations() {
 }
 
 func (c *Config) SaveConfig() error {
+	configSaveMu.Lock()
+	defer configSaveMu.Unlock()
 	data, err := json.MarshalIndent(c, "", "    ")
 	if err != nil {
 		return err
