@@ -176,18 +176,24 @@ func (h *HLSOutput) segmentLoopFramed(ctx context.Context, audio, video *Track) 
 			return
 		}
 		tsData := h.buildAVSegment(audioBatch, videoBatch, audioStreamType)
-		// Use the first video PTS (or audio PTS as a fallback) as the
-		// segment's nominal start so the ring records a sensible time.
-		startPTS := int64(0)
-		if len(videoBatch) > 0 {
-			startPTS = videoBatch[0].pts
-		} else if len(audioBatch) > 0 {
-			startPTS = audioBatch[0].pts
+		// Use the first PTS as the segment's nominal start, and derive
+		// the segment duration from the actual span of PTS values we
+		// included. Previously we always declared SegmentDuration
+		// regardless of what the content contained, which made the
+		// player buffer whenever keyframe interval didn't match — e.g.
+		// an OBS keyframe every 5 s into a 4 s advertised window left
+		// 1 s of "phantom" duration the player waited to arrive.
+		firstPTS, lastEndPTS := pesBatchRange(videoBatch, audioBatch)
+		startPTS := firstPTS
+		segDur := h.config.SegmentDuration
+		if lastEndPTS > firstPTS {
+			segDur = time.Duration(lastEndPTS-firstPTS) * time.Second / 90000
 		}
-		h.ring.Push(tsData, h.config.SegmentDuration, startPTS, false)
+		h.ring.Push(tsData, segDur, startPTS, false)
 		logger.L.Debugw("HLS: framed segment",
 			"mount", h.mount,
 			"bytes", len(tsData),
+			"duration", segDur,
 			"audio_frames", len(audioBatch),
 			"video_frames", len(videoBatch),
 			"sequence", h.ring.Sequence()-1,
@@ -236,6 +242,34 @@ func (h *HLSOutput) segmentLoopFramed(ctx context.Context, audio, video *Track) 
 			}
 		}
 	}
+}
+
+// pesBatchRange returns the earliest first-PTS across audio + video and the
+// latest end-PTS (last frame's PTS rounded up to include its own duration
+// by using the following frame's start, or falling back to the last PTS
+// itself when there's only one frame).
+func pesBatchRange(videoBatch, audioBatch []pesUnit) (first, end int64) {
+	first = -1
+	end = -1
+	consider := func(batch []pesUnit) {
+		for _, u := range batch {
+			if first < 0 || u.pts < first {
+				first = u.pts
+			}
+			if u.pts > end {
+				end = u.pts
+			}
+		}
+	}
+	consider(videoBatch)
+	consider(audioBatch)
+	if first < 0 {
+		first = 0
+	}
+	if end < first {
+		end = first
+	}
+	return first, end
 }
 
 // buildAVSegment muxes a list of audio + video access units into a single

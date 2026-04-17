@@ -84,6 +84,15 @@ type Stream struct {
 	// bytes, frame-level consumers subscribe to the hub. nil on streams
 	// that never see a frame-level producer (e.g. relay pull).
 	Frames *FrameHub
+
+	// MinListenerOffset is a hard lower bound for listener reads of the
+	// byte Buffer. Used when the source changes its codec config mid-
+	// stream (e.g. OBS reconfigures and a new AVCDecoderConfigurationRecord
+	// arrives) — any bytes written before that point were encoded with
+	// parameters the new SPS/PPS no longer describes, so the decoder can
+	// only crash on them. Subscribe() bumps a new listener's start
+	// offset up to this value.
+	MinListenerOffset int64
 	LastPageOffset  int64   // Absolute offset of the last valid Ogg page start
 	PageOffsets     []int64 // Circular list of last ~100 page starts
 	PageIndex       int     // Index for managing PageOffsets circular list
@@ -136,6 +145,29 @@ func (s *Stream) StoreVideoHeaders(headers []byte) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.VideoHeaders = headers
+}
+
+// GetMinListenerOffset returns MinListenerOffset under the stream mutex.
+func (s *Stream) GetMinListenerOffset() int64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.MinListenerOffset
+}
+
+// CheckpointAtHead marks the current Buffer.Head as the new minimum
+// valid offset for listener reads, and clears any previously recorded
+// keyframe offsets (they pointed at bytes encoded under the old config).
+// Called by ingest paths when they observe a codec-parameter change
+// mid-stream — OBS restarting its encoder, resolution switch, etc.
+func (s *Stream) CheckpointAtHead() {
+	if s.Buffer == nil {
+		return
+	}
+	head := s.Buffer.HeadOffset()
+	s.mu.Lock()
+	s.MinListenerOffset = head
+	s.mu.Unlock()
+	s.Buffer.ResetKeyframes()
 }
 
 // VideoInfo returns the flags that the HTTP listener path needs to

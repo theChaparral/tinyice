@@ -397,6 +397,15 @@ func (s *Server) serveStreamData(w http.ResponseWriter, r *http.Request, stream 
 		logger.L.Debugf("Ogg Listener %s: Sending stored headers (%d bytes), then starting burst at %d", id, len(stream.OggHead), offset)
 	}
 
+	// Respect the stream's minimum valid offset — set whenever the
+	// source reconfigures its codec mid-stream. Without this a listener
+	// that subscribes right after an OBS reconfig replays pre-reconfig
+	// bytes (old SPS/PPS) and the decoder dies as soon as the new
+	// parameters activate.
+	if min := stream.GetMinListenerOffset(); min > offset {
+		offset = min
+	}
+
 	// For raw H.264 video listeners, seek back to the most recent
 	// keyframe (so playback doesn't start on a P-frame whose reference
 	// frames aren't in the listener's buffer) and prepend the cached

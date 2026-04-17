@@ -147,6 +147,17 @@ func (cb *CircularBuffer) HeadOffset() int64 {
 	return cb.Head
 }
 
+// ResetKeyframes drops every recorded keyframe offset. Use when the
+// source's codec config changes mid-stream — old keyframe offsets point
+// at bytes the new decoder state can't interpret, so they must not be
+// handed out as safe starting points for new listeners.
+func (cb *CircularBuffer) ResetKeyframes() {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+	cb.kfHead = 0
+	cb.kfCount = 0
+}
+
 // FindNextPageBoundaryLocked holds the buffer's RWMutex for the duration of
 // the scan, so it's safe to use against a buffer that may be concurrently
 // written by a source goroutine. Returns the absolute offset of the next

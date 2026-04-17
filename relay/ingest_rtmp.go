@@ -438,6 +438,13 @@ func (h *rtmpHandler) parseAVCConfig(data []byte) {
 	if len(data) < 8 {
 		return
 	}
+	// If we already had SPS/PPS from an earlier config, the publisher has
+	// reconfigured its encoder (different resolution, profile, GOP size,
+	// etc.). Bytes already in the video buffer were encoded under the
+	// old parameters and would blow up any new listener's decoder once
+	// the new SPS/PPS is active. Checkpoint the current Head so new
+	// listeners only see bytes written from here on.
+	reconfig := len(h.sps) > 0 || len(h.pps) > 0
 	// AVCDecoderConfigurationRecord structure:
 	// [0] configurationVersion
 	// [1] AVCProfileIndication
@@ -492,11 +499,19 @@ func (h *rtmpHandler) parseAVCConfig(data []byte) {
 		h.videoStream.StoreVideoHeaders(out)
 	}
 
+	if reconfig && h.videoStream != nil {
+		h.videoStream.CheckpointAtHead()
+		logger.L.Infow("RTMP: Encoder reconfig — checkpointed video buffer",
+			"mount", h.mount,
+		)
+	}
+
 	logger.L.Infow("RTMP: Parsed AVC config",
 		"mount", h.mount,
 		"sps_len", len(h.sps),
 		"pps_len", len(h.pps),
 		"nalu_len_size", h.naluLenSize,
+		"reconfig", reconfig,
 	)
 }
 
