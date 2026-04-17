@@ -72,9 +72,12 @@ func (m *TSMuxer) MuxAVSegment(audioData []byte, videoData []byte, audioPTS, vid
 	// Write PMT (updated for A/V, with the correct audio stream_type)
 	m.writePMTAV(&buf, audioStreamType)
 
-	// Write video PES first (usually larger, keyframe-aligned)
+	// Write video PES first (usually larger, keyframe-aligned). This is
+	// the legacy one-PES-per-segment path (kept for byte-buffer HLS);
+	// with no CompositionTime information we pass DTS == PTS and
+	// buildPESHeader will emit just the 5-byte PTS form.
 	if len(videoData) > 0 {
-		m.writeVideoPES(&buf, videoData, videoPTS)
+		m.writeVideoPES(&buf, videoData, videoPTS, videoPTS)
 	}
 
 	// Write audio PES
@@ -135,13 +138,20 @@ func (m *TSMuxer) writePMTAV(buf *bytes.Buffer, audioStreamType byte) {
 	buf.Write(packet)
 }
 
-func (m *TSMuxer) writeVideoPES(buf *bytes.Buffer, data []byte, pts int64) {
-	pesHeader := buildPESHeader(h264StreamID, len(data), pts)
+// writeVideoPES emits one video PES. Pass dts == pts (or dts < 0) when
+// the stream has no B-frames; pass the real decode timestamp otherwise
+// so the decoder schedules B-frames correctly instead of the picture
+// "boomeranging" between frames.
+func (m *TSMuxer) writeVideoPES(buf *bytes.Buffer, data []byte, pts, dts int64) {
+	pesHeader := buildPESHeader(h264StreamID, len(data), pts, dts)
 	payload := append(pesHeader, data...)
-	// The PMT for A/V declares video as PCR_PID, so we emit the PCR on
-	// the first TS packet of the video PES. pts is already on the 90 kHz
-	// clock; PCR base is also 90 kHz so pass it through directly.
-	m.writePESPackets(buf, videoPID, &m.videoContinuity, payload, pts)
+	// PCR uses DTS (the earliest timestamp in the stream) when we have
+	// both, otherwise PTS. PCR on the PID declared as PCR_PID in the PMT.
+	pcr := dts
+	if pcr < 0 || pcr > pts {
+		pcr = pts
+	}
+	m.writePESPackets(buf, videoPID, &m.videoContinuity, payload, pcr)
 }
 
 func (m *TSMuxer) writePAT(buf *bytes.Buffer) {
@@ -232,7 +242,9 @@ func (m *TSMuxer) writePMT(buf *bytes.Buffer) {
 }
 
 func (m *TSMuxer) writeAudioPES(buf *bytes.Buffer, data []byte, pts int64) {
-	pesHeader := buildPESHeader(mp3StreamID, len(data), pts)
+	// Audio has no B-frames, so DTS == PTS and the PES header only
+	// advertises PTS (the 5-byte shorter form).
+	pesHeader := buildPESHeader(mp3StreamID, len(data), pts, pts)
 	payload := append(pesHeader, data...)
 	// Audio-only PMT declares audio as PCR_PID, so the audio PES carries
 	// the PCR. For A/V the PMT uses video as PCR_PID and writeVideoPES
@@ -342,8 +354,12 @@ func writePCR(dst []byte, base90k uint64) {
 	dst[5] = 0x00
 }
 
-// buildPESHeader creates a PES packet header with PTS.
-func buildPESHeader(streamID byte, dataLen int, pts int64) []byte {
+// buildPESHeader creates a PES packet header carrying PTS (and optionally
+// DTS). When dts != pts, both are emitted — the decoder needs DTS to
+// schedule decoding of B-frames, and PTS to decide display order. For
+// audio streams and for I/P-only video, pass dts == pts and the PES will
+// advertise PTS only.
+func buildPESHeader(streamID byte, dataLen int, pts, dts int64) []byte {
 	var buf bytes.Buffer
 
 	// PES start code: 00 00 01
@@ -352,33 +368,53 @@ func buildPESHeader(streamID byte, dataLen int, pts int64) []byte {
 	// Stream ID
 	buf.WriteByte(streamID)
 
-	// PES packet length (0 = unbounded, but for segments we set it)
-	headerDataLen := 5 // PTS is 5 bytes
+	includeDTS := dts >= 0 && dts != pts
+	headerDataLen := 5
+	ptsDtsFlags := byte(0x80) // PTS only
+	if includeDTS {
+		headerDataLen = 10
+		ptsDtsFlags = 0xC0 // PTS + DTS
+	}
 	pesLen := 3 + headerDataLen + dataLen // 3 = flags(2) + header_data_length(1)
 	if pesLen > 0xFFFF {
-		pesLen = 0 // unbounded for large segments
+		pesLen = 0
 	}
 	buf.WriteByte(byte(pesLen >> 8))
 	buf.WriteByte(byte(pesLen & 0xFF))
 
-	// Flags: marker bits, PTS present
 	buf.WriteByte(0x80) // 10 marker, no scrambling, no priority, no alignment, no copyright, no original
-	buf.WriteByte(0x80) // PTS only (no DTS)
-
-	// PES header data length
+	buf.WriteByte(ptsDtsFlags)
 	buf.WriteByte(byte(headerDataLen))
 
-	// PTS (5 bytes)
-	buf.Write(encodePTS(pts))
+	if includeDTS {
+		// Spec: when both flags are set, the PTS prefix nibble is 0x3
+		// and the DTS prefix nibble is 0x1. encodePTSWithPrefix builds
+		// the 5-byte bitfield with the right first-nibble markers.
+		buf.Write(encodePTSWithPrefix(pts, 0x3))
+		buf.Write(encodePTSWithPrefix(dts, 0x1))
+	} else {
+		buf.Write(encodePTS(pts))
+	}
 
 	return buf.Bytes()
 }
 
-// encodePTS encodes a 33-bit PTS value into the 5-byte MPEG-TS format.
+// encodePTS encodes a 33-bit PTS value into the 5-byte MPEG-TS format
+// (PTS-only PES header — first nibble is 0b0010).
 func encodePTS(pts int64) []byte {
+	return encodePTSWithPrefix(pts, 0x2)
+}
+
+// encodePTSWithPrefix encodes a 33-bit timestamp into the 5-byte
+// MPEG-TS PES-header format with a caller-supplied 4-bit prefix nibble.
+// The PES spec uses different prefix values for PTS-only (0010), PTS
+// when DTS also present (0011), and DTS (0001) — passing the prefix
+// lets a single routine produce all three.
+func encodePTSWithPrefix(pts int64, prefix byte) []byte {
 	p := make([]byte, 5)
-	// Format: 0010 xxx1 | xxxxxxxx | xxxxxxx1 | xxxxxxxx | xxxxxxx1
-	p[0] = 0x21 | byte((pts>>29)&0x0E)
+	prefix &= 0x0F
+	// Format: <prefix[3:0]> xxx1 | xxxxxxxx | xxxxxxx1 | xxxxxxxx | xxxxxxx1
+	p[0] = (prefix << 4) | 0x01 | byte((pts>>29)&0x0E)
 	p[1] = byte(pts >> 22)
 	p[2] = 0x01 | byte((pts>>14)&0xFE)
 	p[3] = byte(pts >> 7)

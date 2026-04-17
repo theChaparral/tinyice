@@ -11,9 +11,13 @@ import (
 )
 
 // pesUnit is a single access unit queued for inclusion in the next HLS
-// segment, already tagged with its 90 kHz PTS.
+// segment, with both its presentation (PTS) and decode (DTS) timestamps
+// on the 90 kHz MPEG clock. For audio and for video without B-frames
+// dts == pts; for video with B-frames dts comes from the FLV
+// CompositionTime adjustment.
 type pesUnit struct {
 	pts  int64
+	dts  int64
 	data []byte
 }
 
@@ -207,7 +211,7 @@ func (h *HLSOutput) segmentLoopFramed(ctx context.Context, audio, video *Track) 
 			if !ok {
 				return
 			}
-			audioBatch = append(audioBatch, pesUnit{pts: f.PTS, data: f.Data})
+			audioBatch = append(audioBatch, pesUnit{pts: f.PTS, dts: f.DTS, data: f.Data})
 		case f, ok := <-videoFrames:
 			if !ok {
 				return
@@ -224,7 +228,7 @@ func (h *HLSOutput) segmentLoopFramed(ctx context.Context, audio, video *Track) 
 				}
 				segHasIDR = true
 			}
-			videoBatch = append(videoBatch, pesUnit{pts: f.PTS, data: f.Data})
+			videoBatch = append(videoBatch, pesUnit{pts: f.PTS, dts: f.DTS, data: f.Data})
 		case <-timer.C:
 			// Time-based flush safety net.
 			if time.Since(segStart) >= h.config.SegmentDuration {
@@ -242,7 +246,7 @@ func (h *HLSOutput) buildAVSegment(audioBatch, videoBatch []pesUnit, audioStream
 	h.muxer.writePAT(&buf)
 	h.muxer.writePMTAV(&buf, audioStreamType)
 	for _, v := range videoBatch {
-		h.muxer.writeVideoPES(&buf, v.data, v.pts)
+		h.muxer.writeVideoPES(&buf, v.data, v.pts, v.dts)
 	}
 	for _, a := range audioBatch {
 		h.muxer.writeAudioPES(&buf, a.data, a.pts)

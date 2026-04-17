@@ -343,14 +343,16 @@ func (h *rtmpHandler) OnAudio(timestamp uint32, payload io.Reader) error {
 
 	// Broadcast the raw audio data to the stream (for byte-level
 	// Icecast listeners) and publish a Frame to the hub (for HLS /
-	// other per-frame consumers).
+	// other per-frame consumers). Audio has no B-frames so DTS == PTS.
 	h.stream.Broadcast(data, h.relay)
 	if h.stream.Frames != nil {
 		frameData := make([]byte, len(data))
 		copy(frameData, data)
+		pts := ptsFromFLVTimestamp(timestamp)
 		h.stream.Frames.Publish(Frame{
 			Kind: FrameAudio,
-			PTS:  ptsFromFLVTimestamp(timestamp),
+			PTS:  pts,
+			DTS:  pts,
 			Data: frameData,
 		})
 	}
@@ -407,15 +409,20 @@ func (h *rtmpHandler) OnVideo(timestamp uint32, payload io.Reader) error {
 			}
 
 			h.videoStream.Broadcast(annexB, h.relay)
-			// Also publish a per-frame record with the real FLV timestamp
-			// so the HLS segmenter can emit one PES per frame with the
-			// right PTS instead of faking a single timestamp per segment.
+			// Publish a per-frame record carrying PTS *and* DTS. FLV
+			// video tags have CompositionTime (int32 ms, signed) which
+			// is PTS - DTS; without splitting them, B-frames display
+			// in decode order and the picture boomerangs between I/P
+			// and the two Bs either side of it.
 			if h.videoStream.Frames != nil {
 				frameData := make([]byte, len(annexB))
 				copy(frameData, annexB)
+				dts := ptsFromFLVTimestamp(timestamp)
+				pts := dts + int64(videoTag.CompositionTime)*90
 				h.videoStream.Frames.Publish(Frame{
 					Kind:     FrameVideo,
-					PTS:      ptsFromFLVTimestamp(timestamp),
+					PTS:      pts,
+					DTS:      dts,
 					Data:     frameData,
 					Keyframe: isKeyframe,
 				})
