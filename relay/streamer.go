@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"math/rand"
 	"os"
 	"os/exec"
@@ -944,7 +945,13 @@ func (sm *StreamerManager) streamFile(ctx context.Context, s *Streamer, path str
 
 	if s.Format == "opus" {
 		output.ContentType = "audio/ogg"
-		EncodeOpus(ctx, sm.relay, output, decoder, s.Bitrate, &s.BytesStreamed, true)
+		// Opus encoder is locked at 48 kHz; resample if the file is at a
+		// different rate so playback isn't sped up / slowed down.
+		var pcm io.Reader = decoder
+		if decoder.SampleRate() != 48000 {
+			pcm = NewLinearResampler(decoder, decoder.SampleRate(), 48000)
+		}
+		EncodeOpus(ctx, sm.relay, output, pcm, s.Bitrate, &s.BytesStreamed, true)
 	} else {
 		output.ContentType = "audio/mpeg"
 		EncodeMP3(ctx, sm.relay, output, decoder, s.Bitrate, &s.BytesStreamed, true, decoder.SampleRate())

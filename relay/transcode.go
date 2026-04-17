@@ -219,10 +219,29 @@ func (tm *TranscoderManager) performTranscode(ctx context.Context, inst *Transco
 		if sr == 0 {
 			sr = decoder.SampleRate()
 		}
-		EncodeMP3(ctx, tm.relay, output, decoder, inst.Config.Bitrate, &inst.BytesEncoded, false, sr)
+		// If the operator picked an explicit output rate different from
+		// the decoder's native rate, resample before encoding so shine
+		// sees the rate it was configured with.
+		var pcm io.Reader = decoder
+		if sr != decoder.SampleRate() {
+			pcm = NewLinearResampler(decoder, decoder.SampleRate(), sr)
+		}
+		EncodeMP3(ctx, tm.relay, output, pcm, inst.Config.Bitrate, &inst.BytesEncoded, false, sr)
 	} else if inst.Config.Format == "opus" {
 		output.ContentType = "audio/ogg"
-		EncodeOpus(ctx, tm.relay, output, decoder, inst.Config.Bitrate, &inst.BytesEncoded, false,
+		// Opus is always 48 kHz internally. Anything else needs a
+		// resampler; without this the encoder plays 44.1 kHz MP3 input
+		// ~8.8 % too fast (chipmunk voice).
+		var pcm io.Reader = decoder
+		if decoder.SampleRate() != 48000 {
+			pcm = NewLinearResampler(decoder, decoder.SampleRate(), 48000)
+			logger.L.Infow("Transcoder: resampling input for Opus",
+				"name", inst.Config.Name,
+				"from", decoder.SampleRate(),
+				"to", 48000,
+			)
+		}
+		EncodeOpus(ctx, tm.relay, output, pcm, inst.Config.Bitrate, &inst.BytesEncoded, false,
 			OpusEncoderSettings{
 				Application: inst.Config.OpusApplication,
 				VBR:         inst.Config.OpusVBR,
@@ -252,6 +271,55 @@ func resolveOpusApplication(s string) int {
 	}
 }
 
+// shineBitRates mirrors the unexported bitRates table in shine-mp3. Indexed
+// as [bitrate_index][mpegVersion], with:
+//   - mpegVersion 0 = MPEG-2.5, 1 = reserved, 2 = MPEG-II, 3 = MPEG-I
+//   - bitrate_index 0..14 correspond to kbps values (15 is "invalid").
+// -1 entries are unsupported bitrate/version combinations.
+var shineBitRates = [16][4]int64{
+	{-1, -1, -1, -1}, {8, -1, 8, 32}, {16, -1, 16, 40}, {24, -1, 24, 48},
+	{32, -1, 32, 56}, {40, -1, 40, 64}, {48, -1, 48, 80}, {56, -1, 56, 96},
+	{64, -1, 64, 112}, {-1, -1, 80, 128}, {-1, -1, 96, 160}, {-1, -1, 112, 192},
+	{-1, -1, 128, 224}, {-1, -1, 144, 256}, {-1, -1, 160, 320}, {-1, -1, -1, -1},
+}
+
+// applyShineBitrate reaches into a shine.Encoder and overrides the bitrate
+// (and its derived BitrateIndex / WholeSlotsPerFrame / FracSlotsPerFrame /
+// Slot_lag fields) so the encoded output actually respects the operator's
+// bitrate choice. Returns false if the combination isn't supported by the
+// MPEG bitrate table for this sample rate.
+func applyShineBitrate(enc *shine.Encoder, sampleRate, bitrate int) bool {
+	if shine.CheckConfig(sampleRate, bitrate) == -1 {
+		return false
+	}
+	version := int(enc.Mpeg.Version)
+	if version < 0 || version >= 4 {
+		return false
+	}
+	bitrateIndex := -1
+	for i := 0; i < 16; i++ {
+		if shineBitRates[i][version] == int64(bitrate) {
+			bitrateIndex = i
+			break
+		}
+	}
+	if bitrateIndex < 0 {
+		return false
+	}
+	enc.Mpeg.Bitrate = int64(bitrate)
+	enc.Mpeg.BitrateIndex = int64(bitrateIndex)
+	// Recompute the frame-size constants from shine's own formula.
+	avg := (float64(enc.Mpeg.GranulesPerFrame) * 576.0 / float64(enc.Wave.SampleRate)) *
+		(float64(enc.Mpeg.Bitrate) * 1000.0 / float64(enc.Mpeg.BitsPerSlot))
+	enc.Mpeg.WholeSlotsPerFrame = int64(avg)
+	enc.Mpeg.FracSlotsPerFrame = avg - float64(enc.Mpeg.WholeSlotsPerFrame)
+	enc.Mpeg.Slot_lag = -enc.Mpeg.FracSlotsPerFrame
+	if enc.Mpeg.FracSlotsPerFrame == 0 {
+		enc.Mpeg.Padding = 0
+	}
+	return true
+}
+
 func resolveOpusFrameSizeMS(ms int) int {
 	switch ms {
 	case 2, 5, 10, 20, 40, 60:
@@ -265,8 +333,17 @@ func EncodeMP3(ctx context.Context, relay *Relay, output *Stream, decoder io.Rea
 	if sampleRate <= 0 {
 		sampleRate = 44100 // Fallback
 	}
-	// Shine MP3 initialization
+	// Shine MP3 initialization. NewEncoder hard-codes the bitrate at 128,
+	// so we reach into the Mpeg field to pick up the caller's bitrate. If
+	// the combination isn't valid for the MPEG bitrate table we fall back
+	// to the 128 kbps default rather than producing a malformed stream.
 	encoder := shine.NewEncoder(sampleRate, 2)
+	if bitrate > 0 && bitrate != 128 {
+		if !applyShineBitrate(encoder, sampleRate, bitrate) {
+			logger.L.Warnw("EncodeMP3: requested bitrate not supported for sample rate, falling back to 128 kbps",
+				"sample_rate", sampleRate, "requested_bitrate", bitrate)
+		}
+	}
 
 	// Output buffer - shine Write uses int16 samples
 	pcmBuf := make([]byte, 4608) // 1152 samples * 2 bytes * 2 channels

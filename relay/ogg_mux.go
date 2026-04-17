@@ -49,6 +49,12 @@ type OggPageRewriter struct {
 	granuleOffset  int64
 	haveFirstAudio bool
 
+	// PreSkip parsed from the most recently seen OpusHead BOS packet
+	// (0 for Vorbis / FLAC-in-Ogg or when no OpusHead is present). The
+	// first audio page after a BOS is anchored at PreSkip + 960 so a
+	// strict Opus decoder doesn't skip past the entire first frame.
+	preSkip int64
+
 	// Scratch buffer reused across pages to avoid an allocation per page.
 	scratch []byte
 }
@@ -138,6 +144,34 @@ func (r *OggPageRewriter) Write(p []byte) (int, error) {
 // rewritePage edits the page header in-place so it carries our serial,
 // sequence counter, rebased granule, and a freshly computed CRC.
 func (r *OggPageRewriter) rewritePage(page []byte) {
+	headerType := page[5]
+	isBOS := headerType&0x02 != 0
+
+	// A BOS page seen *after* we've already emitted pages indicates a
+	// chained logical stream (the source started a new stream without
+	// tearing the mount down, or the sources in front of tinyice rotated
+	// serials). Spec-compliant behaviour is to emit that as a new logical
+	// stream with a fresh bitstream serial and seq=0. Without this reset
+	// the rewriter would keep incrementing seq, giving the decoder a
+	// non-zero-seq BOS page which most implementations reject.
+	if isBOS && r.localSeq > 0 {
+		r.localSerial = randomSerial()
+		r.localSeq = 0
+		r.haveFirstAudio = false
+		r.granuleOffset = 0
+		r.preSkip = 0
+	}
+	if isBOS {
+		// Parse OpusHead PreSkip if this BOS carries one — it lets us
+		// anchor the first audio granule past the decoder's required
+		// skip window so we don't cut off the first packet.
+		body := pageBodyOffset(page)
+		if body > 0 && body+12 <= len(page) &&
+			bytes.Equal(page[body:body+8], []byte("OpusHead")) {
+			r.preSkip = int64(binary.LittleEndian.Uint16(page[body+10 : body+12]))
+		}
+	}
+
 	rawGranule := binary.LittleEndian.Uint64(page[6:14])
 	var newGranule uint64
 	switch {
@@ -148,10 +182,12 @@ func (r *OggPageRewriter) rewritePage(page []byte) {
 		newGranule = rawGranule
 	default:
 		if !r.haveFirstAudio {
-			// Anchor the first audio page at 960 samples (20 ms at 48
-			// kHz) so the output is strictly greater than the BOS/Tags
-			// pages' granule 0 but still close to time zero.
-			r.granuleOffset = int64(rawGranule) - 960
+			// Anchor first audio at PreSkip + 960 samples (one typical
+			// 20 ms Opus frame at 48 kHz). For Opus this guarantees the
+			// page's granule is past the encoder's delay window; for
+			// Vorbis / FLAC-in-Ogg (PreSkip = 0) it reduces to the
+			// previous behaviour of anchoring near zero.
+			r.granuleOffset = int64(rawGranule) - (r.preSkip + 960)
 			r.haveFirstAudio = true
 		}
 		rebased := int64(rawGranule) - r.granuleOffset
@@ -168,6 +204,20 @@ func (r *OggPageRewriter) rewritePage(page []byte) {
 	// Zero the CRC field, then recompute across the whole page.
 	page[22], page[23], page[24], page[25] = 0, 0, 0, 0
 	binary.LittleEndian.PutUint32(page[22:26], oggCRC(page))
+}
+
+// pageBodyOffset returns the byte offset of the first body byte within a
+// fully-buffered Ogg page, or -1 if the page header is truncated.
+func pageBodyOffset(page []byte) int {
+	if len(page) < 27 {
+		return -1
+	}
+	numSegs := int(page[26])
+	hdrLen := 27 + numSegs
+	if len(page) < hdrLen {
+		return -1
+	}
+	return hdrLen
 }
 
 // --- Ogg CRC32 -------------------------------------------------------------
