@@ -31,6 +31,10 @@ control, and a built-in admin SPA. Deploy anywhere in seconds.
     <td><img src="assets/screenshots/admin-autodj.png" alt="AutoDJ" /></td>
     <td><img src="assets/screenshots/developers.png" alt="Developer portal" /></td>
   </tr>
+  <tr>
+    <td><img src="https://github.com/user-attachments/assets/243914ac-edb5-472c-aba7-699af987da9f" alt="Video Stream" /></td>
+    <td></td>
+  </tr>
 </table>
 
 ---
