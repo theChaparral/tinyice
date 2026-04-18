@@ -20,6 +20,12 @@ type streamEventInfo struct {
 	Mount        string  `json:"mount"`
 	Name         string  `json:"name"`
 	Listeners    int     `json:"listeners"`
+	// Viewers counts HLS / WHEP browser playback sessions over the
+	// last 30 s — those clients fetch segments / hold a peer
+	// connection rather than holding the long-lived listener
+	// connection that Listeners tracks. The player renders this
+	// instead of Listeners on video mounts.
+	Viewers      int     `json:"viewers"`
 	Bitrate      string  `json:"bitrate"`
 	Uptime       string  `json:"uptime"`
 	ContentType  string  `json:"type"`
@@ -89,6 +95,14 @@ func (s *Server) collectStatsPayload(user *config.User) ([]byte, error) {
 					entry.VideoFPS = vm.FPS
 					entry.VideoGOP = vm.GOPSeconds
 					entry.VideoKbps = vm.BitrateKbps
+				}
+				// Combine browser viewers from the parent mount
+				// (HLS playlist + WHEP) with the /video sibling.
+				entry.Viewers = liveStream.ViewerCount()
+				if vs, ok := s.Relay.GetStream(st.MountName + "/video"); ok {
+					if c := vs.ViewerCount(); c > entry.Viewers {
+						entry.Viewers = c
+					}
 				}
 			}
 			info = append(info, entry)
@@ -257,6 +271,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 					"format":       stMap["type"],
 					"bitrate":      stMap["bitrate"],
 					"listeners":    stMap["listeners"],
+					"viewers":      stMap["viewers"],
 					"health":       stMap["health"],
 					"title":        stMap["song"],
 					"artist":       "",
@@ -308,26 +323,86 @@ func (s *Server) handlePublicEvents(w http.ResponseWriter, r *http.Request) {
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 	type PublicStreamInfo struct {
-		Mount       string `json:"mount"`
-		Name        string `json:"name"`
-		Listeners   int    `json:"listeners"`
-		Bitrate     string `json:"bitrate"`
-		Uptime      string `json:"uptime"`
-		Genre       string `json:"genre"`
-		Description string `json:"description"`
-		CurrentSong string `json:"song"`
+		Mount       string  `json:"mount"`
+		Name        string  `json:"name"`
+		Listeners   int     `json:"listeners"`
+		Viewers     int     `json:"viewers,omitempty"`
+		Bitrate     string  `json:"bitrate"`
+		Uptime      string  `json:"uptime"`
+		Genre       string  `json:"genre"`
+		Description string  `json:"description"`
+		CurrentSong string  `json:"song"`
+		HasVideo    bool    `json:"has_video,omitempty"`
+		VideoWidth  int     `json:"video_width,omitempty"`
+		VideoHeight int     `json:"video_height,omitempty"`
+		VideoFPS    float64 `json:"video_fps,omitempty"`
+		VideoGOP    float64 `json:"video_gop,omitempty"`
+		VideoKbps   int     `json:"video_kbps,omitempty"`
 	}
 	send := func() error {
 		allStreams := s.Relay.Snapshot()
+		videoMounts := make(map[string]bool)
+		for _, st := range allStreams {
+			if strings.HasSuffix(st.MountName, "/video") {
+				videoMounts[strings.TrimSuffix(st.MountName, "/video")] = true
+			}
+		}
 		var info []PublicStreamInfo
 		for _, st := range allStreams {
-			if st.Visible {
-				info = append(info, PublicStreamInfo{Mount: st.MountName, Name: st.Name, Listeners: st.ListenersCount, Bitrate: st.Bitrate, Uptime: st.Uptime, Genre: st.Genre, Description: st.Description, CurrentSong: st.CurrentSong})
+			if !st.Visible {
+				continue
 			}
+			entry := PublicStreamInfo{
+				Mount: st.MountName, Name: st.Name, Listeners: st.ListenersCount,
+				Bitrate: st.Bitrate, Uptime: st.Uptime, Genre: st.Genre,
+				Description: st.Description, CurrentSong: st.CurrentSong,
+				HasVideo: videoMounts[st.MountName],
+			}
+			if liveStream, ok := s.Relay.GetStream(st.MountName); ok {
+				entry.Viewers = liveStream.ViewerCount()
+				if entry.HasVideo {
+					if vs, ok := s.Relay.GetStream(st.MountName + "/video"); ok {
+						vm := vs.VideoMetricsSnapshot()
+						if vm.Width > 0 {
+							entry.VideoWidth = vm.Width
+							entry.VideoHeight = vm.Height
+							entry.VideoFPS = vm.FPS
+							entry.VideoGOP = vm.GOPSeconds
+							entry.VideoKbps = vm.BitrateKbps
+						}
+						if c := vs.ViewerCount(); c > entry.Viewers {
+							entry.Viewers = c
+						}
+					}
+				}
+			}
+			info = append(info, entry)
 		}
 		payload, _ := json.Marshal(info)
 		if _, err := fmt.Fprintf(w, "data: %s\n\n", payload); err != nil {
 			return err
+		}
+		// Per-stream named events so the player's `sse.on('stream', …)`
+		// handler actually fires; the unnamed `data:` frame above is
+		// kept for legacy listeners.
+		for _, entry := range info {
+			single, _ := json.Marshal(map[string]interface{}{
+				"mount":        entry.Mount,
+				"title":        entry.CurrentSong,
+				"artist":       entry.Name,
+				"format":       "",
+				"bitrate":      entry.Bitrate,
+				"listeners":    entry.Listeners,
+				"viewers":      entry.Viewers,
+				"video_width":  entry.VideoWidth,
+				"video_height": entry.VideoHeight,
+				"video_fps":    entry.VideoFPS,
+				"video_gop":    entry.VideoGOP,
+				"video_kbps":   entry.VideoKbps,
+			})
+			if _, err := fmt.Fprintf(w, "event: stream\ndata: %s\n\n", single); err != nil {
+				return err
+			}
 		}
 		flusher.Flush()
 		return nil

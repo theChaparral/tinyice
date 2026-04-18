@@ -112,6 +112,13 @@ type Stream struct {
 	videoFrameBytes   []int
 	videoLastKeyframe time.Time
 	videoGOPs         []float64
+
+	// HLS / WHEP viewer tracking. Indexed by client IP; entries
+	// expire after viewerTTL since the last poll/keepalive. The
+	// raw Icecast listener counter on listeners[] doesn't include
+	// browser-side video viewers because they fetch segments
+	// rather than holding a long-lived listener connection.
+	viewers []viewerEntry
 }
 
 // IsOgg returns true if the stream is Ogg-based (Ogg/Vorbis, Ogg/Opus, etc).
@@ -281,6 +288,53 @@ func (s *Stream) VideoMetricsSnapshot() VideoMetrics {
 		m.GOPSeconds = sum / float64(n)
 	}
 	return m
+}
+
+// RecordViewer marks an HLS / WHEP viewer as active for `mount` from `ip`
+// at `now`. Entries older than viewerTTL are evicted on each call.
+// ViewerCount returns the unique-IP count over that same window — this
+// is what we surface as "viewers" in the UI for video mounts (which
+// don't go through the byte-streaming listener handler).
+const viewerTTL = 30 * time.Second
+
+type viewerEntry struct {
+	ip   string
+	last time.Time
+}
+
+func (s *Stream) RecordViewer(ip string, now time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cutoff := now.Add(-viewerTTL)
+	kept := s.viewers[:0]
+	found := false
+	for _, v := range s.viewers {
+		if v.last.Before(cutoff) {
+			continue
+		}
+		if v.ip == ip {
+			v.last = now
+			found = true
+		}
+		kept = append(kept, v)
+	}
+	if !found {
+		kept = append(kept, viewerEntry{ip: ip, last: now})
+	}
+	s.viewers = kept
+}
+
+func (s *Stream) ViewerCount() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	cutoff := time.Now().Add(-viewerTTL)
+	n := 0
+	for _, v := range s.viewers {
+		if !v.last.Before(cutoff) {
+			n++
+		}
+	}
+	return n
 }
 
 // StoreOggHead atomically records the Ogg header bytes and the buffer offset

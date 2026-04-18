@@ -3,9 +3,11 @@ package server
 import (
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/DatanoiseTV/tinyice/logger"
 	"github.com/DatanoiseTV/tinyice/relay"
@@ -32,6 +34,18 @@ func (s *Server) handleHLSPlaylist(w http.ResponseWriter, r *http.Request) {
 	if hls == nil {
 		http.NotFound(w, r)
 		return
+	}
+
+	// Record the viewer so the UI can show "N viewers" on video
+	// mounts. hls.js polls the playlist every TARGETDURATION/2, so
+	// each viewer keeps refreshing the same IP entry inside the
+	// 30 s viewer-TTL window.
+	if stream, ok := s.Relay.GetStream(mount); ok {
+		host, _, _ := net.SplitHostPort(r.RemoteAddr)
+		if host == "" {
+			host = r.RemoteAddr
+		}
+		stream.RecordViewer(host, time.Now())
 	}
 
 	playlist := hls.Playlist()
@@ -128,6 +142,13 @@ func (s *Server) handleWHEP(w http.ResponseWriter, r *http.Request) {
 		logger.L.Warnw("WHEP: offer rejected", "mount", mount, "err", err.Error())
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
+	}
+	if stream, ok := s.Relay.GetStream(mount); ok {
+		host, _, _ := net.SplitHostPort(r.RemoteAddr)
+		if host == "" {
+			host = r.RemoteAddr
+		}
+		stream.RecordViewer(host, time.Now())
 	}
 	w.Header().Set("Content-Type", "application/sdp")
 	w.Header().Set("Location", r.URL.Path)

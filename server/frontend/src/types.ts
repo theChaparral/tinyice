@@ -63,8 +63,9 @@ export interface StreamEvent {
   title: string
   artist: string
   format: string
-  bitrate: number
+  bitrate: number | string
   listeners: number
+  viewers?: number
   health: number
   video_width?: number
   video_height?: number

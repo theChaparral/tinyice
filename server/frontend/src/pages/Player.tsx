@@ -20,6 +20,49 @@ const listeners = signal(data.listeners || 0)
 // Resets to 0 on pause so the number always reflects "how long the current
 // listening session has been running" rather than page-open time.
 const elapsed = signal(0)
+const showStats = signal(false)
+
+// Live stream info (refreshed from SSE) — these reflect what the source is
+// currently producing, independent of how well our player is keeping up.
+type StreamStats = {
+  audioCodec: string
+  audioBitrateKbps: number
+  videoCodec: string
+  videoWidth: number
+  videoHeight: number
+  videoFPS: number
+  videoGOP: number
+  videoKbps: number
+}
+const streamStats = signal<StreamStats>({
+  audioCodec: data.format ? data.format.toUpperCase() : '—',
+  audioBitrateKbps: data.bitrate || 0,
+  videoCodec: data.hasVideo ? 'H264' : '—',
+  videoWidth: 0,
+  videoHeight: 0,
+  videoFPS: 0,
+  videoGOP: 0,
+  videoKbps: 0,
+})
+
+// Client-side playback health (sampled from the <video>/<audio> element
+// every second). Buffered seconds is forward-looking; dropped frames is a
+// running counter from the browser's playback quality stats; latency is
+// (live edge − currentTime) when hls.js exposes it.
+type PlaybackStats = {
+  bufferedSec: number
+  droppedFrames: number
+  totalFrames: number
+  latencySec: number
+  transport: string
+}
+const playbackStats = signal<PlaybackStats>({
+  bufferedSec: 0,
+  droppedFrames: 0,
+  totalFrames: 0,
+  latencySec: 0,
+  transport: '—',
+})
 
 function formatElapsed(secs: number): string {
   secs = Math.max(0, Math.floor(secs))
@@ -28,6 +71,78 @@ function formatElapsed(secs: number): string {
   const s = secs % 60
   const pad = (n: number) => n.toString().padStart(2, '0')
   return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`
+}
+
+function codecFromMime(mime: string | undefined): string {
+  if (!mime) return '—'
+  const lower = mime.toLowerCase()
+  if (lower.includes('opus')) return 'OPUS'
+  if (lower.includes('mp3') || lower.includes('mpeg')) return 'MP3'
+  if (lower.includes('aac')) return 'AAC'
+  if (lower.includes('vorbis')) return 'VORBIS'
+  if (lower.includes('flac')) return 'FLAC'
+  return mime.toUpperCase()
+}
+
+function audienceLabel(n: number, isVideo: boolean): string {
+  if (isVideo) return n === 1 ? 'viewer' : 'viewers'
+  return n === 1 ? 'listener' : 'listeners'
+}
+
+function StatsPanel({ isVideo }: { isVideo: boolean }) {
+  const s = streamStats.value
+  const p = playbackStats.value
+  const droppedPct = p.totalFrames > 0 ? ((p.droppedFrames / p.totalFrames) * 100) : 0
+  return (
+    <div class="fixed bottom-20 right-5 z-30 w-[280px] rounded-lg border border-border bg-surface-base/95 backdrop-blur p-3 shadow-2xl font-mono text-[11px] text-text-secondary">
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-[9px] tracking-widest text-text-tertiary uppercase">STREAM STATS</span>
+        <button
+          onClick={() => (showStats.value = false)}
+          class="text-text-tertiary hover:text-text-primary"
+          aria-label="Close stats"
+        >
+          ×
+        </button>
+      </div>
+      <div class="grid grid-cols-2 gap-x-3 gap-y-1.5 tabular-nums">
+        <div class="text-text-tertiary">Transport</div><div class="text-text-primary">{p.transport}</div>
+        <div class="text-text-tertiary">Audio codec</div><div class="text-text-primary">{s.audioCodec}</div>
+        <div class="text-text-tertiary">Audio bitrate</div><div class="text-text-primary">{s.audioBitrateKbps ? `${s.audioBitrateKbps} kbps` : '—'}</div>
+        {isVideo && (
+          <>
+            <div class="text-text-tertiary">Video codec</div><div class="text-text-primary">{s.videoCodec}</div>
+            <div class="text-text-tertiary">Resolution</div>
+            <div class="text-text-primary">{s.videoWidth ? `${s.videoWidth}×${s.videoHeight}` : '—'}</div>
+            <div class="text-text-tertiary">FPS</div>
+            <div class="text-text-primary">{s.videoFPS ? s.videoFPS.toFixed(1) : '—'}</div>
+            <div class="text-text-tertiary">GOP</div>
+            <div class="text-text-primary">{s.videoGOP ? `${s.videoGOP.toFixed(1)} s` : '—'}</div>
+            <div class="text-text-tertiary">Video bitrate</div>
+            <div class="text-text-primary">{s.videoKbps ? `${s.videoKbps} kbps` : '—'}</div>
+          </>
+        )}
+        <div class="col-span-2 mt-1 mb-0.5 border-t border-border" />
+        <div class="text-text-tertiary">Buffer</div><div class="text-text-primary">{p.bufferedSec.toFixed(1)} s</div>
+        {isVideo && (
+          <>
+            <div class="text-text-tertiary">Frames</div>
+            <div class="text-text-primary">{p.totalFrames.toLocaleString()}</div>
+            <div class="text-text-tertiary">Dropped</div>
+            <div class={droppedPct > 1 ? 'text-danger' : 'text-text-primary'}>
+              {p.droppedFrames.toLocaleString()}{p.totalFrames ? ` (${droppedPct.toFixed(2)}%)` : ''}
+            </div>
+            {p.latencySec > 0 && (
+              <>
+                <div class="text-text-tertiary">Latency</div>
+                <div class="text-text-primary">{p.latencySec.toFixed(1)} s</div>
+              </>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  )
 }
 
 // hlsRef holds the live hls.js instance so handlePause and unmount can tear
@@ -159,8 +274,29 @@ export function Player() {
     })
 
     sse.on('stream', (evt) => {
-      if (evt.mount === data.mount) {
-        listeners.value = evt.listeners
+      if (evt.mount !== data.mount) return
+      // Audience: prefer viewers (HLS / WHEP) when this is a video
+      // mount; otherwise fall through to the raw listener count.
+      const audience =
+        data.hasVideo && typeof evt.viewers === 'number'
+          ? evt.viewers
+          : evt.listeners
+      listeners.value = audience || 0
+      // Bitrate is a string in some payloads ("128") and a number in
+      // others; normalise to integer kbps for the UI.
+      const audioBitrate =
+        typeof evt.bitrate === 'number'
+          ? evt.bitrate
+          : parseInt(String(evt.bitrate), 10) || 0
+      streamStats.value = {
+        ...streamStats.value,
+        audioBitrateKbps: audioBitrate,
+        videoCodec: data.hasVideo ? 'H264' : '—',
+        videoWidth: evt.video_width || 0,
+        videoHeight: evt.video_height || 0,
+        videoFPS: evt.video_fps || 0,
+        videoGOP: evt.video_gop || 0,
+        videoKbps: evt.video_kbps || 0,
       }
     })
 
@@ -287,6 +423,53 @@ export function Player() {
     return () => clearTimeout(t)
   }, [playing.value])
 
+  // Sample client-side playback health every second while playing.
+  // Buffer-ahead seconds, total/dropped frames (HTMLVideoElement only),
+  // and HLS live-edge latency. Pauses when not playing so we don't
+  // keep ticking after the user hits stop.
+  useEffect(() => {
+    if (!playing.value) return
+    const id = setInterval(() => {
+      const el = audioRef.current as HTMLMediaElement & {
+        getVideoPlaybackQuality?: () => {
+          droppedVideoFrames: number
+          totalVideoFrames: number
+        }
+      } | null
+      if (!el) return
+      let bufferedSec = 0
+      try {
+        const ranges = el.buffered
+        if (ranges && ranges.length > 0) {
+          bufferedSec = ranges.end(ranges.length - 1) - el.currentTime
+        }
+      } catch { /* ignore */ }
+      let dropped = 0
+      let total = 0
+      if (typeof el.getVideoPlaybackQuality === 'function') {
+        try {
+          const q = el.getVideoPlaybackQuality()
+          dropped = q.droppedVideoFrames
+          total = q.totalVideoFrames
+        } catch { /* ignore */ }
+      }
+      let latency = 0
+      const hls = hlsRef.current as unknown as { latency?: number } | null
+      if (hls && typeof hls.latency === 'number') {
+        latency = hls.latency
+      }
+      const transport = whepCleanup.current ? 'WebRTC' : (data.hasVideo ? 'HLS' : 'Icecast')
+      playbackStats.value = {
+        bufferedSec: Math.max(0, bufferedSec),
+        droppedFrames: dropped,
+        totalFrames: total,
+        latencySec: latency,
+        transport,
+      }
+    }, 1000)
+    return () => clearInterval(id)
+  }, [playing.value])
+
   // Drive the "playing for …" readout from a 1 s interval that only runs
   // while playing=true. We tick seconds locally rather than reading
   // el.currentTime because live Icecast audio streams don't expose a
@@ -372,7 +555,7 @@ export function Player() {
                 {data.mount}
               </span>
               <span class="font-mono text-[9px] tracking-widest text-text-tertiary/60 uppercase">
-                {listeners} {listeners.value === 1 ? 'listener' : 'listeners'}
+                {listeners} {audienceLabel(listeners.value, true)}
               </span>
               {playing.value && (
                 <span
@@ -382,9 +565,17 @@ export function Player() {
                   ● {formatElapsed(elapsed.value)}
                 </span>
               )}
+              <button
+                onClick={() => (showStats.value = !showStats.value)}
+                class={`font-mono text-[9px] tracking-widest uppercase px-2 py-1 rounded border ${showStats.value ? 'border-accent text-accent' : 'border-border text-text-tertiary hover:border-border-hover'}`}
+                title="Toggle stream stats"
+              >
+                STATS
+              </button>
               <VolumeKnob value={volume.value} onChange={handleVolumeChange} />
             </div>
           </div>
+          {showStats.value && <StatsPanel isVideo={true} />}
         </div>
       </div>
     )
@@ -482,7 +673,7 @@ export function Player() {
             {data.bitrate}kbps {data.format}
           </span>
           <span class="font-mono text-[9px] tracking-widest text-text-tertiary/50 uppercase">
-            {listeners} {listeners.value === 1 ? 'listener' : 'listeners'}
+            {listeners} {audienceLabel(listeners.value, false)}
           </span>
           {playing.value && (
             <span
@@ -492,8 +683,16 @@ export function Player() {
               ● {formatElapsed(elapsed.value)}
             </span>
           )}
+          <button
+            onClick={() => (showStats.value = !showStats.value)}
+            class={`font-mono text-[9px] tracking-widest uppercase px-2 py-0.5 rounded border ${showStats.value ? 'border-accent text-accent' : 'border-border text-text-tertiary hover:border-border-hover'}`}
+            title="Toggle stream stats"
+          >
+            STATS
+          </button>
         </div>
       </div>
+      {showStats.value && <StatsPanel isVideo={false} />}
     </div>
   )
 }
