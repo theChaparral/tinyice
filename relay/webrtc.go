@@ -319,6 +319,152 @@ func (wm *WebRTCManager) streamToTrack(pc *webrtc.PeerConnection, track *webrtc.
 	}
 }
 
+// HandleWHEPOffer accepts a raw SDP offer from a browser (WHEP egress)
+// and returns a raw SDP answer. Unlike HandleOffer (which only attaches
+// an Opus track from the legacy /webrtc/offer path), this picks both
+// audio and video tracks when the mount has them. The returned string
+// is the SDP answer only — the HTTP layer wraps it with the WHEP
+// headers (Location, 201 status).
+func (wm *WebRTCManager) HandleWHEPOffer(mount, sdpOffer string) (string, error) {
+	stream, ok := wm.relay.GetStream(mount)
+	if !ok {
+		return "", fmt.Errorf("stream not found")
+	}
+
+	pc, err := wm.api.NewPeerConnection(webrtc.Configuration{
+		ICEServers: []webrtc.ICEServer{
+			{URLs: []string{"stun:stun.l.google.com:19302"}},
+		},
+	})
+	if err != nil {
+		return "", err
+	}
+
+	// Audio: only attach when the source is Opus. Browsers don't decode
+	// MP3 over WebRTC, so mounts without Opus get video-only playback.
+	var audioTrack *webrtc.TrackLocalStaticSample
+	ct := strings.ToLower(stream.ContentType)
+	if strings.Contains(ct, "ogg") || strings.Contains(ct, "opus") {
+		audioTrack, err = webrtc.NewTrackLocalStaticSample(
+			webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus},
+			"audio", "tinyice-audio")
+		if err != nil {
+			pc.Close()
+			return "", err
+		}
+		if _, err = pc.AddTrack(audioTrack); err != nil {
+			pc.Close()
+			return "", err
+		}
+	}
+
+	// Video: attach when a /video sibling stream exists with H.264.
+	var videoTrack *webrtc.TrackLocalStaticSample
+	var videoStream *Stream
+	if vs, ok := wm.relay.GetStream(mount + "/video"); ok {
+		videoStream = vs
+		videoTrack, err = webrtc.NewTrackLocalStaticSample(
+			webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeH264},
+			"video", "tinyice-video")
+		if err != nil {
+			pc.Close()
+			return "", err
+		}
+		if _, err = pc.AddTrack(videoTrack); err != nil {
+			pc.Close()
+			return "", err
+		}
+	}
+
+	if audioTrack == nil && videoTrack == nil {
+		pc.Close()
+		return "", fmt.Errorf("mount has no Opus audio or H.264 video to egress")
+	}
+
+	offer := webrtc.SessionDescription{Type: webrtc.SDPTypeOffer, SDP: sdpOffer}
+	if err = pc.SetRemoteDescription(offer); err != nil {
+		pc.Close()
+		return "", err
+	}
+	answer, err := pc.CreateAnswer(nil)
+	if err != nil {
+		pc.Close()
+		return "", err
+	}
+	gather := webrtc.GatheringCompletePromise(pc)
+	if err = pc.SetLocalDescription(answer); err != nil {
+		pc.Close()
+		return "", err
+	}
+	<-gather
+
+	if audioTrack != nil {
+		go wm.streamToTrack(pc, audioTrack, stream)
+	}
+	if videoTrack != nil {
+		go wm.streamVideoToTrack(pc, videoTrack, videoStream)
+	}
+
+	return pc.LocalDescription().SDP, nil
+}
+
+// streamVideoToTrack pulls per-frame Annex-B H.264 NALUs from the stream's
+// FrameHub and hands them to the WebRTC sample track. TrackLocalStaticSample
+// runs RTP packetization (FU-A fragmentation for NAL units larger than
+// MTU) internally; we just need to feed it one full access unit per
+// WriteSample call with a realistic Duration.
+func (wm *WebRTCManager) streamVideoToTrack(pc *webrtc.PeerConnection, track *webrtc.TrackLocalStaticSample, stream *Stream) {
+	if stream == nil || stream.Frames == nil {
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	pc.OnConnectionStateChange(func(st webrtc.PeerConnectionState) {
+		if st == webrtc.PeerConnectionStateClosed ||
+			st == webrtc.PeerConnectionStateFailed ||
+			st == webrtc.PeerConnectionStateDisconnected {
+			cancel()
+		}
+	})
+
+	frames := stream.Frames.Subscribe(ctx)
+	var lastDTS int64 = -1
+	// Wait for the first keyframe so the decoder has a valid IDR +
+	// SPS / PPS to start from; without this Chrome shows a black
+	// frame until the next GOP cycles around.
+	gotKeyframe := false
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case f, ok := <-frames:
+			if !ok {
+				return
+			}
+			if !gotKeyframe {
+				if !f.Keyframe {
+					continue
+				}
+				gotKeyframe = true
+			}
+			dur := 33 * time.Millisecond // 30 fps sane default
+			if lastDTS >= 0 {
+				// Frame.DTS is in 90 kHz ticks.
+				delta := f.DTS - lastDTS
+				if delta > 0 && delta < 1800 { // < 20 ms..200 ms sanity
+					dur = time.Duration(delta) * time.Second / 90000
+				}
+			}
+			lastDTS = f.DTS
+			if err := track.WriteSample(media.Sample{Data: f.Data, Duration: dur}); err != nil {
+				return
+			}
+		}
+	}
+}
+
 func (wm *WebRTCManager) DisconnectSource(mount string) error {
 	wm.mu.Lock()
 	defer wm.mu.Unlock()

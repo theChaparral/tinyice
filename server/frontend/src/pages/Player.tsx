@@ -39,6 +39,72 @@ type HlsLike = {
   destroy(): void
 }
 
+// resolveHLSUrl returns master.m3u8 when the mount publishes a variant
+// ladder, otherwise playlist.m3u8. We probe via HEAD so a 404 on the
+// master endpoint is invisible to the user.
+async function resolveHLSUrl(mountPath: string): Promise<string> {
+  try {
+    const res = await fetch(`${mountPath}/master.m3u8`, { method: 'HEAD' })
+    if (res.ok) return `${mountPath}/master.m3u8`
+  } catch {
+    // Network errors fall through to playlist.m3u8.
+  }
+  return `${mountPath}/playlist.m3u8`
+}
+
+// attachWHEP negotiates a WebRTC viewer session via the server's WHEP
+// endpoint and binds the resulting remote stream to the <video>
+// element. Returns a cleanup function for unmount, or null if the
+// negotiation failed (caller should fall back to HLS).
+async function attachWHEP(
+  mountPath: string,
+  el: HTMLMediaElement,
+): Promise<(() => void) | null> {
+  if (typeof RTCPeerConnection === 'undefined') return null
+  const pc = new RTCPeerConnection({
+    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+  })
+  const remote = new MediaStream()
+  pc.addTransceiver('video', { direction: 'recvonly' })
+  pc.addTransceiver('audio', { direction: 'recvonly' })
+  pc.ontrack = (ev) => {
+    for (const track of ev.streams[0].getTracks()) remote.addTrack(track)
+    el.srcObject = remote
+  }
+  try {
+    const offer = await pc.createOffer()
+    await pc.setLocalDescription(offer)
+    // Wait for ICE gathering so we can send a complete SDP (server
+    // doesn't trickle); short timeout in case a network prevents
+    // reaching a STUN server.
+    await new Promise<void>((resolve) => {
+      if (pc.iceGatheringState === 'complete') return resolve()
+      const t = setTimeout(() => resolve(), 2000)
+      pc.addEventListener('icegatheringstatechange', () => {
+        if (pc.iceGatheringState === 'complete') {
+          clearTimeout(t)
+          resolve()
+        }
+      })
+    })
+    const res = await fetch(`${mountPath}/whep`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/sdp' },
+      body: pc.localDescription?.sdp ?? offer.sdp ?? '',
+    })
+    if (!res.ok) {
+      pc.close()
+      return null
+    }
+    const answer = await res.text()
+    await pc.setRemoteDescription({ type: 'answer', sdp: answer })
+    return () => pc.close()
+  } catch {
+    pc.close()
+    return null
+  }
+}
+
 async function attachHLS(url: string, el: HTMLMediaElement): Promise<HlsLike | null> {
   // Safari / iOS / tvOS / Android Chrome handle HLS natively — feed the
   // playlist URL straight into the element and skip the 120 KB bundle.
@@ -62,6 +128,7 @@ export function Player() {
   const audioRef = useRef<HTMLAudioElement>(null)
   const analyserRef = useRef<AnalyserNode | null>(null)
   const hlsRef = useRef<HlsLike | null>(null)
+  const whepCleanup = useRef<(() => void) | null>(null)
   const albumArt = useAlbumArt(artist.value, title.value)
 
   const getFreqData = useCallback(() => {
@@ -109,7 +176,15 @@ export function Player() {
     // using the raw Icecast stream URL.
     const mountPath = data.mount!.startsWith('/') ? data.mount! : `/${data.mount}`
     if (data.hasVideo) {
-      hlsRef.current = await attachHLS(`${mountPath}/playlist.m3u8`, el)
+      // Prefer WebRTC (sub-second latency); fall back to HLS if the
+      // WHEP negotiation fails (e.g. server is too old, ICE blocked).
+      const whep = await attachWHEP(mountPath, el)
+      if (whep) {
+        whepCleanup.current = whep
+      } else {
+        const hlsUrl = await resolveHLSUrl(mountPath)
+        hlsRef.current = await attachHLS(hlsUrl, el)
+      }
     } else {
       el.src = mountPath
     }
@@ -134,13 +209,18 @@ export function Player() {
     playing.value = false
   }, [])
 
-  // Tear down the hls.js instance on unmount so we don't leak MediaSource
-  // workers or keep fetching segments for a closed page.
+  // Tear down the hls.js instance and any WebRTC peer connection on
+  // unmount so we don't leak MediaSource workers or keep an ICE
+  // session alive for a closed page.
   useEffect(() => {
     return () => {
       if (hlsRef.current) {
         hlsRef.current.destroy()
         hlsRef.current = null
+      }
+      if (whepCleanup.current) {
+        whepCleanup.current()
+        whepCleanup.current = null
       }
     }
   }, [])

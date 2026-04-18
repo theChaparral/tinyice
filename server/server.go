@@ -324,6 +324,10 @@ func (s *Server) setupRoutes() *http.ServeMux {
 		}
 
 		path := r.URL.Path
+		if strings.HasSuffix(path, "/master.m3u8") {
+			s.handleHLSMaster(w, r)
+			return
+		}
 		if strings.HasSuffix(path, "/playlist.m3u8") {
 			s.handleHLSPlaylist(w, r)
 			return
@@ -334,6 +338,10 @@ func (s *Server) setupRoutes() *http.ServeMux {
 		}
 		if strings.HasSuffix(path, "/poster.jpg") {
 			s.handlePoster(w, r)
+			return
+		}
+		if strings.HasSuffix(path, "/whep") {
+			s.handleWHEP(w, r)
 			return
 		}
 		s.handleRoot(w, r)

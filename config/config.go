@@ -186,6 +186,14 @@ type Config struct {
 	DisabledMounts map[string]bool   `json:"disabled_mounts"`
 	VisibleMounts  map[string]bool   `json:"visible_mounts"`  // map[mount]is_visible
 	FallbackMounts map[string]string `json:"fallback_mounts"` // map[source]fallback
+	// VariantGroups declares ABR simulcast ladders. The key is the primary
+	// mount (the URL viewers navigate to); the value is the ordered list
+	// of member mount paths that form the ladder — lowest rendition to
+	// highest. The primary must also appear in the list. Each member is
+	// a separately-published mount (OBS "Multiple Outputs" plugin, etc.)
+	// with its own HLS segments; the server emits a master.m3u8 at
+	// /{primary}/master.m3u8 that lists all members.
+	VariantGroups map[string][]string `json:"variant_groups,omitempty"`
 
 	// UI Customization
 	PageTitle    string `json:"page_title"`

@@ -91,6 +91,123 @@ func (s *Server) handleHLSSegment(w http.ResponseWriter, r *http.Request) {
 	w.Write(segment.Data)
 }
 
+// handleWHEP implements a minimal WHEP (WebRTC-HTTP Egress Protocol)
+// endpoint for viewer-side WebRTC playback.
+//
+//	POST /{mount}/whep
+//	Content-Type: application/sdp
+//	<SDP offer>
+//
+// Server returns 201 Created with Content-Type: application/sdp and the
+// SDP answer in the body. The client uses that answer to finalise the
+// peer connection. Termination is a DELETE on the Location URL (we
+// issue "/{mount}/whep" as the Location for simplicity; disconnect is
+// currently driven by the WebRTC peer connection state).
+func (s *Server) handleWHEP(w http.ResponseWriter, r *http.Request) {
+	mount := strings.TrimSuffix(r.URL.Path, "/whep")
+	if mount == "" || !strings.HasPrefix(mount, "/") {
+		http.NotFound(w, r)
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	ct := r.Header.Get("Content-Type")
+	if !strings.Contains(strings.ToLower(ct), "application/sdp") {
+		http.Error(w, "expected application/sdp", http.StatusUnsupportedMediaType)
+		return
+	}
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 64*1024))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	answer, err := s.WebRTCM.HandleWHEPOffer(mount, string(body))
+	if err != nil {
+		logger.L.Warnw("WHEP: offer rejected", "mount", mount, "err", err.Error())
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/sdp")
+	w.Header().Set("Location", r.URL.Path)
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.WriteHeader(http.StatusCreated)
+	w.Write([]byte(answer))
+}
+
+// handleHLSMaster serves a master (multivariant) HLS playlist that lists
+// every member of the configured VariantGroup for this mount. Players
+// can then choose a rendition based on bandwidth / display size.
+//
+// Path: /{primary}/master.m3u8
+func (s *Server) handleHLSMaster(w http.ResponseWriter, r *http.Request) {
+	primary := strings.TrimSuffix(r.URL.Path, "/master.m3u8")
+	if primary == "" || !strings.HasPrefix(primary, "/") {
+		http.NotFound(w, r)
+		return
+	}
+	members, ok := s.Config.VariantGroups[primary]
+	if !ok || len(members) == 0 {
+		http.NotFound(w, r)
+		return
+	}
+
+	var b strings.Builder
+	b.WriteString("#EXTM3U\n")
+	b.WriteString("#EXT-X-VERSION:4\n")
+	for _, m := range members {
+		// Ensure per-variant HLS output exists so the referenced
+		// playlist URL responds immediately instead of racing the
+		// player's first request.
+		if _, exists := s.Relay.GetStream(m); exists {
+			if s.getHLSOutput(m) == nil {
+				s.RegisterHLS(m)
+			}
+		}
+		bandwidth := 0
+		resolution := ""
+		if vs, ok := s.Relay.GetStream(m + "/video"); ok {
+			vm := vs.VideoMetricsSnapshot()
+			if vm.BitrateKbps > 0 {
+				bandwidth = vm.BitrateKbps * 1000
+			}
+			if vm.Width > 0 {
+				resolution = fmt.Sprintf("%dx%d", vm.Width, vm.Height)
+			}
+		}
+		// If we can't observe a live bitrate yet, synthesize one from
+		// the mount name so the player still gets a plausible BANDWIDTH
+		// hint to sort by. Default 2 Mbps, bumped for common suffixes.
+		if bandwidth == 0 {
+			bandwidth = 2_000_000
+			switch {
+			case strings.Contains(m, "2160"), strings.Contains(m, "4k"):
+				bandwidth = 12_000_000
+			case strings.Contains(m, "1080"):
+				bandwidth = 5_000_000
+			case strings.Contains(m, "720"):
+				bandwidth = 2_800_000
+			case strings.Contains(m, "480"):
+				bandwidth = 1_200_000
+			case strings.Contains(m, "360"):
+				bandwidth = 600_000
+			}
+		}
+		if resolution != "" {
+			fmt.Fprintf(&b, "#EXT-X-STREAM-INF:BANDWIDTH=%d,RESOLUTION=%s\n", bandwidth, resolution)
+		} else {
+			fmt.Fprintf(&b, "#EXT-X-STREAM-INF:BANDWIDTH=%d\n", bandwidth)
+		}
+		fmt.Fprintf(&b, "%s/playlist.m3u8\n", m)
+	}
+
+	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Write([]byte(b.String()))
+}
+
 // handlePoster serves and accepts per-mount poster JPEGs. The upload path
 // is intentionally simple: any authenticated-or-anonymous listener can
 // POST a JPEG sampled client-side from the video element, and the most
