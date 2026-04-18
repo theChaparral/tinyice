@@ -122,6 +122,11 @@ func (s *Server) apiGetStreams(w http.ResponseWriter, r *http.Request) {
 		CurrentSong string  `json:"current_song"`
 		Name        string  `json:"name"`
 		HasVideo    bool    `json:"has_video"`
+		VideoWidth  int     `json:"video_width,omitempty"`
+		VideoHeight int     `json:"video_height,omitempty"`
+		VideoFPS    float64 `json:"video_fps,omitempty"`
+		VideoGOP    float64 `json:"video_gop,omitempty"`
+		VideoKbps   int     `json:"video_kbps,omitempty"`
 	}
 
 	var result []streamInfo
@@ -134,7 +139,7 @@ func (s *Server) apiGetStreams(w http.ResponseWriter, r *http.Request) {
 		}
 		if s.hasAccess(user, st.MountName) {
 			seen[st.MountName] = true
-			result = append(result, streamInfo{
+			info := streamInfo{
 				Mount:       st.MountName,
 				ContentType: st.ContentType,
 				Bitrate:     st.Bitrate,
@@ -147,7 +152,24 @@ func (s *Server) apiGetStreams(w http.ResponseWriter, r *http.Request) {
 				CurrentSong: st.CurrentSong,
 				Name:        st.Name,
 				HasVideo:    videoMounts[st.MountName],
-			})
+			}
+			// Pull video metrics from the /video sibling (that's where
+			// ingest records them) so the parent row in the UI carries
+			// the numbers the operator expects to see alongside its
+			// listener / uptime counts.
+			if info.HasVideo {
+				if vs, ok := s.Relay.GetStream(st.MountName + "/video"); ok {
+					vm := vs.VideoMetricsSnapshot()
+					if vm.Width > 0 {
+						info.VideoWidth = vm.Width
+						info.VideoHeight = vm.Height
+						info.VideoFPS = vm.FPS
+						info.VideoGOP = vm.GOPSeconds
+						info.VideoKbps = vm.BitrateKbps
+					}
+				}
+			}
+			result = append(result, info)
 		}
 	}
 

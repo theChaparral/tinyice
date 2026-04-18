@@ -30,6 +30,14 @@ type streamEventInfo struct {
 	CurrentSong  string  `json:"song"`
 	Health       float64 `json:"health"`
 	IsTranscoded bool    `json:"is_transcoded"`
+
+	// Video-only metrics. Zero on audio mounts; the frontend hides
+	// the video-stats strip when Width == 0.
+	VideoWidth    int     `json:"video_width,omitempty"`
+	VideoHeight   int     `json:"video_height,omitempty"`
+	VideoFPS      float64 `json:"video_fps,omitempty"`
+	VideoGOP      float64 `json:"video_gop,omitempty"`
+	VideoKbps     int     `json:"video_kbps,omitempty"`
 }
 
 type relayEventInfo struct {
@@ -64,12 +72,26 @@ func (s *Server) collectStatsPayload(user *config.User) ([]byte, error) {
 		if s.hasAccess(user, st.MountName) {
 			lc := st.ListenersCount
 			tl += lc
-			info = append(info, streamEventInfo{
+			entry := streamEventInfo{
 				Mount: st.MountName, Name: st.Name, Listeners: lc, Bitrate: st.Bitrate,
 				Uptime: st.Uptime, ContentType: st.ContentType, SourceIP: st.SourceIP,
 				BytesIn: st.BytesIn, BytesOut: st.BytesOut, BytesDropped: st.BytesDropped,
 				CurrentSong: st.CurrentSong, Health: st.Health, IsTranscoded: st.IsTranscoded,
-			})
+			}
+			// Attach video metrics when the live Stream has them.
+			// Zero width means either "audio mount" or "we haven't
+			// sampled yet" — both are invisible to the UI.
+			if liveStream, ok := s.Relay.GetStream(st.MountName); ok {
+				vm := liveStream.VideoMetricsSnapshot()
+				if vm.Width > 0 {
+					entry.VideoWidth = vm.Width
+					entry.VideoHeight = vm.Height
+					entry.VideoFPS = vm.FPS
+					entry.VideoGOP = vm.GOPSeconds
+					entry.VideoKbps = vm.BitrateKbps
+				}
+			}
+			info = append(info, entry)
 			if st.SourceIP == "relay-pull" {
 				tr++
 			} else {
@@ -231,13 +253,18 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 			for _, st := range streams {
 				stMap := st.(map[string]interface{})
 				streamJSON, _ := json.Marshal(map[string]interface{}{
-					"mount":     stMap["mount"],
-					"format":    stMap["content_type"],
-					"bitrate":   stMap["bitrate"],
-					"listeners": stMap["listeners"],
-					"health":    stMap["health"],
-					"title":     stMap["song"],
-					"artist":    "",
+					"mount":        stMap["mount"],
+					"format":       stMap["type"],
+					"bitrate":      stMap["bitrate"],
+					"listeners":    stMap["listeners"],
+					"health":       stMap["health"],
+					"title":        stMap["song"],
+					"artist":       "",
+					"video_width":  stMap["video_width"],
+					"video_height": stMap["video_height"],
+					"video_fps":    stMap["video_fps"],
+					"video_gop":    stMap["video_gop"],
+					"video_kbps":   stMap["video_kbps"],
 				})
 				fmt.Fprintf(w, "event: stream\ndata: %s\n\n", streamJSON)
 			}

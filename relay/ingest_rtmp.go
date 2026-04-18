@@ -409,6 +409,13 @@ func (h *rtmpHandler) OnVideo(timestamp uint32, payload io.Reader) error {
 			}
 
 			h.videoStream.Broadcast(annexB, h.relay)
+			// Feed the dashboard's video metrics sampler: resolution
+			// (parsed from the cached SPS, zero means "unchanged"),
+			// this frame's byte count, and whether it's a keyframe.
+			// GOP seconds and FPS are derived server-side from the
+			// stream of timestamps.
+			w, hi, _ := ParseSPSResolution(h.sps)
+			h.videoStream.RecordVideoSample(w, hi, len(annexB), isKeyframe, time.Now())
 			// Publish a per-frame record carrying PTS *and* DTS. FLV
 			// video tags have CompositionTime (int32 ms, signed) which
 			// is PTS - DTS; without splitting them, B-frames display

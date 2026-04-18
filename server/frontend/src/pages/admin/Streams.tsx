@@ -14,6 +14,12 @@ interface Stream {
   bitrate: string
   current_song: string
   name: string
+  has_video?: boolean
+  video_width?: number
+  video_height?: number
+  video_fps?: number
+  video_gop?: number
+  video_kbps?: number
 }
 
 const streams = signal<Stream[]>([])
@@ -157,7 +163,17 @@ export function Streams() {
                   <td class="px-4 py-3.5">
                     <span class={`inline-block w-2 h-2 rounded-full ${s.source_ip ? 'bg-live' : 'bg-text-tertiary'}`} />
                   </td>
-                  <td class="px-4 py-3.5 font-mono font-bold text-sm text-text-primary">{s.mount}</td>
+                  <td class="px-4 py-3.5 font-mono font-bold text-sm text-text-primary">
+                    <div>{s.mount}</div>
+                    {s.has_video && s.video_width ? (
+                      <div class="font-mono text-[10px] tracking-wider text-text-tertiary font-normal mt-0.5">
+                        {s.video_width}×{s.video_height}
+                        {s.video_fps ? ` · ${s.video_fps.toFixed(0)} fps` : ''}
+                        {s.video_kbps ? ` · ${s.video_kbps} kbps` : ''}
+                        {s.video_gop ? ` · GOP ${s.video_gop.toFixed(1)}s` : ''}
+                      </div>
+                    ) : null}
+                  </td>
                   <td class="px-4 py-3.5 text-sm text-text-secondary">{s.source_ip || 'No source'}</td>
                   <td class="px-4 py-3.5 text-sm text-text-secondary">{s.content_type || '—'}</td>
                   <td class="px-4 py-3.5 font-mono text-sm text-text-primary">{s.listeners}</td>

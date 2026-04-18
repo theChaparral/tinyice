@@ -102,6 +102,16 @@ type Stream struct {
 	listeners map[string]chan struct{} // Signal channels for connected listeners
 	mu     sync.RWMutex             // Mutex protecting all fields
 	closed int32                    // Atomic flag: 1 = stream closed
+
+	// Video metrics sliding window, protected by mu. Refreshed by
+	// RecordVideoSample on every frame and exposed via
+	// VideoMetricsSnapshot for the dashboard.
+	videoWidth        int
+	videoHeight       int
+	videoFrameStamps  []time.Time
+	videoFrameBytes   []int
+	videoLastKeyframe time.Time
+	videoGOPs         []float64
 }
 
 // IsOgg returns true if the stream is Ogg-based (Ogg/Vorbis, Ogg/Opus, etc).
@@ -182,6 +192,95 @@ func (s *Stream) VideoInfo() (isH264 bool, headers []byte) {
 		headers = append(headers, s.VideoHeaders...)
 	}
 	return
+}
+
+// VideoMetrics is a point-in-time snapshot of codec metrics for a video
+// track. Zeroed fields mean "unknown" (either the stream isn't video or
+// we haven't sampled yet). Consumers should treat all fields as
+// informational — they refresh every ~1 s from the ingest path.
+type VideoMetrics struct {
+	Width        int     // luma pixels, 0 when SPS unavailable
+	Height       int     // luma pixels
+	FPS          float64 // rolling 1 s frame count
+	GOPSeconds   float64 // observed keyframe interval (avg of last few)
+	BitrateKbps  int     // rolling 1 s byte rate, × 8 / 1000
+	LastKeyframe time.Time
+}
+
+// RecordVideoSample feeds a single frame's observations into the stream's
+// metrics window. width/height are 0 when unchanged. bytes is the frame's
+// Annex-B byte count. keyframe is true for IDRs. The stream keeps a
+// 1-second sliding sum of frames and bytes, plus a short history of
+// keyframe deltas for the GOP calculation — all protected by mu.
+func (s *Stream) RecordVideoSample(width, height, bytes int, keyframe bool, ts time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if width > 0 {
+		s.videoWidth = width
+	}
+	if height > 0 {
+		s.videoHeight = height
+	}
+	// Trim samples older than 1 s, then append.
+	cutoff := ts.Add(-time.Second)
+	for i, f := range s.videoFrameStamps {
+		if !f.Before(cutoff) {
+			s.videoFrameStamps = s.videoFrameStamps[i:]
+			s.videoFrameBytes = s.videoFrameBytes[i:]
+			break
+		}
+		if i == len(s.videoFrameStamps)-1 {
+			s.videoFrameStamps = s.videoFrameStamps[:0]
+			s.videoFrameBytes = s.videoFrameBytes[:0]
+		}
+	}
+	s.videoFrameStamps = append(s.videoFrameStamps, ts)
+	s.videoFrameBytes = append(s.videoFrameBytes, bytes)
+
+	if keyframe {
+		if !s.videoLastKeyframe.IsZero() {
+			d := ts.Sub(s.videoLastKeyframe).Seconds()
+			if d > 0 && d < 60 {
+				s.videoGOPs = append(s.videoGOPs, d)
+				if len(s.videoGOPs) > 8 {
+					s.videoGOPs = s.videoGOPs[len(s.videoGOPs)-8:]
+				}
+			}
+		}
+		s.videoLastKeyframe = ts
+	}
+}
+
+// VideoMetricsSnapshot returns the current video metrics under the
+// stream mutex. Safe to call from any goroutine.
+func (s *Stream) VideoMetricsSnapshot() VideoMetrics {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	m := VideoMetrics{
+		Width:        s.videoWidth,
+		Height:       s.videoHeight,
+		LastKeyframe: s.videoLastKeyframe,
+	}
+	if n := len(s.videoFrameStamps); n > 1 {
+		span := s.videoFrameStamps[n-1].Sub(s.videoFrameStamps[0]).Seconds()
+		if span > 0 {
+			m.FPS = float64(n-1) / span
+			var total int
+			for _, b := range s.videoFrameBytes {
+				total += b
+			}
+			m.BitrateKbps = int(float64(total) * 8 / 1000 / span)
+		}
+	}
+	if n := len(s.videoGOPs); n > 0 {
+		var sum float64
+		for _, d := range s.videoGOPs {
+			sum += d
+		}
+		m.GOPSeconds = sum / float64(n)
+	}
+	return m
 }
 
 // StoreOggHead atomically records the Ogg header bytes and the buffer offset

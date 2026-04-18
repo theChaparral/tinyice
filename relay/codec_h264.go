@@ -111,6 +111,187 @@ func ExtractSPSPPS(data []byte) (sps []byte, pps []byte) {
 	return
 }
 
+// ParseSPSResolution returns the picture width/height (in luma pixels)
+// encoded in an H.264 SPS NALU. sps may be either the raw RBSP (no
+// start code, with the 0x67 header byte included) or just the payload
+// starting at seq_parameter_set_id; we strip the header if present.
+// Returns (0, 0, false) if the SPS can't be parsed — common enough
+// that callers should treat unknown resolutions as informational.
+func ParseSPSResolution(sps []byte) (width, height int, ok bool) {
+	if len(sps) < 4 {
+		return 0, 0, false
+	}
+	// Skip NALU header byte if this looks like a full NALU.
+	if sps[0]&0x1F == NALUTypeSPS {
+		sps = sps[1:]
+	}
+	// Strip emulation prevention bytes: 0x00 0x00 0x03 -> 0x00 0x00.
+	rbsp := make([]byte, 0, len(sps))
+	for i := 0; i < len(sps); i++ {
+		if i+2 < len(sps) && sps[i] == 0 && sps[i+1] == 0 && sps[i+2] == 0x03 {
+			rbsp = append(rbsp, 0, 0)
+			i += 2
+			continue
+		}
+		rbsp = append(rbsp, sps[i])
+	}
+	if len(rbsp) < 3 {
+		return 0, 0, false
+	}
+	defer func() {
+		// Guard against short-SPS reads in the bit reader.
+		if r := recover(); r != nil {
+			width, height, ok = 0, 0, false
+		}
+	}()
+
+	br := &h264BitReader{data: rbsp}
+	profileIDC := br.u(8)
+	_ = br.u(8) // constraint flags + reserved
+	_ = br.u(8) // level_idc
+	br.ue()     // seq_parameter_set_id
+
+	chromaFormat := 1
+	separateColourPlane := false
+	switch profileIDC {
+	case 100, 110, 122, 244, 44, 83, 86, 118, 128, 138, 139, 134, 135:
+		chromaFormat = br.ue()
+		if chromaFormat == 3 {
+			separateColourPlane = br.u(1) == 1
+		}
+		br.ue()     // bit_depth_luma_minus8
+		br.ue()     // bit_depth_chroma_minus8
+		_ = br.u(1) // qpprime_y_zero_transform_bypass_flag
+		if br.u(1) == 1 {
+			// seq_scaling_matrix_present_flag — skip lists.
+			count := 8
+			if chromaFormat == 3 {
+				count = 12
+			}
+			for i := 0; i < count; i++ {
+				if br.u(1) == 1 {
+					size := 16
+					if i >= 6 {
+						size = 64
+					}
+					lastScale, nextScale := 8, 8
+					for j := 0; j < size; j++ {
+						if nextScale != 0 {
+							delta := br.se()
+							nextScale = (lastScale + delta + 256) % 256
+						}
+						if nextScale != 0 {
+							lastScale = nextScale
+						}
+					}
+				}
+			}
+		}
+	}
+	br.ue() // log2_max_frame_num_minus4
+	picOrderCntType := br.ue()
+	if picOrderCntType == 0 {
+		br.ue() // log2_max_pic_order_cnt_lsb_minus4
+	} else if picOrderCntType == 1 {
+		_ = br.u(1) // delta_pic_order_always_zero_flag
+		br.se()     // offset_for_non_ref_pic
+		br.se()     // offset_for_top_to_bottom_field
+		n := br.ue()
+		for i := 0; i < n; i++ {
+			br.se()
+		}
+	}
+	br.ue()     // max_num_ref_frames
+	_ = br.u(1) // gaps_in_frame_num_value_allowed_flag
+
+	picWidthMBsMinus1 := br.ue()
+	picHeightMapUnitsMinus1 := br.ue()
+	frameMBsOnly := br.u(1) == 1
+	if !frameMBsOnly {
+		_ = br.u(1) // mb_adaptive_frame_field_flag
+	}
+	_ = br.u(1) // direct_8x8_inference_flag
+
+	cropLeft, cropRight, cropTop, cropBottom := 0, 0, 0, 0
+	if br.u(1) == 1 {
+		cropLeft = br.ue()
+		cropRight = br.ue()
+		cropTop = br.ue()
+		cropBottom = br.ue()
+	}
+
+	rawWidth := (picWidthMBsMinus1 + 1) * 16
+	rawHeight := 16 * (picHeightMapUnitsMinus1 + 1)
+	if !frameMBsOnly {
+		rawHeight *= 2
+	}
+
+	subWidthC, subHeightC := 1, 1
+	if !separateColourPlane {
+		switch chromaFormat {
+		case 1:
+			subWidthC, subHeightC = 2, 2
+		case 2:
+			subWidthC, subHeightC = 2, 1
+		}
+	}
+	frameMBsMultiplier := 1
+	if !frameMBsOnly {
+		frameMBsMultiplier = 2
+	}
+
+	width = rawWidth - subWidthC*(cropLeft+cropRight)
+	height = rawHeight - subHeightC*frameMBsMultiplier*(cropTop+cropBottom)
+	if width <= 0 || height <= 0 || width > 16384 || height > 16384 {
+		return 0, 0, false
+	}
+	return width, height, true
+}
+
+// h264BitReader is a minimal MSB-first bit reader that supports the
+// fixed and Exp-Golomb codes used by the SPS syntax.
+type h264BitReader struct {
+	data []byte
+	bit  int // bit index from MSB of data[0]
+}
+
+func (b *h264BitReader) u(n int) int {
+	v := 0
+	for i := 0; i < n; i++ {
+		byteIdx := b.bit / 8
+		if byteIdx >= len(b.data) {
+			panic("h264: short SPS")
+		}
+		shift := 7 - (b.bit % 8)
+		v = (v << 1) | int((b.data[byteIdx]>>shift)&1)
+		b.bit++
+	}
+	return v
+}
+
+func (b *h264BitReader) ue() int {
+	zeros := 0
+	for b.u(1) == 0 {
+		zeros++
+		if zeros > 32 {
+			panic("h264: ue overflow")
+		}
+	}
+	if zeros == 0 {
+		return 0
+	}
+	suffix := b.u(zeros)
+	return (1 << zeros) - 1 + suffix
+}
+
+func (b *h264BitReader) se() int {
+	v := b.ue()
+	if v&1 == 1 {
+		return (v + 1) / 2
+	}
+	return -(v / 2)
+}
+
 // AVCCToAnnexB converts H.264 data from AVCC format (length-prefixed, used by RTMP/MP4)
 // to Annex B format (start-code-prefixed, used by MPEG-TS).
 // naluLengthSize is typically 4 (from the AVCDecoderConfigurationRecord).
