@@ -24,16 +24,30 @@ control, and a built-in admin SPA. Deploy anywhere in seconds.
 
 <table>
   <tr>
-    <td><img src="assets/screenshots/landing.png" width="20%" alt="Landing page" /></td>
-    <td><img src="assets/screenshots/admin-dashboard.png" width="20%" alt="Admin dashboard" /></td>
+    <td width="50%" align="center">
+      <a href="assets/screenshots/landing.png"><img src="assets/screenshots/landing.png" width="100%" alt="Landing page" /></a>
+      <sub>Landing</sub>
+    </td>
+    <td width="50%" align="center">
+      <a href="assets/screenshots/admin-dashboard.png"><img src="assets/screenshots/admin-dashboard.png" width="100%" alt="Admin dashboard" /></a>
+      <sub>Admin dashboard</sub>
+    </td>
   </tr>
   <tr>
-    <td><img src="assets/screenshots/admin-autodj.png" width="20%" alt="AutoDJ" /></td>
-    <td><img src="assets/screenshots/developers.png" width="20%" alt="Developer portal" /></td>
+    <td width="50%" align="center">
+      <a href="assets/screenshots/admin-autodj.png"><img src="assets/screenshots/admin-autodj.png" width="100%" alt="AutoDJ" /></a>
+      <sub>AutoDJ</sub>
+    </td>
+    <td width="50%" align="center">
+      <a href="assets/screenshots/developers.png"><img src="assets/screenshots/developers.png" width="100%" alt="Developer portal" /></a>
+      <sub>Developer portal</sub>
+    </td>
   </tr>
   <tr>
-    <td><img src="https://github.com/user-attachments/assets/243914ac-edb5-472c-aba7-699af987da9f" width="20%" alt="Video Stream" /></td>
-    <td></td>
+    <td colspan="2" align="center">
+      <img src="https://github.com/user-attachments/assets/243914ac-edb5-472c-aba7-699af987da9f" width="75%" alt="Video Stream player" />
+      <br /><sub>Video stream player</sub>
+    </td>
   </tr>
 </table>
 
