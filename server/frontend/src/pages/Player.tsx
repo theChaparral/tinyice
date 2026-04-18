@@ -145,6 +145,48 @@ export function Player() {
     }
   }, [])
 
+  // After video has been playing for a few seconds, snapshot a frame and
+  // upload it as the stream's poster. The server caches the latest upload
+  // per mount and serves it at /{mount}/poster.jpg so landing / explore
+  // cards can render a real thumbnail instead of a static placeholder.
+  // We only try once per session and only for video streams.
+  useEffect(() => {
+    if (!data.hasVideo || !playing.value) return
+    const el = audioRef.current as HTMLVideoElement | null
+    if (!el) return
+    const mountPath = data.mount!.startsWith('/') ? data.mount! : `/${data.mount}`
+    let done = false
+    const t = setTimeout(() => {
+      if (done) return
+      const vw = el.videoWidth
+      const vh = el.videoHeight
+      if (!vw || !vh) return
+      const scale = Math.min(1, 640 / vw)
+      const canvas = document.createElement('canvas')
+      canvas.width = Math.round(vw * scale)
+      canvas.height = Math.round(vh * scale)
+      const ctx = canvas.getContext('2d')
+      if (!ctx) return
+      try {
+        ctx.drawImage(el, 0, 0, canvas.width, canvas.height)
+      } catch {
+        // drawImage throws if the MediaSource hasn't produced a clean
+        // frame yet (crossOrigin / tainted canvas). Nothing to do.
+        return
+      }
+      canvas.toBlob(
+        (blob) => {
+          if (!blob) return
+          fetch(`${mountPath}/poster.jpg`, { method: 'POST', body: blob }).catch(() => {})
+          done = true
+        },
+        'image/jpeg',
+        0.82,
+      )
+    }, 5000)
+    return () => clearTimeout(t)
+  }, [playing.value])
+
   // Drive the "playing for …" readout from a 1 s interval that only runs
   // while playing=true. We tick seconds locally rather than reading
   // el.currentTime because live Icecast audio streams don't expose a

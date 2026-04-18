@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -88,6 +89,65 @@ func (s *Server) handleHLSSegment(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "public, max-age=60")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Write(segment.Data)
+}
+
+// handlePoster serves and accepts per-mount poster JPEGs. The upload path
+// is intentionally simple: any authenticated-or-anonymous listener can
+// POST a JPEG sampled client-side from the video element, and the most
+// recent upload is cached in memory per mount. The GET path returns the
+// cached JPEG or 404 — the landing / explore UIs fall back to a brand
+// placeholder on miss.
+//
+// Path: /{mount}/poster.jpg
+func (s *Server) handlePoster(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Path
+	mount := strings.TrimSuffix(path, "/poster.jpg")
+	if mount == "" || !strings.HasPrefix(mount, "/") {
+		http.NotFound(w, r)
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet, http.MethodHead:
+		s.posterMu.RLock()
+		data := s.posters[mount]
+		s.posterMu.RUnlock()
+		if len(data) == 0 {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "image/jpeg")
+		w.Header().Set("Cache-Control", "public, max-age=10")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		if r.Method == http.MethodHead {
+			return
+		}
+		w.Write(data)
+	case http.MethodPost, http.MethodPut:
+		if _, ok := s.Relay.GetStream(mount); !ok {
+			http.NotFound(w, r)
+			return
+		}
+		// Cap at 1 MiB — client uploads a 480p JPEG, anything larger is
+		// almost certainly misuse or a decode failure.
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+		data, err := io.ReadAll(r.Body)
+		if err != nil || len(data) < 128 {
+			http.Error(w, "bad poster", http.StatusBadRequest)
+			return
+		}
+		// Minimal JPEG sniff: SOI marker FF D8 FF.
+		if !(data[0] == 0xFF && data[1] == 0xD8 && data[2] == 0xFF) {
+			http.Error(w, "not a JPEG", http.StatusUnsupportedMediaType)
+			return
+		}
+		s.posterMu.Lock()
+		s.posters[mount] = data
+		s.posterMu.Unlock()
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
 }
 
 // getHLSOutput finds the HLS output for a given mount.

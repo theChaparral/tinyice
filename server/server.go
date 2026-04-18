@@ -89,6 +89,12 @@ type Server struct {
 	hlsCtx     context.Context
 	hlsCancel  context.CancelFunc
 
+	// Per-mount poster JPEG, captured client-side and uploaded once per
+	// session. Kept in memory only — restart drops them and the next
+	// viewer refills them. Protected by posterMu.
+	posters  map[string][]byte
+	posterMu sync.RWMutex
+
 	done chan struct{}
 
 	configMu   sync.Mutex // protects config writes
@@ -179,6 +185,7 @@ func NewServer(cfg *config.Config, authLog *zap.SugaredLogger, version, commit, 
 		hlsOutputs:       make(map[string]*relay.HLSOutput),
 		hlsCtx:           hlsCtx,
 		hlsCancel:        hlsCancel,
+		posters:          make(map[string][]byte),
 		done:             make(chan struct{}),
 		setupToken:       setupToken,
 		webAuthn:         wa,
@@ -323,6 +330,10 @@ func (s *Server) setupRoutes() *http.ServeMux {
 		}
 		if strings.HasSuffix(path, ".ts") && strings.Contains(path, "/segment-") {
 			s.handleHLSSegment(w, r)
+			return
+		}
+		if strings.HasSuffix(path, "/poster.jpg") {
+			s.handlePoster(w, r)
 			return
 		}
 		s.handleRoot(w, r)

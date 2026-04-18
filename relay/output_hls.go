@@ -23,17 +23,22 @@ type pesUnit struct {
 
 // HLSConfig holds configuration for HLS output.
 type HLSConfig struct {
-	SegmentDuration time.Duration // target segment duration (default 4s)
-	WindowSize      int           // number of segments in playlist (default 6)
-	RingCapacity    int           // max segments in ring buffer (default 30)
+	SegmentDuration time.Duration // target segment duration (default 1s for low latency)
+	WindowSize      int           // number of segments exposed in the live playlist (DVR window)
+	RingCapacity    int           // max segments retained in the ring buffer
 }
 
-// DefaultHLSConfig returns sensible defaults.
+// DefaultHLSConfig returns sensible defaults tuned for low latency + a
+// 60 s DVR window. Shorter segments reduce glass-to-glass latency (the
+// player needs ~3 segments of buffer to start, so 1 s segments ≈ 3 s
+// startup vs. 12 s with the previous 4 s default); exposing 60 segments
+// in the playlist lets the player scrub back a minute without extra
+// wiring on our side.
 func DefaultHLSConfig() HLSConfig {
 	return HLSConfig{
-		SegmentDuration: 4 * time.Second,
-		WindowSize:      6,
-		RingCapacity:    30,
+		SegmentDuration: 1 * time.Second,
+		WindowSize:      60,
+		RingCapacity:    90,
 	}
 }
 
@@ -205,7 +210,17 @@ func (h *HLSOutput) segmentLoopFramed(ctx context.Context, audio, video *Track) 
 		segStart = time.Now()
 	}
 
-	// Flush on a coarse timer in case frame arrival is bursty / paused.
+	// For A/V the keyframe arrival drives segment flushes (the timer only
+	// acts as a fallback when keyframes stop coming). For audio-only we
+	// fall back to purely time-driven flushes. The fallback window is
+	// generous — three SegmentDurations — so a 1 s advertised segment
+	// won't prematurely cut a GOP when the source sends keyframes every
+	// 2 s. Users who want segments closer to SegmentDuration should set
+	// their encoder's keyframe interval to match.
+	fallback := 3 * h.config.SegmentDuration
+	if fallback < 2*time.Second {
+		fallback = 2 * time.Second
+	}
 	timer := time.NewTicker(h.config.SegmentDuration)
 	defer timer.Stop()
 
@@ -223,9 +238,8 @@ func (h *HLSOutput) segmentLoopFramed(ctx context.Context, audio, video *Track) 
 				return
 			}
 			// Prefer to start segments on keyframes: if we've already
-			// got a keyframe and SegmentDuration's worth of wall time
-			// has passed, flush the previous segment before appending
-			// the new IDR to the new one.
+			// emitted one segment, any subsequent keyframe closes the
+			// current one and starts the new segment at the IDR.
 			if f.Keyframe {
 				if emittedOne || time.Since(segStart) >= h.config.SegmentDuration {
 					if segHasIDR || len(videoBatch) > 0 || len(audioBatch) > 0 {
@@ -236,8 +250,17 @@ func (h *HLSOutput) segmentLoopFramed(ctx context.Context, audio, video *Track) 
 			}
 			videoBatch = append(videoBatch, pesUnit{pts: f.PTS, dts: f.DTS, data: f.Data})
 		case <-timer.C:
-			// Time-based flush safety net.
-			if time.Since(segStart) >= h.config.SegmentDuration {
+			// Audio-only flush path: no video frames, so keyframes
+			// can never trigger. Flush on the advertised segment
+			// cadence.
+			if len(videoBatch) == 0 && time.Since(segStart) >= h.config.SegmentDuration {
+				flush()
+				continue
+			}
+			// Stuck-stream fallback: if a video stream has a gap
+			// larger than `fallback` without a keyframe, emit what
+			// we have so the player isn't frozen waiting.
+			if len(videoBatch) > 0 && time.Since(segStart) >= fallback {
 				flush()
 			}
 		}

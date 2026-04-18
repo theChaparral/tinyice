@@ -582,6 +582,12 @@ func (s *Server) serveStreamData(w http.ResponseWriter, r *http.Request, stream 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	// Build stream list for the landing page
 	allStreams := s.Relay.Snapshot()
+	videoMounts := make(map[string]bool)
+	for _, st := range allStreams {
+		if strings.HasSuffix(st.MountName, "/video") {
+			videoMounts[strings.TrimSuffix(st.MountName, "/video")] = true
+		}
+	}
 	var streamList []map[string]interface{}
 	for _, st := range allStreams {
 		if st.Visible {
@@ -593,6 +599,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 				"bitrate":   st.Bitrate,
 				"listeners": st.ListenersCount,
 				"live":      st.SourceIP != "",
+				"has_video": videoMounts[st.MountName],
 			})
 		}
 	}

@@ -9,12 +9,40 @@ interface StreamCardProps {
 
 export function StreamCard({ stream, onPlay }: StreamCardProps) {
   const albumArt = useAlbumArt(stream.artist, stream.title)
+  const mountPath = stream.mount.startsWith('/') ? stream.mount : `/${stream.mount}`
 
   return (
     <div class="group relative rounded-lg border border-border bg-surface-raised hover:border-accent/40 transition-colors overflow-hidden">
       {/* Top accent gradient when live */}
       {stream.live && (
         <div class="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-accent via-accent/60 to-transparent" />
+      )}
+
+      {/* Video poster — shown above the text block for video streams.
+          The server caches the most recent viewer-captured frame; we fall
+          back to the text-only layout when no poster exists (404 hides
+          the <img>). */}
+      {stream.has_video && stream.live && (
+        <div class="relative w-full aspect-video bg-black overflow-hidden">
+          <img
+            src={`${mountPath}/poster.jpg`}
+            alt=""
+            loading="lazy"
+            onError={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')}
+            class="absolute inset-0 w-full h-full object-cover"
+          />
+          <button
+            onClick={onPlay}
+            class="absolute inset-0 flex items-center justify-center bg-black/0 hover:bg-black/30 transition-colors"
+            aria-label={`Play ${stream.mount}`}
+          >
+            <span class="w-12 h-12 rounded-full bg-accent/90 flex items-center justify-center shadow-lg opacity-0 group-hover:opacity-100 transition-opacity">
+              <svg class="w-5 h-5 text-surface-base ml-0.5" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M8 5v14l11-7z" />
+              </svg>
+            </span>
+          </button>
+        </div>
       )}
 
       <div class="p-4 flex gap-3">
