@@ -118,7 +118,19 @@ async function attachHLS(url: string, el: HTMLMediaElement): Promise<HlsLike | n
     el.src = url
     return null
   }
-  const hls = new Hls({ enableWorker: true, lowLatencyMode: true })
+  // lowLatencyMode requires LL-HLS tags (#EXT-X-PART / #EXT-X-PART-INF)
+  // which we don't emit yet; turning it on with plain short segments
+  // makes hls.js chase the live edge too aggressively and the picture
+  // judders. liveSyncDuration keeps the player a comfortable few
+  // segments behind so we have headroom for jitter; maxBufferLength
+  // caps the forward buffer so the DVR window doesn't fill memory.
+  const hls = new Hls({
+    enableWorker: true,
+    liveSyncDuration: 6,
+    liveMaxLatencyDuration: 30,
+    maxBufferLength: 30,
+    backBufferLength: 60,
+  })
   hls.loadSource(url)
   hls.attachMedia(el)
   return hls as unknown as HlsLike
@@ -176,12 +188,20 @@ export function Player() {
     // using the raw Icecast stream URL.
     const mountPath = data.mount!.startsWith('/') ? data.mount! : `/${data.mount}`
     if (data.hasVideo) {
-      // Prefer WebRTC (sub-second latency); fall back to HLS if the
-      // WHEP negotiation fails (e.g. server is too old, ICE blocked).
-      const whep = await attachWHEP(mountPath, el)
-      if (whep) {
-        whepCleanup.current = whep
-      } else {
+      // HLS is the default for video — robust against B-frames and
+      // network jitter. WHEP gives sub-second latency but currently
+      // requires the source to publish without B-frames; opt in via
+      // the ?webrtc=1 query string while we improve the egress path.
+      const wantsWebRTC = new URLSearchParams(window.location.search).get('webrtc') === '1'
+      let attached = false
+      if (wantsWebRTC) {
+        const whep = await attachWHEP(mountPath, el)
+        if (whep) {
+          whepCleanup.current = whep
+          attached = true
+        }
+      }
+      if (!attached) {
         const hlsUrl = await resolveHLSUrl(mountPath)
         hlsRef.current = await attachHLS(hlsUrl, el)
       }

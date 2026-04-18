@@ -451,9 +451,13 @@ func (wm *WebRTCManager) streamVideoToTrack(pc *webrtc.PeerConnection, track *we
 			}
 			dur := 33 * time.Millisecond // 30 fps sane default
 			if lastDTS >= 0 {
-				// Frame.DTS is in 90 kHz ticks.
+				// Frame.DTS is in 90 kHz ticks. Accept anything from
+				// 5 fps (18 000 ticks) down to 240 fps (375 ticks);
+				// outside that window the source has stalled or sent
+				// a bogus timestamp and falling back to the default
+				// keeps RTP timestamps monotonic.
 				delta := f.DTS - lastDTS
-				if delta > 0 && delta < 1800 { // < 20 ms..200 ms sanity
+				if delta >= 375 && delta <= 18000 {
 					dur = time.Duration(delta) * time.Second / 90000
 				}
 			}
