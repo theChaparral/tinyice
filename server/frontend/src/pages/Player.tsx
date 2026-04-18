@@ -34,9 +34,18 @@ type StreamStats = {
   videoGOP: number
   videoKbps: number
 }
+const initialBitrate = (() => {
+  const v = data.bitrate as unknown
+  if (typeof v === 'number') return v > 0 ? v : 0
+  if (typeof v === 'string') {
+    const n = parseInt(v, 10)
+    return Number.isFinite(n) ? n : 0
+  }
+  return 0
+})()
 const streamStats = signal<StreamStats>({
-  audioCodec: data.format ? data.format.toUpperCase() : '—',
-  audioBitrateKbps: data.bitrate || 0,
+  audioCodec: codecFromMime(data.format),
+  audioBitrateKbps: initialBitrate,
   videoCodec: data.hasVideo ? 'H264' : '—',
   videoWidth: 0,
   videoHeight: 0,

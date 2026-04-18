@@ -348,9 +348,15 @@ func (s *Server) handlePublicEvents(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		var info []PublicStreamInfo
+		// We split visible-only from emitted-to-events: the unnamed
+		// `data:` payload (legacy landing card consumers) only sees
+		// visible mounts, while the per-stream named "stream" events
+		// (player consumers) see everything so a player tab can show
+		// stats for an unlisted mount.
+		var visible []PublicStreamInfo
 		for _, st := range allStreams {
-			if !st.Visible {
-				continue
+			if strings.HasSuffix(st.MountName, "/video") {
+				continue // sub-mount, surfaced via the parent
 			}
 			entry := PublicStreamInfo{
 				Mount: st.MountName, Name: st.Name, Listeners: st.ListenersCount,
@@ -377,8 +383,11 @@ func (s *Server) handlePublicEvents(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			info = append(info, entry)
+			if st.Visible {
+				visible = append(visible, entry)
+			}
 		}
-		payload, _ := json.Marshal(info)
+		payload, _ := json.Marshal(visible)
 		if _, err := fmt.Fprintf(w, "data: %s\n\n", payload); err != nil {
 			return err
 		}
