@@ -58,19 +58,51 @@ control, and a built-in admin SPA. Deploy anywhere in seconds.
 | | |
 |---|---|
 | **Ingest** | Icecast2 SOURCE/PUT · RTMP (H.264 + AAC/MP3) · SRT MPEG-TS · WebRTC browser broadcasting · Icecast relay pull |
-| **Output** | Icecast passthrough · HLS audio · **HLS audio + video** · WebRTC playback · embeddable player |
+| **Output** | Icecast passthrough · HLS audio · **HLS audio + video** · **WHEP / WebRTC playback** · **OBS simulcast (master playlist)** · embeddable player |
 | **Codecs** | MP3 · Ogg Opus · Ogg Vorbis · FLAC / FLAC-in-Ogg · WAV (8/16/24/32-bit & float) · H.264 · AAC-LC |
 | **Transcoder** | Pure-Go multi-codec decode → MP3 or Opus with automatic resampling. No FFmpeg dependency. |
 | **AutoDJ** | Multi-instance, keyframe-accurate pacing, shuffle/loop/queue, MPD protocol per instance, external `song_command` hook |
 | **Auth** | Username + bcrypt password · Passkeys (WebAuthn) · OIDC/OAuth2 · Bearer API tokens · per-mount source passwords |
-| **Ops** | Prometheus metrics · structured logging · ACME auto-HTTPS (Let's Encrypt) · zero-downtime hot-swap · Docker image |
+| **Player** | 16:9 video layout · live poster thumbnails · stream stats overlay (codec/res/fps/GOP/bitrate, dropped frames, buffer, latency) · DVR seek (last 60 s) |
+| **Ops** | Prometheus metrics · structured logging · ACME auto-HTTPS (Let's Encrypt) · zero-downtime hot-swap · Docker image (GHCR multi-arch) |
 | **Deploy** | One static Go binary (≈25 MB) with all assets embedded · `make build` also produces multi-stage Docker image |
 
 ---
 
-## What's new in v2.0.0-beta.6
+## What's new in v2.0.0-beta.9
 
-Video streaming + a round of audio/auth/ops hardening.
+Latency, player UX and an honest viewer count.
+
+<details open>
+<summary><strong>Player &amp; UX</strong> — stats overlay, posters, DVR, viewer count, listening time</summary>
+
+- New **stream stats overlay** (STATS button in the player's bottom strip): transport (HLS/WebRTC/Icecast), audio codec &amp; bitrate, video codec/resolution/FPS/GOP/bitrate, plus client-side buffer seconds, dropped frames + drop %, and HLS live-edge latency.
+- Live **poster thumbnails** on landing &amp; explore cards: the player snapshots the `<video>` element a few seconds into playback and POSTs a JPEG to the server, which caches it per mount and serves it at `/<mount>/poster.jpg`.
+- **Viewer counting** for browser playback: HLS playlist polls and WHEP offers feed a 30 s sliding-window IP tracker. Video mounts no longer show "0 listeners" while people are actively watching, and the player renders "viewers" for video / "listeners" for audio.
+- **Listening time** indicator next to the listener/viewer count; resets on pause.
+- 60 s **DVR window**: every video stream is seekable backwards a minute by default — no extra config, hls.js shows a scrubbable timeline.
+
+</details>
+
+<details open>
+<summary><strong>Lower latency &amp; ABR</strong> — 1 s segments, master playlist, WHEP egress</summary>
+
+- HLS default segment 4 s → **1 s** with keyframe-aligned flushes; segments still cleanly start on IDR even when the encoder's GOP is longer.
+- **OBS simulcast / master playlist** at `/<primary>/master.m3u8`: declare a `variant_groups` map in config, point each OBS output at its own RTMP mount (e.g. `/live`, `/live_720`, `/live_480`), and the server emits a multivariant playlist with `BANDWIDTH` and `RESOLUTION` derived from live ingest metrics.
+- **WHEP** (`POST /<mount>/whep`, `application/sdp` in/out) for sub-second WebRTC viewer playback. Gated behind `?webrtc=1` while we shake out B-frame handling; HLS stays the default.
+- Viewer-side **video metrics** sampled in the ingest path (pure-Go H.264 SPS parser, 1 s rolling window for fps/bitrate, average GOP). Surfaced under each mount in the admin Streams table.
+
+</details>
+
+<details>
+<summary><strong>Stability fixes since v2.0.0-beta.6</strong></summary>
+
+- **Audio buffers**: listener default burst 128 → 512 KiB, transcoder input burst 32 → 256 KiB, listener read chunk 4 → 64 KiB. Tracking 2048 Ogg page offsets (was 128) so a generous burst isn't silently truncated to a few seconds — fixes the "underrun every 4–5 s on reconnect".
+- **Bandwidth meter**: the dashboard's "Inbound" / "Outbound" stats were showing cumulative byte totals as MB/s; now compute a per-tick rate.
+- **Ban false-positives**: a player hammering an offline mount no longer trips the scan-attempt lockout. Distinct-path threshold (25) replaces raw hit count, and configured / known-extension prefetch paths are skipped entirely.
+- **Docker on GHCR**: `ghcr.io/datanoisetv/tinyice:beta` (newest beta), `:latest` (newest stable), `:vX.Y.Z`, `:X.Y`, `:X` — all multi-arch (linux/amd64, linux/arm64) — published on every release tag.
+
+</details>
 
 <details>
 <summary><strong>Video pipeline end-to-end</strong> — RTMP/SRT → HLS A/V → browser or mpv</summary>
@@ -194,13 +226,14 @@ audio + video at `/<mount>/playlist.m3u8`.
    - **Stream Key**: the mount's source password
    > The classic single-URL form `rtmp://<host>/` + Stream Key `<mount>?key=<password>` also works.
 
-4. **OBS → Settings → Output**: Video Encoder `x264` (or a hardware H.264 encoder), Audio Encoder `AAC` (default) or `MP3`, 2 s keyframe interval.
+4. **OBS → Settings → Output**: Video Encoder `x264` (or a hardware H.264 encoder), Audio Encoder `AAC` (default) or `MP3`, **1 s keyframe interval** (matches the default segment size for lowest latency; 2 s is fine too).
 
 5. Click **Start Streaming**. Server log shows `RTMP: Publishing started mount=/<name>` and `Parsed AVC config`.
 
-6. **Watch it** one of three ways:
-   - **Browser player**: `https://<host>/player/<mount>` — automatically renders a 16 : 9 `<video>` layout.
+6. **Watch it** one of four ways:
+   - **Browser player**: `https://<host>/player/<mount>` — auto 16:9 `<video>` layout, click the **STATS** button for codec / resolution / fps / GOP / bitrate / dropped frames / buffer / latency. The bottom strip also shows live viewer count and listening time.
    - **Direct HLS**: `https://<host>/<mount>/playlist.m3u8` — VLC, mpv, ffplay, Safari, iOS.
+   - **WebRTC (sub-second latency, opt-in)**: append `?webrtc=1` to the player URL. Requires the OBS encoder to publish without B-frames (Profile = `baseline`, or `bf=0` in x264 params).
    - **Raw debug**: `http://<host>/<mount>/video` — H.264 Annex-B for `mpv`.
 
 ---
@@ -275,7 +308,25 @@ Admin → Streams → Edit lets you set per-mount:
 - Source **password** (takes precedence over the default source password)
 - **Visibility** in public listings
 - **Enabled / disabled** (disabled mounts refuse new SOURCE connections)
-- **Burst size** override (default 128 KB — controls the "instant start" at the cost of a little extra latency)
+- **Burst size** override (default 512 KB — controls the "instant start" at the cost of a little extra latency)
+
+### OBS simulcast (ABR ladder)
+
+Run multiple OBS outputs to different mounts (one per rendition) and group
+them into a single multivariant playlist:
+
+```json
+{
+    "variant_groups": {
+        "/live": ["/live", "/live_720", "/live_480"]
+    }
+}
+```
+
+`/live/master.m3u8` then advertises all three with `BANDWIDTH` and
+`RESOLUTION` derived from each member's live ingest metrics. The built-in
+player auto-detects the master playlist and lets hls.js do ABR; falls back
+to `/live/playlist.m3u8` when no group is configured.
 
 ### Branding
 
