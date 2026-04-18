@@ -24,15 +24,15 @@ control, and a built-in admin SPA. Deploy anywhere in seconds.
 
 <table>
   <tr>
-    <td><img src="assets/screenshots/landing.png" alt="Landing page" /></td>
-    <td><img src="assets/screenshots/admin-dashboard.png" alt="Admin dashboard" /></td>
+    <td><img src="assets/screenshots/landing.png" width="20%" alt="Landing page" /></td>
+    <td><img src="assets/screenshots/admin-dashboard.png" width="20%" alt="Admin dashboard" /></td>
   </tr>
   <tr>
-    <td><img src="assets/screenshots/admin-autodj.png" alt="AutoDJ" /></td>
-    <td><img src="assets/screenshots/developers.png" alt="Developer portal" /></td>
+    <td><img src="assets/screenshots/admin-autodj.png" width="20%" alt="AutoDJ" /></td>
+    <td><img src="assets/screenshots/developers.png" width="20%" alt="Developer portal" /></td>
   </tr>
   <tr>
-    <td><img src="https://github.com/user-attachments/assets/243914ac-edb5-472c-aba7-699af987da9f" alt="Video Stream" /></td>
+    <td><img src="https://github.com/user-attachments/assets/243914ac-edb5-472c-aba7-699af987da9f" width="20%" alt="Video Stream" /></td>
     <td></td>
   </tr>
 </table>
