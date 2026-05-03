@@ -131,6 +131,8 @@ type AutoDJConfig struct {
 	Visible            bool     `json:"visible"`
 	SongCommand        string   `json:"song_command"`
 	SongCommandTimeout int      `json:"song_command_timeout"`
+	OnPlayCommand        string `json:"on_play_command,omitempty"`
+	OnPlayCommandTimeout int    `json:"on_play_command_timeout,omitempty"`
 }
 
 type IngestConfig struct {

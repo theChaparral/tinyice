@@ -22,6 +22,8 @@ interface AutoDJInstanceRaw {
   inject_metadata: boolean
   song_command: string
   song_command_timeout: number
+  on_play_command: string
+  on_play_command_timeout: number
   visible: boolean
   music_dir: string
   enabled: boolean
@@ -46,6 +48,8 @@ interface AutoDJInstance {
   musicDir: string
   songCommand: string
   songCommandTimeout: number
+  onPlayCommand: string
+  onPlayCommandTimeout: number
   queue: string[]
 }
 
@@ -66,6 +70,8 @@ function mapInstance(raw: AutoDJInstanceRaw): AutoDJInstance {
     musicDir: raw.music_dir,
     songCommand: raw.song_command || '',
     songCommandTimeout: raw.song_command_timeout || 5,
+    onPlayCommand: raw.on_play_command || '',
+    onPlayCommandTimeout: raw.on_play_command_timeout || 10,
     queue: (raw.queue ?? []).map(q => q.title || q.file),
   }
 }
@@ -83,6 +89,8 @@ const formLoop = signal(true)
 const formInjectMetadata = signal(true)
 const formSongCommand = signal('')
 const formSongCommandTimeout = signal(5)
+const formOnPlayCommand = signal('')
+const formOnPlayCommandTimeout = signal(10)
 const saveError = signal('')
 
 function resetForm() {
@@ -96,6 +104,8 @@ function resetForm() {
   formInjectMetadata.value = true
   formSongCommand.value = ''
   formSongCommandTimeout.value = 5
+  formOnPlayCommand.value = ''
+  formOnPlayCommandTimeout.value = 10
   editingMount.value = null
 }
 
@@ -109,6 +119,8 @@ function openEditForm(inst: AutoDJInstance) {
   formInjectMetadata.value = inst.injectMetadata
   formSongCommand.value = inst.songCommand || ''
   formSongCommandTimeout.value = inst.songCommandTimeout || 5
+  formOnPlayCommand.value = inst.onPlayCommand || ''
+  formOnPlayCommandTimeout.value = inst.onPlayCommandTimeout || 10
   editingMount.value = inst.mount
   showForm.value = true
 }
@@ -125,6 +137,8 @@ async function saveAutoDJ() {
     inject_metadata: formInjectMetadata.value,
     song_command: formSongCommand.value || undefined,
     song_command_timeout: formSongCommandTimeout.value || undefined,
+    on_play_command: formOnPlayCommand.value || undefined,
+    on_play_command_timeout: formOnPlayCommandTimeout.value || undefined,
   }
   try {
     if (editingMount.value) {
@@ -550,6 +564,37 @@ export function AutoDJ() {
                     onInput={(e) => { formSongCommandTimeout.value = parseInt((e.target as HTMLInputElement).value) || 5 }}
                     min={1}
                     max={30}
+                    class="bg-[rgba(255,255,255,0.03)] border border-border rounded-lg px-4 py-2.5 text-text-primary font-mono text-sm focus:border-accent outline-none w-24"
+                  />
+                </div>
+              )}
+              {/* On Play Command */}
+              <div class="border-t border-border pt-3 mt-1">
+                <label class="text-text-secondary text-xs font-mono tracking-wider uppercase mb-1.5 block">
+                  ON PLAY COMMAND
+                </label>
+                <p class="text-[10px] text-text-tertiary mb-2">
+                  Optional script executed when a track starts playing. Receives metadata via environment variables: TINYICE_ARTIST, TINYICE_TITLE, TINYICE_ALBUM, TINYICE_FILE, TINYICE_MOUNT.
+                </p>
+                <input
+                  type="text"
+                  value={formOnPlayCommand.value}
+                  onInput={(e) => { formOnPlayCommand.value = (e.target as HTMLInputElement).value }}
+                  placeholder="/usr/local/bin/notify-tunein.sh"
+                  class="bg-[rgba(255,255,255,0.03)] border border-border rounded-lg px-4 py-2.5 text-text-primary font-mono text-sm focus:border-accent outline-none w-full"
+                />
+              </div>
+              {formOnPlayCommand.value && (
+                <div>
+                  <label class="text-text-secondary text-xs font-mono tracking-wider uppercase mb-1.5 block">
+                    ON PLAY TIMEOUT (SECONDS)
+                  </label>
+                  <input
+                    type="number"
+                    value={formOnPlayCommandTimeout.value}
+                    onInput={(e) => { formOnPlayCommandTimeout.value = parseInt((e.target as HTMLInputElement).value) || 10 }}
+                    min={1}
+                    max={60}
                     class="bg-[rgba(255,255,255,0.03)] border border-border rounded-lg px-4 py-2.5 text-text-primary font-mono text-sm focus:border-accent outline-none w-24"
                   />
                 </div>
