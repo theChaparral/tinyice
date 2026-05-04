@@ -14,6 +14,7 @@ import { AutoDJ } from './AutoDJ'
 import { Studio } from './Studio'
 import { GoLive } from './GoLive'
 import { PendingUsers } from './PendingUsers'
+import { Webhooks } from './Webhooks'
 
 export function AdminLayout() {
   const [path, setPath] = useState(window.location.pathname)
@@ -33,6 +34,7 @@ export function AdminLayout() {
           <Route path="/admin/users" component={Users} />
           <Route path="/admin/security" component={Security} />
           <Route path="/admin/tokens" component={APITokens} />
+          <Route path="/admin/webhooks" component={Webhooks} />
           <Route path="/admin/pending" component={PendingUsers} />
           <Route path="/admin/settings" component={Settings} />
         </Router>
