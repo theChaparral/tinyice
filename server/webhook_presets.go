@@ -6,10 +6,11 @@ package server
 // body template, leaving only the URL (and the event subscription)
 // to the operator.
 //
-// Each preset is "verified" against its vendor's public docs at the
-// time of writing — the field names, content types, and method match
-// what the receiver actually expects. The URLHint guides the operator
-// to the right credential page.
+// Each preset matches the field names, content type and HTTP method
+// documented by the receiver at the time of writing. The URLHint guides
+// the operator to the right credential page; some presets have
+// placeholder tokens (<TOKEN>, <CHAT_ID>, …) the operator must
+// replace before saving.
 type WebhookPreset struct {
 	ID          string            `json:"id"`
 	Name        string            `json:"name"`
@@ -46,7 +47,7 @@ var builtinPresets = []WebhookPreset{
 		ContentType: "application/json",
 		Body: `{
   "username": "TinyIce",
-  "content": ":musical_note: Now playing on {{.Mount}}: **{{.Artist}} – {{.Title}}**"
+  "content": ":musical_note: Now playing on **{{.Mount}}**: **{{.Artist}} – {{.Title}}**{{if .MountURL}} — [Listen]({{.MountURL}}){{end}}"
 }`,
 	},
 	{
@@ -58,7 +59,7 @@ var builtinPresets = []WebhookPreset{
 		Method:      "POST",
 		ContentType: "application/json",
 		Body: `{
-  "text": ":musical_note: *{{.Mount}}* — {{.Artist}} – {{.Title}}"
+  "text": ":musical_note: *{{.Mount}}* — {{.Artist}} – {{.Title}}{{if .MountURL}} (<{{.MountURL}}|Listen>){{end}}"
 }`,
 	},
 	{

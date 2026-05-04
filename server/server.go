@@ -199,14 +199,17 @@ func NewServer(cfg *config.Config, authLog *zap.SugaredLogger, version, commit, 
 	// subscribers can react to "now playing" changes. Done here (rather
 	// than in NewStreamerManager) because the dispatcher needs the
 	// fully-built Server reference and runtime config.
-	srv.StreamerM.OnTrackStart = func(mount, name, artist, title, album, filePath string) {
+	srv.StreamerM.OnTrackStart = func(info relay.TrackStartInfo) {
 		srv.dispatchWebhook("now_playing", map[string]interface{}{
-			"mount":  mount,
-			"name":   name,
-			"artist": artist,
-			"title":  title,
-			"album":  album,
-			"file":   filePath,
+			"mount":            info.Mount,
+			"name":             info.StreamerName,
+			"artist":           info.Artist,
+			"title":            info.Title,
+			"album":            info.Album,
+			"file":             info.FilePath,
+			"format":           info.Format,
+			"bitrate":          info.Bitrate,
+			"duration_seconds": info.DurationSeconds,
 		})
 	}
 

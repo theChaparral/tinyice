@@ -47,6 +47,7 @@ interface FuncDoc {
 
 interface WebhookMeta {
   events: EventInfo[]
+  global_placeholders: string[]
   presets: Preset[]
   funcs: FuncDoc[]
 }
@@ -350,6 +351,10 @@ function WebhookCard({ wh }: { wh: Webhook }) {
 function PlaceholderHelper() {
   if (!meta.value) return null
   const events = meta.value.events
+  const globals = meta.value.global_placeholders || []
+  const insertPlaceholder = (ph: string) => {
+    formBodyTemplate.value = formBodyTemplate.value + `{{.${ph}}}`
+  }
   return (
     <div class="bg-[rgba(255,255,255,0.02)] border border-border rounded-lg p-3">
       <div class="flex items-center justify-between mb-2">
@@ -366,15 +371,37 @@ function PlaceholderHelper() {
           ))}
         </select>
       </div>
+
+      {globals.length > 0 && (
+        <div class="mb-2">
+          <div class="text-[9px] font-mono uppercase tracking-wider text-text-tertiary mb-1">
+            Always available
+          </div>
+          <div class="flex flex-wrap gap-1">
+            {globals.map((ph) => (
+              <button
+                key={ph}
+                type="button"
+                onClick={() => insertPlaceholder(ph)}
+                class="text-[10px] font-mono px-1.5 py-0.5 rounded border border-border text-text-secondary hover:text-accent hover:border-accent/30 transition-colors"
+                title={`Insert {{.${ph}}}`}
+              >
+                {`{{.${ph}}}`}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div class="text-[9px] font-mono uppercase tracking-wider text-text-tertiary mb-1">
+        From this event's payload
+      </div>
       <div class="flex flex-wrap gap-1 mb-2">
         {activePlaceholders.value.map((ph) => (
           <button
             key={ph}
             type="button"
-            onClick={() => {
-              const insertion = `{{.${ph}}}`
-              formBodyTemplate.value = formBodyTemplate.value + insertion
-            }}
+            onClick={() => insertPlaceholder(ph)}
             class="text-[10px] font-mono px-1.5 py-0.5 rounded border border-border text-text-secondary hover:text-accent hover:border-accent/30 transition-colors"
             title={`Insert {{.${ph}}}`}
           >
@@ -447,7 +474,7 @@ function FormModal() {
                   }}
                   class="bg-[rgba(255,255,255,0.03)] border border-border rounded-lg px-3 py-2 text-text-primary font-mono text-sm focus:border-accent outline-none w-full"
                 >
-                  <option value="">— Pick a verified template —</option>
+                  <option value="">— Pick a template —</option>
                   {meta.value.presets.map((p) => (
                     <option key={p.id} value={p.id} title={p.description}>{p.name}</option>
                   ))}

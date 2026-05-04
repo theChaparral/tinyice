@@ -34,12 +34,15 @@ func SampleEventData(event string) map[string]interface{} {
 	switch event {
 	case "now_playing":
 		return map[string]interface{}{
-			"mount":  "/live",
-			"name":   "My Station",
-			"artist": "Aphex Twin",
-			"title":  "Xtal",
-			"album":  "Selected Ambient Works 85-92",
-			"file":   "/music/aphex-twin/saw1/01-xtal.flac",
+			"mount":            "/live",
+			"name":             "My Station",
+			"artist":           "Aphex Twin",
+			"title":            "Xtal",
+			"album":            "Selected Ambient Works 85-92",
+			"file":             "/music/aphex-twin/saw1/01-xtal.flac",
+			"format":           "mp3",
+			"bitrate":          128,
+			"duration_seconds": 285.4,
 		}
 	case "source_connect":
 		return map[string]interface{}{
@@ -91,30 +94,110 @@ var webhookFuncs = template.FuncMap{
 	"urlencode": url.QueryEscape,
 }
 
+// webhookGlobals are the always-available variables every template
+// receives, regardless of which event fired. Keeping them in one place
+// (rather than inlined into renderWebhookBody) means the meta endpoint
+// can advertise the exact same list to the admin UI.
+type webhookGlobals struct {
+	Event         string
+	Timestamp     string // RFC3339, UTC
+	UnixTimestamp int64  // seconds since epoch, UTC
+	Date          string // YYYY-MM-DD
+	Time          string // HH:MM:SS
+	Hostname      string
+	BaseURL       string // public URL of this tinyice (from config.BaseURL); empty when unset
+	Version       string
+}
+
+// WebhookGlobalPlaceholders is the meta-endpoint's source of truth for
+// what's always available. Order matters — it's the order rendered in
+// the editor's helper panel.
+var WebhookGlobalPlaceholders = []string{
+	"Event",
+	"Timestamp",
+	"UnixTimestamp",
+	"Date",
+	"Time",
+	"Hostname",
+	"BaseURL",
+	"Version",
+}
+
+// buildGlobals snapshots the time / config-derived values once per
+// dispatch so every template sees a consistent view (and so the same
+// values can be used to derive helpers like MountURL).
+func (s *Server) buildGlobals(event string) webhookGlobals {
+	now := time.Now().UTC()
+	return webhookGlobals{
+		Event:         event,
+		Timestamp:     now.Format(time.RFC3339),
+		UnixTimestamp: now.Unix(),
+		Date:          now.Format("2006-01-02"),
+		Time:          now.Format("15:04:05"),
+		Hostname:      s.Config.HostName,
+		BaseURL:       strings.TrimRight(s.Config.BaseURL, "/"),
+		Version:       s.Version,
+	}
+}
+
+// deriveExtras adds context-aware helpers to the template namespace
+// based on what the event payload contains. Today: when a Mount is
+// present, expose MountURL (public listen URL) and PlayerURL (embedded
+// web player). Pure derivation, no I/O — safe to call on every dispatch.
+func deriveExtras(g webhookGlobals, data map[string]interface{}) map[string]interface{} {
+	out := map[string]interface{}{}
+	if g.BaseURL == "" {
+		return out
+	}
+	if mountAny, ok := data["mount"]; ok {
+		if mount, ok := mountAny.(string); ok && mount != "" {
+			path := mount
+			if !strings.HasPrefix(path, "/") {
+				path = "/" + path
+			}
+			out["MountURL"] = g.BaseURL + path
+			out["PlayerURL"] = g.BaseURL + "/player" + path
+		}
+	}
+	return out
+}
+
 // renderWebhookBody runs a user-supplied template against a context that
-// merges the event metadata (Event, Timestamp, Hostname) with the
-// per-event payload promoted to top-level fields. So a now_playing
-// template can reference {{.Artist}} directly while still having
-// {{.Event}} and {{.Hostname}} available for routing/labelling.
+// merges the always-available globals (.Event, .Timestamp, .Hostname,
+// .BaseURL, …), any payload-derived helpers (.MountURL, .PlayerURL),
+// and the per-event payload itself promoted to top-level fields. So a
+// now_playing template can reference {{.Artist}} directly while still
+// having {{.Hostname}} and {{.MountURL}} available for routing.
 //
-// The map keys are exposed both lower-cased (as written by the dispatcher)
-// and TitleCased so users can write whichever feels natural — Go's
-// text/template field lookup is case-sensitive, so {{.artist}} would
-// otherwise fail for callers used to JSON conventions.
-func renderWebhookBody(tmpl string, event, hostname string, data map[string]interface{}) (string, error) {
+// Payload keys are exposed both lower-cased (as the dispatcher writes
+// them) and TitleCased so users can write either — Go text/template's
+// field lookup is case-sensitive and {{.artist}} would otherwise fail
+// for callers used to JSON conventions.
+func renderWebhookBody(tmpl string, g webhookGlobals, data map[string]interface{}) (string, error) {
 	t, err := template.New("webhook").Funcs(webhookFuncs).Parse(tmpl)
 	if err != nil {
 		return "", fmt.Errorf("parse template: %w", err)
 	}
 	ctx := map[string]interface{}{
-		"Event":     event,
-		"Timestamp": time.Now().UTC().Format(time.RFC3339),
-		"Hostname":  hostname,
+		"Event":         g.Event,
+		"Timestamp":     g.Timestamp,
+		"UnixTimestamp": g.UnixTimestamp,
+		"Date":          g.Date,
+		"Time":          g.Time,
+		"Hostname":      g.Hostname,
+		"BaseURL":       g.BaseURL,
+		"Version":       g.Version,
+	}
+	for k, v := range deriveExtras(g, data) {
+		ctx[k] = v
 	}
 	for k, v := range data {
 		ctx[k] = v
 		if len(k) > 0 {
-			ctx[strings.ToUpper(k[:1])+k[1:]] = v
+			// CamelCase the snake_case payload keys ("duration_seconds"
+			// → "DurationSeconds") so {{.DurationSeconds}} works as
+			// users would expect from Go-style templates.
+			ctx[snakeToCamel(k)] = v
 		}
 	}
 	var buf bytes.Buffer
@@ -124,14 +207,32 @@ func renderWebhookBody(tmpl string, event, hostname string, data map[string]inte
 	return buf.String(), nil
 }
 
-// defaultEnvelope is the legacy JSON body shape used when a webhook has
-// no custom BodyTemplate set. Kept identical to the pre-templating
-// version so existing receivers don't break after upgrade.
-func defaultEnvelope(event, hostname string, data map[string]interface{}) ([]byte, error) {
+// snakeToCamel turns "duration_seconds" into "DurationSeconds". Used
+// to expose payload keys under both their on-the-wire name and a
+// Go-idiomatic title-cased alias inside templates.
+func snakeToCamel(s string) string {
+	if s == "" {
+		return s
+	}
+	parts := strings.Split(s, "_")
+	for i, p := range parts {
+		if p == "" {
+			continue
+		}
+		parts[i] = strings.ToUpper(p[:1]) + p[1:]
+	}
+	return strings.Join(parts, "")
+}
+
+// defaultEnvelope is the JSON body shape used when a webhook has no
+// custom BodyTemplate set. The top-level event/timestamp/hostname and
+// nested data shape match the pre-templating envelope so existing
+// receivers don't break after upgrade.
+func defaultEnvelope(g webhookGlobals, data map[string]interface{}) ([]byte, error) {
 	return json.Marshal(map[string]interface{}{
-		"event":     event,
-		"timestamp": time.Now().UTC().Format(time.RFC3339),
-		"hostname":  hostname,
+		"event":     g.Event,
+		"timestamp": g.Timestamp,
+		"hostname":  g.Hostname,
 		"data":      data,
 	})
 }
@@ -183,16 +284,17 @@ func (s *Server) deliverWebhook(wh *config.WebhookConfig, event string, data map
 		contentType = "application/json"
 	}
 
+	g := s.buildGlobals(event)
 	var body []byte
 	if strings.TrimSpace(wh.BodyTemplate) == "" {
-		b, err := defaultEnvelope(event, s.Config.HostName, data)
+		b, err := defaultEnvelope(g, data)
 		if err != nil {
 			logger.L.Errorw("Webhook envelope marshal failed", "id", wh.ID, "error", err)
 			return
 		}
 		body = b
 	} else {
-		rendered, err := renderWebhookBody(wh.BodyTemplate, event, s.Config.HostName, data)
+		rendered, err := renderWebhookBody(wh.BodyTemplate, g, data)
 		if err != nil {
 			logger.L.Warnw("Webhook template render failed", "id", wh.ID, "event", event, "error", err)
 			return
@@ -243,7 +345,7 @@ func (s *Server) deliverWebhook(wh *config.WebhookConfig, event string, data map
 		}
 		out := v
 		if strings.Contains(v, "{{") {
-			if rendered, err := renderWebhookBody(v, event, s.Config.HostName, data); err == nil {
+			if rendered, err := renderWebhookBody(v, g, data); err == nil {
 				out = rendered
 			} else {
 				logger.L.Warnw("Webhook header template render failed", "id", wh.ID, "header", k, "error", err)

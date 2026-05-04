@@ -34,8 +34,8 @@ func (s *Server) requireSuperAdminJSON(w http.ResponseWriter, r *http.Request) b
 
 // apiGetWebhookMeta serves the static metadata the admin UI needs to
 // build the form: the canonical event list with sample payloads, the
-// available placeholders per event, and the verified preset templates.
-// One round-trip on page load means the editor doesn't need to hard-code
+// available placeholders per event, and the preset templates. One
+// round-trip on page load means the editor doesn't need to hard-code
 // anything that lives on the server.
 func (s *Server) apiGetWebhookMeta(w http.ResponseWriter, r *http.Request) {
 	if !s.requireSuperAdminJSON(w, r) {
@@ -74,18 +74,29 @@ func (s *Server) apiGetWebhookMeta(w http.ResponseWriter, r *http.Request) {
 	for i := range events {
 		sample := SampleEventData(events[i].Name)
 		events[i].Sample = sample
-		ph := []string{"Event", "Timestamp", "Hostname"}
+		// Per-event placeholders are derived from the sample payload:
+		// each key shows up CamelCased so users can write the same form
+		// the renderer actually accepts ({{.DurationSeconds}}, not
+		// {{.duration_seconds}} — even though both work).
+		ph := []string{}
 		for k := range sample {
-			if len(k) > 0 {
-				ph = append(ph, strings.ToUpper(k[:1])+k[1:])
+			if k != "" {
+				ph = append(ph, snakeToCamel(k))
 			}
+		}
+		// When the payload carries a Mount, the dispatcher synthesises
+		// MountURL / PlayerURL from the configured BaseURL. Surface them
+		// so users discover the helpers in the editor.
+		if _, ok := sample["mount"]; ok {
+			ph = append(ph, "MountURL", "PlayerURL")
 		}
 		events[i].Placeholders = ph
 	}
 
 	jsonResponse(w, map[string]interface{}{
-		"events":  events,
-		"presets": builtinPresets,
+		"events":             events,
+		"global_placeholders": WebhookGlobalPlaceholders,
+		"presets":            builtinPresets,
 		"funcs": []map[string]string{
 			{"name": "urlencode", "description": "URL-encode a string for query params or URLs.", "example": "{{urlencode .Title}}"},
 			{"name": "json", "description": "Marshal any value to a JSON literal.", "example": "{{json .}}"},

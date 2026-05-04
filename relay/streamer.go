@@ -88,7 +88,26 @@ type StreamerManager struct {
 	// `now_playing` webhook event without dragging the server package
 	// into relay (which would be a cyclic import). Set by the server at
 	// startup; nil on construction.
-	OnTrackStart func(mount, streamerName, artist, title, album, filePath string)
+	//
+	// durationSeconds is 0 when the input format doesn't expose a length
+	// up-front (typical for streaming PCM); receivers should treat 0 as
+	// "unknown" rather than "instantaneous".
+	OnTrackStart func(info TrackStartInfo)
+}
+
+// TrackStartInfo is the snapshot passed to OnTrackStart subscribers. A
+// struct (rather than a long positional argument list) keeps the call
+// site readable and lets us add fields without churning every caller.
+type TrackStartInfo struct {
+	Mount           string
+	StreamerName    string
+	Artist          string
+	Title           string
+	Album           string
+	FilePath        string
+	Format          string  // "mp3" | "opus"
+	Bitrate         int     // kbps
+	DurationSeconds float64 // 0 when unknown
 }
 
 func NewStreamerManager(r *Relay, cfg *config.Config) *StreamerManager {
@@ -1060,7 +1079,17 @@ func (sm *StreamerManager) streamFile(ctx context.Context, s *Streamer, path str
 	// goroutine: the server callback may block briefly on JSON marshal /
 	// HTTP send setup and we don't want to delay the encoder start.
 	if cb := sm.OnTrackStart; cb != nil {
-		go cb(s.OutputMount, s.Name, s.CurrentArtist, s.CurrentTitle, s.CurrentAlbum, path)
+		go cb(TrackStartInfo{
+			Mount:           s.OutputMount,
+			StreamerName:    s.Name,
+			Artist:          s.CurrentArtist,
+			Title:           s.CurrentTitle,
+			Album:           s.CurrentAlbum,
+			FilePath:        path,
+			Format:          s.Format,
+			Bitrate:         s.Bitrate,
+			DurationSeconds: s.CurrentFileDuration.Seconds(),
+		})
 	}
 
 	// Apply the streamer's volume setting (0..1) to the PCM stream before
