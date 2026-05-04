@@ -69,12 +69,14 @@ control, and a built-in admin SPA. Deploy anywhere in seconds.
 
 ---
 
-## What's new in v2.0.0-beta.9
+## What's new in v2.1.0
 
-Latency, player UX and an honest viewer count.
+Templated webhooks with presets, AutoDJ track-start hooks, lower-latency
+HLS, an honest viewer count — and the in-process self-updater is gone
+(distros own the binary; manual install of a new release is one line).
 
 <details open>
-<summary><strong>Webhooks v2 &amp; track-start hooks</strong> — templated bodies, presets, <code>now_playing</code>, AutoDJ <code>on_play_command</code> <em>(on main, post-beta.9)</em></summary>
+<summary><strong>Webhooks v2 &amp; track-start hooks</strong> — templated bodies, presets, <code>now_playing</code>, AutoDJ <code>on_play_command</code></summary>
 
 - New **`now_playing`** event fires once per track on every AutoDJ mount, alongside the existing `source_connect` / `source_disconnect` / `metadata_update` / `security_lockout` events.
 - **Templated webhook bodies** with Go `text/template` syntax. Empty template falls back to the legacy JSON envelope so existing receivers keep working unchanged.
