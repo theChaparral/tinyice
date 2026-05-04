@@ -43,9 +43,11 @@ type Streamer struct {
 	Visible        bool
 	MPDPassword    string
 	LastPlaylist        string
-	SongCommand         string
-	SongCommandTimeout  int
-	Volume              float64 // 0..1 playback gain applied before encode
+	SongCommand          string
+	SongCommandTimeout   int
+	OnPlayCommand        string
+	OnPlayCommandTimeout int
+	Volume               float64 // 0..1 playback gain applied before encode
 
 	relay  *Relay
 	cancel context.CancelFunc
@@ -578,6 +580,51 @@ func (s *Streamer) execSongCommand() (string, error) {
 	return filePath, nil
 }
 
+// execOnPlayCommand runs the configured on_play_command in a background
+// goroutine, passing track metadata via environment variables. This allows
+// operators to integrate with external services (e.g. TuneIn AIR API,
+// Discord webhooks) whenever a new track begins playing.
+func (s *Streamer) execOnPlayCommand(artist, title, album, filePath, mount string) {
+	if s.OnPlayCommand == "" {
+		return
+	}
+
+	timeout := s.OnPlayCommandTimeout
+	if timeout <= 0 {
+		timeout = 10
+	}
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
+		defer cancel()
+
+		cmd := exec.CommandContext(ctx, "sh", "-c", s.OnPlayCommand)
+		cmd.Dir = s.MusicDir
+		cmd.Env = append(os.Environ(),
+			"TINYICE_ARTIST="+artist,
+			"TINYICE_TITLE="+title,
+			"TINYICE_ALBUM="+album,
+			"TINYICE_FILE="+filePath,
+			"TINYICE_MOUNT="+mount,
+		)
+
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			logger.L.Warnw("on_play_command failed",
+				"mount", mount,
+				"command", s.OnPlayCommand,
+				"error", err,
+				"output", strings.TrimSpace(string(output)),
+			)
+			return
+		}
+		logger.L.Debugw("on_play_command completed",
+			"mount", mount,
+			"title", title,
+		)
+	}()
+}
+
 type StreamerStats struct {
 	Name           string
 	Mount          string
@@ -628,7 +675,7 @@ func (s *Streamer) GetStats() StreamerStats {
 	}
 }
 
-func (sm *StreamerManager) StartStreamer(name, mount, musicDir string, loop bool, format string, bitrate int, injectMetadata bool, initialPlaylistPaths []string, mpdEnabled bool, mpdPort, mpdPassword string, visible bool, lastPlaylist string, songCommand string, songCommandTimeout int) (*Streamer, error) {
+func (sm *StreamerManager) StartStreamer(name, mount, musicDir string, loop bool, format string, bitrate int, injectMetadata bool, initialPlaylistPaths []string, mpdEnabled bool, mpdPort, mpdPassword string, visible bool, lastPlaylist string, songCommand string, songCommandTimeout int, onPlayCommand string, onPlayCommandTimeout int) (*Streamer, error) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
@@ -659,9 +706,11 @@ func (sm *StreamerManager) StartStreamer(name, mount, musicDir string, loop bool
 		Visible:           visible,
 		MPDPassword:       mpdPassword,
 		LastPlaylist:       lastPlaylist,
-		SongCommand:        songCommand,
-		SongCommandTimeout: songCommandTimeout,
-		relay:              sm.relay,
+		SongCommand:          songCommand,
+		SongCommandTimeout:   songCommandTimeout,
+		OnPlayCommand:        onPlayCommand,
+		OnPlayCommandTimeout: onPlayCommandTimeout,
+		relay:                sm.relay,
 		cancel:            cancel,
 		titleCache:        make(map[string]string),
 		NextID:            nextID, // Start NextID after initial playlist
@@ -996,6 +1045,9 @@ func (sm *StreamerManager) streamFile(ctx context.Context, s *Streamer, path str
 	if s.InjectMetadata {
 		sm.relay.UpdateMetadata(s.OutputMount, s.CurrentFile)
 	}
+
+	// Fire on_play_command hook (runs in background, non-blocking).
+	s.execOnPlayCommand(s.CurrentArtist, s.CurrentTitle, s.CurrentAlbum, path, s.OutputMount)
 
 	// Apply the streamer's volume setting (0..1) to the PCM stream before
 	// it reaches the encoder. When Volume is 1.0 the wrapper is a no-op.

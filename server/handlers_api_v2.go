@@ -466,10 +466,12 @@ func (s *Server) apiGetAutoDJ(w http.ResponseWriter, r *http.Request) {
 		Enabled        bool                 `json:"enabled"`
 		MPDEnabled     bool                 `json:"mpd_enabled"`
 		MPDPort        string               `json:"mpd_port"`
-		LastPlaylist       string               `json:"last_playlist"`
-		SongCommand        string               `json:"song_command"`
-		SongCommandTimeout int                   `json:"song_command_timeout"`
-		Queue              []relay.PlaylistItem  `json:"queue"`
+		LastPlaylist          string               `json:"last_playlist"`
+		SongCommand           string               `json:"song_command"`
+		SongCommandTimeout    int                   `json:"song_command_timeout"`
+		OnPlayCommand         string               `json:"on_play_command"`
+		OnPlayCommandTimeout  int                   `json:"on_play_command_timeout"`
+		Queue                 []relay.PlaylistItem  `json:"queue"`
 	}
 
 	var result []autoDJInfo
@@ -495,9 +497,11 @@ func (s *Server) apiGetAutoDJ(w http.ResponseWriter, r *http.Request) {
 			MPDEnabled:     adj.MPDEnabled,
 			MPDPort:        adj.MPDPort,
 			LastPlaylist:       adj.LastPlaylist,
-			SongCommand:        adj.SongCommand,
-			SongCommandTimeout: adj.SongCommandTimeout,
-			Loop:               adj.Loop,
+			SongCommand:          adj.SongCommand,
+			SongCommandTimeout:   adj.SongCommandTimeout,
+			OnPlayCommand:        adj.OnPlayCommand,
+			OnPlayCommandTimeout: adj.OnPlayCommandTimeout,
+			Loop:                 adj.Loop,
 			InjectMetadata:     adj.InjectMetadata,
 			Visible:            adj.Visible,
 		}
@@ -547,9 +551,11 @@ func (s *Server) apiCreateAutoDJ(w http.ResponseWriter, r *http.Request) {
 		MPDEnabled     bool   `json:"mpd_enabled"`
 		MPDPort        string `json:"mpd_port"`
 		MPDPassword    string `json:"mpd_password"`
-		Visible            bool   `json:"visible"`
-		SongCommand        string `json:"song_command"`
-		SongCommandTimeout int    `json:"song_command_timeout"`
+		Visible              bool   `json:"visible"`
+		SongCommand          string `json:"song_command"`
+		SongCommandTimeout   int    `json:"song_command_timeout"`
+		OnPlayCommand        string `json:"on_play_command"`
+		OnPlayCommandTimeout int    `json:"on_play_command_timeout"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		jsonError(w, "Invalid request body", http.StatusBadRequest)
@@ -589,16 +595,18 @@ func (s *Server) apiCreateAutoDJ(w http.ResponseWriter, r *http.Request) {
 		InjectMetadata: body.InjectMetadata,
 		MPDEnabled:     body.MPDEnabled,
 		MPDPort:        body.MPDPort,
-		MPDPassword:        body.MPDPassword,
-		Visible:            body.Visible,
-		SongCommand:        body.SongCommand,
-		SongCommandTimeout: body.SongCommandTimeout,
+		MPDPassword:          body.MPDPassword,
+		Visible:              body.Visible,
+		SongCommand:          body.SongCommand,
+		SongCommandTimeout:   body.SongCommandTimeout,
+		OnPlayCommand:        body.OnPlayCommand,
+		OnPlayCommandTimeout: body.OnPlayCommandTimeout,
 	}
 
 	s.Config.AutoDJs = append(s.Config.AutoDJs, adj)
 	s.Config.SaveConfig()
 
-	streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, nil, adj.MPDEnabled, adj.MPDPort, adj.MPDPassword, adj.Visible, "", adj.SongCommand, adj.SongCommandTimeout)
+	streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, nil, adj.MPDEnabled, adj.MPDPort, adj.MPDPassword, adj.Visible, "", adj.SongCommand, adj.SongCommandTimeout, adj.OnPlayCommand, adj.OnPlayCommandTimeout)
 	if err != nil {
 		jsonError(w, fmt.Sprintf("Failed to start AutoDJ: %v", err), http.StatusInternalServerError)
 		return
@@ -653,9 +661,11 @@ func (s *Server) apiUpdateAutoDJ(w http.ResponseWriter, r *http.Request) {
 		MPDEnabled         bool   `json:"mpd_enabled"`
 		MPDPort            string `json:"mpd_port"`
 		MPDPassword        string `json:"mpd_password"`
-		Visible            bool   `json:"visible"`
-		SongCommand        string `json:"song_command"`
-		SongCommandTimeout int    `json:"song_command_timeout"`
+		Visible              bool   `json:"visible"`
+		SongCommand          string `json:"song_command"`
+		SongCommandTimeout   int    `json:"song_command_timeout"`
+		OnPlayCommand        string `json:"on_play_command"`
+		OnPlayCommandTimeout int    `json:"on_play_command_timeout"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		jsonError(w, "Invalid request body", http.StatusBadRequest)
@@ -715,6 +725,8 @@ func (s *Server) apiUpdateAutoDJ(w http.ResponseWriter, r *http.Request) {
 	target.Visible = body.Visible
 	target.SongCommand = body.SongCommand
 	target.SongCommandTimeout = body.SongCommandTimeout
+	target.OnPlayCommand = body.OnPlayCommand
+	target.OnPlayCommandTimeout = body.OnPlayCommandTimeout
 
 	s.Config.SaveConfig()
 
@@ -722,6 +734,7 @@ func (s *Server) apiUpdateAutoDJ(w http.ResponseWriter, r *http.Request) {
 		target.Name, target.Mount, target.MusicDir, target.Loop, target.Format, target.Bitrate,
 		target.InjectMetadata, target.Playlist, target.MPDEnabled, target.MPDPort, target.MPDPassword,
 		target.Visible, target.LastPlaylist, target.SongCommand, target.SongCommandTimeout,
+		target.OnPlayCommand, target.OnPlayCommandTimeout,
 	)
 	if err != nil {
 		jsonError(w, fmt.Sprintf("Failed to restart AutoDJ: %v", err), http.StatusInternalServerError)

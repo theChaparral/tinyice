@@ -615,7 +615,7 @@ func (s *Server) handleAddAutoDJ(w http.ResponseWriter, r *http.Request) {
 	s.Config.AutoDJs = append(s.Config.AutoDJs, adj)
 	s.Config.SaveConfig()
 
-	streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, nil, adj.MPDEnabled, adj.MPDPort, adj.MPDPassword, adj.Visible, "", adj.SongCommand, adj.SongCommandTimeout)
+	streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, adj.MusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, nil, adj.MPDEnabled, adj.MPDPort, adj.MPDPassword, adj.Visible, "", adj.SongCommand, adj.SongCommandTimeout, adj.OnPlayCommand, adj.OnPlayCommandTimeout)
 	if err == nil {
 		if adj.InjectMetadata {
 			if st, ok := s.Relay.GetStream(adj.Mount); ok {
@@ -678,7 +678,7 @@ func (s *Server) handleToggleAutoDJ(w http.ResponseWriter, r *http.Request) {
 			if adj.Enabled {
 				if existing == nil {
 					absMusicDir, _ := filepath.Abs(adj.MusicDir)
-					streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, absMusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, adj.Playlist, adj.MPDEnabled, adj.MPDPort, adj.MPDPassword, adj.Visible, adj.LastPlaylist, adj.SongCommand, adj.SongCommandTimeout)
+					streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, absMusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, adj.Playlist, adj.MPDEnabled, adj.MPDPort, adj.MPDPassword, adj.Visible, adj.LastPlaylist, adj.SongCommand, adj.SongCommandTimeout, adj.OnPlayCommand, adj.OnPlayCommandTimeout)
 					if err == nil {
 						if adj.InjectMetadata {
 							if st, ok := s.Relay.GetStream(adj.Mount); ok {
@@ -804,7 +804,7 @@ func (s *Server) handleUpdateAutoDJ(w http.ResponseWriter, r *http.Request) {
 			adj.SongCommand = songCommand
 
 			s.StreamerM.DeleteStreamer(oldMount)
-			streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, absMusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, adj.Playlist, adj.MPDEnabled, adj.MPDPort, adj.MPDPassword, adj.Visible, adj.LastPlaylist, adj.SongCommand, adj.SongCommandTimeout)
+			streamer, err := s.StreamerM.StartStreamer(adj.Name, adj.Mount, absMusicDir, adj.Loop, adj.Format, adj.Bitrate, adj.InjectMetadata, adj.Playlist, adj.MPDEnabled, adj.MPDPort, adj.MPDPassword, adj.Visible, adj.LastPlaylist, adj.SongCommand, adj.SongCommandTimeout, adj.OnPlayCommand, adj.OnPlayCommandTimeout)
 			if err == nil {
 				if adj.Enabled {
 					if adj.InjectMetadata {
