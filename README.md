@@ -74,6 +74,21 @@ control, and a built-in admin SPA. Deploy anywhere in seconds.
 Latency, player UX and an honest viewer count.
 
 <details open>
+<summary><strong>Webhooks v2 &amp; track-start hooks</strong> — templated bodies, presets, <code>now_playing</code>, AutoDJ <code>on_play_command</code> <em>(on main, post-beta.9)</em></summary>
+
+- New **`now_playing`** event fires once per track on every AutoDJ mount, alongside the existing `source_connect` / `source_disconnect` / `metadata_update` / `security_lockout` events.
+- **Templated webhook bodies** with Go `text/template` syntax. Empty template falls back to the legacy JSON envelope so existing receivers keep working unchanged.
+- **Per-webhook HTTP method, Content-Type, custom headers**, and a free-form body template. For `GET` / `HEAD` the rendered body is appended as a query string — that's how the TuneIn AIR `Playing.ashx` preset works from a single template.
+- **Always-available variables**: `{{.Event}}`, `{{.Timestamp}}`, `{{.UnixTimestamp}}`, `{{.Date}}`, `{{.Time}}`, `{{.Hostname}}`, `{{.BaseURL}}`, `{{.Version}}`. When the event payload carries a mount, `{{.MountURL}}` and `{{.PlayerURL}}` are derived from `base_url`. Helper funcs: `urlencode`, `json`, `lower`, `upper`.
+- **Presets** for Discord, Slack, Mattermost, Microsoft Teams, Telegram, ntfy.sh, Pushover, TuneIn AIR `Playing.ashx`, generic JSON envelope, and webhook.site (for debugging templates).
+- **Admin UI**: dedicated `/admin/webhooks` page with add / edit / delete, per-row Test button (fires a sample payload), preset dropdown, click-to-insert placeholder helper.
+- **AutoDJ `on_play_command`**: shell hook executed at track-start with `TINYICE_ARTIST` / `TINYICE_TITLE` / `TINYICE_ALBUM` / `TINYICE_FILE` / `TINYICE_MOUNT` env vars, for integrations that prefer a script over an HTTP endpoint.
+
+See [Webhooks](#webhooks) for the full reference.
+
+</details>
+
+<details open>
 <summary><strong>Player &amp; UX</strong> — stats overlay, posters, DVR, viewer count, listening time</summary>
 
 - New **stream stats overlay** (STATS button in the player's bottom strip): transport (HLS/WebRTC/Icecast), audio codec &amp; bitrate, video codec/resolution/FPS/GOP/bitrate, plus client-side buffer seconds, dropped frames + drop %, and HLS live-edge latency.
@@ -371,16 +386,100 @@ equivalent. See `/api/docs` for the full list.
 
 ---
 
+## Webhooks
+
+Outbound HTTP notifications for stream and AutoDJ events. Manage from
+**Admin → Webhooks** or via the JSON API at `/api/webhooks` (super-admin
+only). URLs are validated against the same SSRF guard as relays —
+loopback, private and link-local addresses are rejected.
+
+### Events
+
+| Event | Fired when |
+|---|---|
+| `now_playing` | A new track starts on an AutoDJ mount. Carries `mount`, `name`, `artist`, `title`, `album`, `file`, `format`, `bitrate`, `duration_seconds`. |
+| `source_connect` | An external source (broadcaster) connects to a mount. |
+| `source_disconnect` | An external source disconnects from a mount. |
+| `metadata_update` | Mount metadata (title / artist / song) changes. |
+| `security_lockout` | An IP is locked out for repeated auth failures. |
+
+### Body templates
+
+Webhooks have an optional `body_template` rendered with Go's
+`text/template` syntax. Leaving it empty sends the legacy JSON envelope
+(`{event, timestamp, hostname, data}`). Filling it in lets you match
+whatever shape the receiver wants.
+
+**Always-available variables** (every event, every template):
+
+| Variable | Example |
+|---|---|
+| `{{.Event}}` | `now_playing` |
+| `{{.Timestamp}}` | `2026-05-04T19:30:00Z` |
+| `{{.UnixTimestamp}}` | `1809974400` |
+| `{{.Date}}` · `{{.Time}}` | `2026-05-04` · `19:30:00` |
+| `{{.Hostname}}` · `{{.BaseURL}}` · `{{.Version}}` | from config |
+
+When the payload carries a `mount`, the dispatcher derives `{{.MountURL}}`
+(public listen URL) and `{{.PlayerURL}}` (embedded player) from
+`base_url`. Use `{{if .MountURL}}…{{end}}` to no-op gracefully when
+`base_url` isn't set.
+
+**Helper funcs**: `urlencode`, `json`, `lower`, `upper`. Snake-case payload
+keys also expose a CamelCase alias — `{{.DurationSeconds}}` and
+`{{.duration_seconds}}` both work.
+
+For `GET` / `HEAD` webhooks the rendered body is appended to the URL as
+a query string instead of being sent as a request body — that's how the
+TuneIn AIR preset hits `Playing.ashx` from a single template.
+
+### Presets
+
+The editor's **Load preset** dropdown ships templates for: Discord,
+Slack, Mattermost, Microsoft Teams (MessageCard), Telegram bot
+`sendMessage`, ntfy.sh, Pushover, TuneIn AIR `Playing.ashx`, generic
+JSON, and webhook.site (echo for debugging). Loading a preset fills
+method, headers and body — the URL field is left alone if you've
+already typed one.
+
+### Example: Discord "now playing"
+
+```json
+{
+  "name": "Discord — #now-playing",
+  "url": "https://discord.com/api/webhooks/<channel-id>/<token>",
+  "method": "POST",
+  "events": ["now_playing"],
+  "body_template": "{\"username\":\"TinyIce\",\"content\":\":musical_note: **{{.Mount}}** — {{.Artist}} – {{.Title}}{{if .MountURL}} — [Listen]({{.MountURL}}){{end}}\"}",
+  "enabled": true
+}
+```
+
+### Track-start without HTTP: `on_play_command`
+
+If you'd rather run a local script than an HTTP webhook, AutoDJ exposes
+an `on_play_command` per instance. The command runs asynchronously at
+each track start with the metadata as env vars (`TINYICE_ARTIST`,
+`TINYICE_TITLE`, `TINYICE_ALBUM`, `TINYICE_FILE`, `TINYICE_MOUNT`):
+
+```bash
+#!/bin/bash
+curl -s "https://air.radiotime.com/Playing.ashx?partnerId=$P&partnerKey=$K&id=$ID&title=${TINYICE_TITLE}&artist=${TINYICE_ARTIST}"
+```
+
+---
+
 ## Admin UI
 
 - **Dashboard**: live bandwidth (in + out), listeners, streams, health.
 - **Streams**: create, edit (password / visibility / enabled / burst), kick source or listeners, remove.
-- **AutoDJ**: full CRUD, inline edit, external `song_command` hook.
+- **AutoDJ**: full CRUD, inline edit, external `song_command` (next-track selector) and `on_play_command` (track-start notifier) hooks.
 - **Studio**: 3-column live control — library browser, playlist editor, transport, visualiser, mount switcher.
 - **Go Live**: browser WebRTC broadcasting with device picker, spectrum analyser, level meters + headroom in dB.
 - **Transcoders**: MP3 and Opus targets with per-instance Opus application / frame size / complexity / VBR knobs.
 - **Relays**: pull streams from upstream Icecast servers with in-stream ICY metadata parsing.
 - **Users**: roles (super-admin, admin, DJ), passkey enrolment, OIDC linking, bearer-token management.
+- **Webhooks**: outbound HTTP notifications for stream + AutoDJ events; templated bodies, custom headers/method, preset library (Discord, Slack, Teams, Telegram, ntfy, Pushover, TuneIn AIR, …), per-row Test button.
 - **Security**: IP ban / whitelist with CIDR, audit log tab with filters.
 - **Pending Users**: approve or deny users who signed up via OIDC.
 - **Settings**: HTTPS, directory listing, branding, SMTP, auto-update.
