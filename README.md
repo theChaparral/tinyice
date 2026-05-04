@@ -149,7 +149,6 @@ See [Webhooks](#webhooks) for the full reference.
 - Sessions have absolute 7-day and sliding 24-hour expiry with a periodic reaper. Login rotates the cookie (no fixation). Deleted users have their live sessions purged immediately.
 - Login is constant-time — bcrypt always runs, even for unknown usernames.
 - `TrustedProxies` config + `X-Forwarded-For` handling so scan-detection and bans work behind nginx / Caddy / Traefik without auto-whitelisting loopback.
-- Auto-updater verifies SHA-256 from `checksums.txt` before overwriting the running binary.
 - RTMP shutdown closes live publisher connections so `Ctrl+C` quits within seconds, even mid-stream.
 - CSRF on every mutating admin form. Super-admin gates on transcoder/webhook CRUD. Webhook/relay URLs reject loopback and RFC1918 addresses (SSRF).
 - `SaveConfig` is serialised across goroutines so concurrent admin writes can't shred the JSON.
@@ -516,7 +515,6 @@ curl -s "https://air.radiotime.com/Playing.ashx?partnerId=$P&partnerKey=$K&id=$I
 | `-json-logs` | `false` | Structured JSON logging |
 | `-daemon` | `false` | Run in background |
 | `-pid-file` | | PID file path |
-| `-autoupdate` | `false` | Check + apply signed updates every hour |
 
 Subcommands: `./tinyice dump-config`, `./tinyice set <key> <value>`, `./tinyice get <key>`, `./tinyice reload`.
 

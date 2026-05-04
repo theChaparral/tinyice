@@ -18,7 +18,6 @@ import (
 	"github.com/DatanoiseTV/tinyice/config"
 	"github.com/DatanoiseTV/tinyice/logger"
 	"github.com/DatanoiseTV/tinyice/server"
-	"github.com/DatanoiseTV/tinyice/updater"
 	"go.uber.org/zap"
 )
 
@@ -39,7 +38,6 @@ var (
 	daemon      = flag.Bool("daemon", false, "Run in background (daemon mode)")
 	pidFile     = flag.String("pid-file", "", "Path to PID file")
 	authLogFile = flag.String("auth-log-file", "", "Path to separate authentication audit log")
-	autoupdate  = flag.Bool("autoupdate", false, "Enable automatic updates and zero-downtime hot swapping")
 	forceSetup  = flag.Bool("force-setup", false, "Force setup wizard even if config already has an admin password")
 )
 
@@ -141,17 +139,7 @@ func main() {
 	if *domains != "" {
 		cfg.Domains = strings.Split(*domains, ",")
 	}
-	if *autoupdate {
-		cfg.AutoUpdate = true
-	}
-
 	srv := server.NewServer(cfg, authLogger, Version, Commit, setupToken)
-
-	// Start Updater if enabled
-	if cfg.AutoUpdate {
-		upd := updater.NewUpdater(cfg, srv)
-		go upd.Start(context.Background())
-	}
 
 	// Signal handling
 	sigs := make(chan os.Signal, 1)

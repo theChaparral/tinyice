@@ -256,11 +256,6 @@ type Config struct {
 	DirectoryListing bool   `json:"directory_listing"`
 	DirectoryServer  string `json:"directory_server"`
 
-	// Auto Update
-	AutoUpdate  bool   `json:"auto_update"`
-	UpdateURL   string `json:"update_url"`
-	ChecksumURL string `json:"checksum_url"`
-
 	// Internal Streamer (AutoDJ)
 	AutoDJs []*AutoDJConfig `json:"autodjs"`
 
@@ -400,12 +395,6 @@ func (config *Config) setBasicDefaults() {
 	}
 	if config.DirectoryServer == "" {
 		config.DirectoryServer = "http://dir.xiph.org/cgi-bin/yp-cgi"
-	}
-	if config.UpdateURL == "" {
-		config.UpdateURL = "https://github.com/DatanoiseTV/tinyice/releases/latest/download/tinyice-{{os}}-{{arch}}"
-	}
-	if config.ChecksumURL == "" {
-		config.ChecksumURL = "https://github.com/DatanoiseTV/tinyice/releases/latest/download/checksums.txt"
 	}
 	// Existing configs are already set up
 	if config.AdminPassword != "" && !config.SetupComplete {

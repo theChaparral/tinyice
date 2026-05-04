@@ -2401,7 +2401,6 @@ func (s *Server) apiGetSettings(w http.ResponseWriter, r *http.Request) {
 		"domains":           s.Config.Domains,
 		"directory_listing": s.Config.DirectoryListing,
 		"directory_server":  s.Config.DirectoryServer,
-		"auto_update":       s.Config.AutoUpdate,
 		"audit_enabled":     s.Config.AuditEnabled,
 	})
 }
@@ -2453,11 +2452,6 @@ func (s *Server) apiUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	if v, ok := body["directory_listing"]; ok {
 		if b, ok := v.(bool); ok {
 			s.Config.DirectoryListing = b
-		}
-	}
-	if v, ok := body["auto_update"]; ok {
-		if b, ok := v.(bool); ok {
-			s.Config.AutoUpdate = b
 		}
 	}
 	if v, ok := body["audit_enabled"]; ok {

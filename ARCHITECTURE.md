@@ -82,7 +82,6 @@ tinyice/
 │   ├── tasks.go            # Background tasks (reporting, stats recording).
 │   ├── socket_*.go         # OS-specific socket syscalls (SO_REUSEPORT).
 │   └── templates/          # HTML/CSS/JS assets.
-└── updater/                # Self-update mechanism (GitHub Releases).
 ```
 
 ## 4. Key Data Flows

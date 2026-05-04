@@ -14,7 +14,6 @@ interface ServerSettings {
   admin_email: string
   low_latency_mode: boolean
   directory_listing: boolean
-  auto_update: boolean
   audit_enabled: boolean
 }
 
@@ -41,7 +40,6 @@ const server = signal<ServerSettings>({
   admin_email: '',
   low_latency_mode: false,
   directory_listing: false,
-  auto_update: false,
   audit_enabled: false,
 })
 
@@ -89,7 +87,6 @@ async function saveServer() {
       max_listeners: server.value.max_listeners,
       low_latency_mode: server.value.low_latency_mode,
       directory_listing: server.value.directory_listing,
-      auto_update: server.value.auto_update,
       audit_enabled: server.value.audit_enabled,
     })
   } catch { /* empty */ }
@@ -185,10 +182,6 @@ export function Settings() {
             <div class="flex items-center justify-between">
               <label class="font-mono text-[10px] tracking-[2px] text-text-tertiary">DIRECTORY LISTING</label>
               <Toggle checked={server.value.directory_listing} onChange={(v) => updateServer('directory_listing', v)} label="Directory listing" />
-            </div>
-            <div class="flex items-center justify-between">
-              <label class="font-mono text-[10px] tracking-[2px] text-text-tertiary">AUTO UPDATE</label>
-              <Toggle checked={server.value.auto_update} onChange={(v) => updateServer('auto_update', v)} label="Auto update" />
             </div>
             <div class="flex items-center justify-between">
               <div>
