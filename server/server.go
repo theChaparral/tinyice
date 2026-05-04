@@ -195,6 +195,21 @@ func NewServer(cfg *config.Config, authLog *zap.SugaredLogger, version, commit, 
 	// Ensure default tenant exists for backward compatibility
 	srv.TenantM.GetOrCreateDefaultTenant()
 
+	// Forward streamer track-start events to the webhook dispatcher so
+	// subscribers can react to "now playing" changes. Done here (rather
+	// than in NewStreamerManager) because the dispatcher needs the
+	// fully-built Server reference and runtime config.
+	srv.StreamerM.OnTrackStart = func(mount, name, artist, title, album, filePath string) {
+		srv.dispatchWebhook("now_playing", map[string]interface{}{
+			"mount":  mount,
+			"name":   name,
+			"artist": artist,
+			"title":  title,
+			"album":  album,
+			"file":   filePath,
+		})
+	}
+
 	return srv
 }
 
@@ -593,6 +608,24 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	})
 
 	mux.HandleFunc("/api/security/audit", s.apiGetAuditLog)
+
+	// Webhook CRUD + meta + test endpoints used by the admin UI.
+	mux.HandleFunc("/api/webhooks", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			s.apiGetWebhooks(w, r)
+		case http.MethodPost:
+			s.apiCreateWebhook(w, r)
+		case http.MethodPut, http.MethodPatch:
+			s.apiUpdateWebhook(w, r)
+		case http.MethodDelete:
+			s.apiDeleteWebhook(w, r)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+	mux.HandleFunc("/api/webhooks/meta", s.apiGetWebhookMeta)
+	mux.HandleFunc("/api/webhooks/test", s.apiTestWebhook)
 
 	mux.HandleFunc("/api/branding", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {

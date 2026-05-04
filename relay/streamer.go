@@ -82,6 +82,13 @@ type StreamerManager struct {
 	mu        sync.RWMutex
 	relay     *Relay
 	config    *config.Config
+
+	// OnTrackStart fires once per track, after metadata is parsed and just
+	// before encoding begins. Used by the server to dispatch the
+	// `now_playing` webhook event without dragging the server package
+	// into relay (which would be a cyclic import). Set by the server at
+	// startup; nil on construction.
+	OnTrackStart func(mount, streamerName, artist, title, album, filePath string)
 }
 
 func NewStreamerManager(r *Relay, cfg *config.Config) *StreamerManager {
@@ -1048,6 +1055,13 @@ func (sm *StreamerManager) streamFile(ctx context.Context, s *Streamer, path str
 
 	// Fire on_play_command hook (runs in background, non-blocking).
 	s.execOnPlayCommand(s.CurrentArtist, s.CurrentTitle, s.CurrentAlbum, path, s.OutputMount)
+
+	// Notify the server so it can dispatch webhook subscribers. Run in a
+	// goroutine: the server callback may block briefly on JSON marshal /
+	// HTTP send setup and we don't want to delay the encoder start.
+	if cb := sm.OnTrackStart; cb != nil {
+		go cb(s.OutputMount, s.Name, s.CurrentArtist, s.CurrentTitle, s.CurrentAlbum, path)
+	}
 
 	// Apply the streamer's volume setting (0..1) to the PCM stream before
 	// it reaches the encoder. When Volume is 1.0 the wrapper is a no-op.

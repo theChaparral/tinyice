@@ -495,6 +495,7 @@ func (s *Server) handleAddWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.Config.Webhooks = append(s.Config.Webhooks, &config.WebhookConfig{
+		ID:      config.NewWebhookID(),
 		URL:     url,
 		Events:  events,
 		Enabled: true,

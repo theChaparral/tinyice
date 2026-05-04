@@ -1,12 +1,25 @@
 package config
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"sync"
 
 	"golang.org/x/crypto/bcrypt"
 )
+
+// NewWebhookID returns a 12-char hex token used to address webhooks in
+// the API and admin UI. Random rather than sequential so deletes don't
+// invalidate cached references on the frontend.
+func NewWebhookID() string {
+	b := make([]byte, 6)
+	if _, err := rand.Read(b); err != nil {
+		return "wh-fallback"
+	}
+	return "wh_" + hex.EncodeToString(b)
+}
 
 const (
 	RoleSuperAdmin = "superadmin"
@@ -108,10 +121,33 @@ type TranscoderConfig struct {
 	OpusFrameSizeMS int    `json:"opus_frame_size_ms,omitempty"` // 2.5/5/10/20/40/60, 0 = 20
 }
 
+// WebhookConfig describes one outbound HTTP webhook subscription.
+//
+// The minimal form (URL + Events + Enabled) is preserved for backwards
+// compatibility with existing tinyice.json files written before templating
+// was added. New deployments get an ID assigned at load time so the admin
+// UI can address each entry uniquely even if URLs collide.
+//
+// BodyTemplate, when set, is rendered with Go text/template against a
+// context that contains .Event, .Timestamp, .Hostname plus every key from
+// the per-event payload promoted to the top level (so users can write
+// {{.Artist}} for now_playing, {{.Mount}} for source_connect, etc.). When
+// BodyTemplate is empty we fall back to the legacy JSON envelope, which
+// keeps existing receivers working unchanged.
+//
+// Method defaults to POST, ContentType to application/json. Headers is a
+// free-form map of extra request headers — useful for Authorization,
+// X-Webhook-Token, custom routing keys for Slack, etc.
 type WebhookConfig struct {
-	URL     string   `json:"url"`
-	Events  []string `json:"events"` // "source_connect", "source_disconnect", "metadata_update", "security_lockout"
-	Enabled bool     `json:"enabled"`
+	ID           string            `json:"id"`
+	Name         string            `json:"name,omitempty"`
+	URL          string            `json:"url"`
+	Method       string            `json:"method,omitempty"`
+	Events       []string          `json:"events"`
+	Headers      map[string]string `json:"headers,omitempty"`
+	BodyTemplate string            `json:"body_template,omitempty"`
+	ContentType  string            `json:"content_type,omitempty"`
+	Enabled      bool              `json:"enabled"`
 }
 
 type AutoDJConfig struct {
@@ -404,6 +440,14 @@ func (config *Config) initMapsAndArrays() {
 	}
 	if config.Webhooks == nil {
 		config.Webhooks = make([]*WebhookConfig, 0)
+	}
+	// Backfill IDs for legacy webhooks (pre-templating). Done in-place so
+	// the next SaveConfig persists them; without this the admin UI would
+	// have no stable handle for edit/delete on existing entries.
+	for _, wh := range config.Webhooks {
+		if wh.ID == "" {
+			wh.ID = NewWebhookID()
+		}
 	}
 	if config.BannedIPs == nil {
 		config.BannedIPs = make([]string, 0)
