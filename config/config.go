@@ -202,6 +202,11 @@ type Config struct {
 	AdvancedMounts map[string]*MountSettings `json:"advanced_mounts"`
 	Relays         []*RelayConfig            `json:"relays"`
 	Transcoders    []*TranscoderConfig       `json:"transcoders"`
+	// AutoTranscodeMP3Bitrates spawns ephemeral mp3 transcoders for any
+	// non-mp3 source mount as soon as it connects. Output mounts are
+	// named `<input>-mp3-<bitrate>` and don't get persisted to config —
+	// they live for the lifetime of the source. Empty / nil = off.
+	AutoTranscodeMP3Bitrates []int `json:"auto_transcode_mp3_bitrates,omitempty"`
 	Webhooks       []*WebhookConfig          `json:"webhooks"`
 	BannedIPs      []string                  `json:"banned_ips"`
 	WhitelistedIPs []string                  `json:"whitelisted_ips"`

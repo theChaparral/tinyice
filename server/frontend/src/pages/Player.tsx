@@ -318,6 +318,31 @@ export function Player() {
     el.volume = volume.value / 100
   }, [volume.value])
 
+
+
+// pickAudioSource swaps to an MP3 sibling mount on browsers that can't
+// decode Ogg/Opus (notably Safari and iOS). Tries `-mp3-256`, `-mp3-128`,
+// then falls back to the original. When the browser can play Ogg we
+// return the original immediately. Auto MP3 siblings are spawned by the
+// server when AutoTranscodeMP3Bitrates is configured.
+async function pickAudioSource(mountPath: string): Promise<string> {
+  const probe = document.createElement('audio')
+  const canOgg = probe.canPlayType('audio/ogg; codecs=opus') !== ''
+              || probe.canPlayType('audio/ogg; codecs=vorbis') !== ''
+              || probe.canPlayType('audio/ogg') !== ''
+  if (canOgg) return mountPath
+  for (const candidate of [`${mountPath}-mp3-256`, `${mountPath}-mp3-128`, `${mountPath}-128`]) {
+    try {
+      const r = await fetch(candidate, { method: 'GET', headers: { Range: 'bytes=0-0' } })
+      if (r.ok) {
+        const ct = (r.headers.get('content-type') || '').toLowerCase()
+        if (ct.startsWith('audio/mpeg') || ct === 'audio/mp3') return candidate
+      }
+    } catch {}
+  }
+  return mountPath
+}
+
   const handlePlay = useCallback(async () => {
     const el = audioRef.current
     if (!el) return
@@ -351,7 +376,7 @@ export function Player() {
         hlsRef.current = await attachHLS(hlsUrl, el)
       }
     } else {
-      el.src = mountPath
+      el.src = await pickAudioSource(mountPath)
     }
     try {
       await el.play()

@@ -291,6 +291,15 @@ func (s *Server) updateSourceMetadata(stream *relay.Stream, mount string, r *htt
 	}
 	isPublic := r.Header.Get("Ice-Public") == "1"
 	isVisible := s.Config.VisibleMounts[mount]
+
+	// Spin up auto MP3 transcoders for non-mp3 sources, so Safari/iOS
+	// (no Ogg/Opus decoder) get a sibling they can play. Skips silently
+	// when the source is already mp3 or AutoTranscodeMP3Bitrates is
+	// empty.
+	if !isAlreadyMP3(r.Header.Get("Content-Type")) {
+		s.TranscoderM.EnsureAutoMP3Transcoders(mount, s.Config.AutoTranscodeMP3Bitrates, s.Config.Transcoders)
+	}
+
 	if stream.UpdateMetadata(r.Header.Get("Ice-Name"), r.Header.Get("Ice-Description"), r.Header.Get("Ice-Genre"), r.Header.Get("Ice-Url"), bitrate, r.Header.Get("Content-Type"), isPublic, isVisible) {
 		s.dispatchWebhook("metadata_update", map[string]interface{}{
 			"mount":        mount,
@@ -624,4 +633,12 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	pageData := s.BasePageData("")
 	pageData["streams"] = streamList
 	s.shell.Render(w, "landing", s.Config.PageTitle, pageData)
+}
+
+
+// isAlreadyMP3 returns true if the Content-Type header advertises an MP3
+// stream — an auto MP3 transcoder of an mp3 source is wasted CPU.
+func isAlreadyMP3(contentType string) bool {
+	ct := strings.ToLower(contentType)
+	return ct == "audio/mpeg" || ct == "audio/mp3" || strings.HasPrefix(ct, "audio/mpeg;")
 }

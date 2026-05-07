@@ -592,3 +592,46 @@ func mirrorTranscodeMetadata(ctx context.Context, input, output *Stream) {
 		}
 	}
 }
+
+
+// EnsureAutoMP3Transcoders is called when a source connects on `inputMount`.
+// For each bitrate in the list it spawns a temporary mp3 transcoder named
+// `<inputMount>-mp3-<bitrate>` if no transcoder for that output is already
+// running. Auto-spawned transcoders are not persisted to config; they go
+// away with the source and reappear on the next connect. Manual entries
+// in cfg.Transcoders take precedence (we don't clobber them).
+func (tm *TranscoderManager) EnsureAutoMP3Transcoders(inputMount string, bitrates []int, manualConfigs []*config.TranscoderConfig) {
+	if len(bitrates) == 0 {
+		return
+	}
+	for _, br := range bitrates {
+		if br < 32 || br > 320 {
+			continue
+		}
+		outputMount := fmt.Sprintf("%s-mp3-%d", inputMount, br)
+		if tm.GetInstance(outputMount) != nil {
+			continue
+		}
+		skip := false
+		for _, mc := range manualConfigs {
+			if mc != nil && mc.OutputMount == outputMount {
+				skip = true
+				break
+			}
+		}
+		if skip {
+			continue
+		}
+		cfg := &config.TranscoderConfig{
+			Name:        fmt.Sprintf("auto-%s-mp3-%d", strings.TrimPrefix(inputMount, "/"), br),
+			InputMount:  inputMount,
+			OutputMount: outputMount,
+			Format:      "mp3",
+			Bitrate:     br,
+			Enabled:     true,
+		}
+		tm.StartTranscoder(cfg)
+		logger.L.Infow("auto-spawned MP3 transcoder",
+			"input", inputMount, "output", outputMount, "bitrate", br)
+	}
+}
