@@ -20,6 +20,6 @@ export function getFrequencyData(analyserNode: AnalyserNode): Uint8Array {
   return data
 }
 
-export function resumeAudio() {
-  ctx?.resume()
+export function resumeAudio(): Promise<void> {
+  return ctx?.resume() ?? Promise.resolve()
 }

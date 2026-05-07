@@ -333,11 +333,15 @@ async function pickAudioSource(mountPath: string): Promise<string> {
   if (canOgg) return mountPath
   for (const candidate of [`${mountPath}-mp3-256`, `${mountPath}-mp3-128`, `${mountPath}-128`]) {
     try {
-      const r = await fetch(candidate, { method: 'GET', headers: { Range: 'bytes=0-0' } })
-      if (r.ok) {
-        const ct = (r.headers.get('content-type') || '').toLowerCase()
-        if (ct.startsWith('audio/mpeg') || ct === 'audio/mp3') return candidate
-      }
+      // Icecast ignores Range and would happily stream forever; we
+      // abort as soon as we've read the response headers so the
+      // probe doesn't leak a TCP connection per candidate.
+      const ctrl = new AbortController()
+      const r = await fetch(candidate, { method: 'GET', headers: { Range: 'bytes=0-0' }, signal: ctrl.signal })
+      const ct = (r.headers.get('content-type') || '').toLowerCase()
+      try { await r.body?.cancel() } catch {}
+      ctrl.abort()
+      if (r.ok && (ct.startsWith('audio/mpeg') || ct === 'audio/mp3')) return candidate
     } catch {}
   }
   return mountPath
@@ -346,7 +350,11 @@ async function pickAudioSource(mountPath: string): Promise<string> {
   const handlePlay = useCallback(async () => {
     const el = audioRef.current
     if (!el) return
-    resumeAudio()
+    // Audio context must be running before el.play() — without
+    // awaiting the resume, the first user-gesture click on iOS /
+    // Chromium routes audio into a still-suspended graph and we
+    // get silence until the user clicks a second time.
+    await resumeAudio()
     if (!analyserRef.current) {
       analyserRef.current = connectAudio(el)
     }
@@ -663,10 +671,10 @@ async function pickAudioSource(mountPath: string): Promise<string> {
 
         {/* Track info */}
         <div class="flex flex-col items-center gap-1.5 max-w-xs text-center">
-          <h1 class="text-[22px] font-bold text-text-primary leading-tight truncate w-full">
+          <h1 class="text-[22px] font-bold text-text-primary leading-tight break-words w-full">
             {title}
           </h1>
-          <p class="font-mono text-xs text-text-tertiary truncate w-full">
+          <p class="font-mono text-xs text-text-tertiary break-words w-full">
             {artist}
           </p>
         </div>
