@@ -226,6 +226,9 @@ func (tm *TranscoderManager) performTranscode(ctx context.Context, inst *Transco
 	output.Visible = tm.relay.GetStreamVisibility(inst.Config.InputMount) // Follow input visibility
 	output.mu.Unlock()
 
+	go mirrorTranscodeMetadata(ctx, input, output)
+
+
 	if inst.Config.Format == "mp3" {
 		output.mu.Lock()
 		output.ContentType = "audio/mpeg"
@@ -542,4 +545,50 @@ type TranscoderStats struct {
 	FramesProcessed int64  `json:"frames"`
 	BytesEncoded    int64  `json:"bytes"`
 	Uptime          string `json:"uptime"`
+}
+
+
+// mirrorTranscodeMetadata keeps the transcoded output stream's display
+// metadata (current song, genre, URL, description, public/visible flags)
+// in sync with the input stream while the transcode runs. Without this,
+// listeners on /<mount>-128 never see StreamTitle updates from the
+// upstream encoder, and the public Icecast directory listing shows
+// generic info on the transcoded sibling.
+func mirrorTranscodeMetadata(ctx context.Context, input, output *Stream) {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	var lastSong, lastGenre, lastURL, lastDesc string
+	var lastPublic, lastVisible bool
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			input.mu.RLock()
+			song := input.CurrentSong
+			genre := input.Genre
+			url := input.URL
+			desc := input.Description
+			pub := input.Public
+			vis := input.Visible
+			input.mu.RUnlock()
+
+			if song != lastSong {
+				output.mu.Lock()
+				output.CurrentSong = song
+				output.mu.Unlock()
+				lastSong = song
+			}
+			if genre != lastGenre || url != lastURL || desc != lastDesc || pub != lastPublic || vis != lastVisible {
+				output.mu.Lock()
+				output.Genre = genre
+				output.URL = url
+				output.Description = desc
+				output.Public = pub
+				output.Visible = vis
+				output.mu.Unlock()
+				lastGenre, lastURL, lastDesc, lastPublic, lastVisible = genre, url, desc, pub, vis
+			}
+		}
+	}
 }

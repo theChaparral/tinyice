@@ -387,8 +387,25 @@ func (s *Server) handleListener(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Icy-MetaData") == "1" && !stream.IsOgg() {
 			metaint = 16000
 			w.Header().Set("icy-metaint", "16000")
-			w.Header().Set("icy-name", s.Config.PageTitle)
 		}
+		// ICY metadata headers — populated for all listeners regardless of
+		// metaint negotiation so non-shoutcast clients (browsers, players)
+		// can still surface the station name in their UI. Field reads are
+		// single-string copies — same race profile the rest of this file
+		// already accepts.
+		icyName := stream.Name
+		if icyName == "" { icyName = s.Config.PageTitle }
+		icyGenre := stream.Genre
+		icyURL := stream.URL
+		icyDesc := stream.Description
+		icyBR := stream.Bitrate
+		icyPub := stream.Public
+		w.Header().Set("icy-name", icyName)
+		if icyGenre != "" { w.Header().Set("icy-genre", icyGenre) }
+		if icyURL   != "" { w.Header().Set("icy-url", icyURL) }
+		if icyDesc  != "" { w.Header().Set("icy-description", icyDesc) }
+		if icyBR    != "" { w.Header().Set("icy-br", icyBR) }
+		if icyPub        { w.Header().Set("icy-pub", "1") } else { w.Header().Set("icy-pub", "0") }
 
 		if s.Config.MaxListeners > 0 && stream.ListenersCount() >= s.Config.MaxListeners {
 			http.Error(w, "Server Full", http.StatusServiceUnavailable)
