@@ -33,12 +33,19 @@ type TranscoderManager struct {
 	instances map[string]*TranscoderInstance // key is OutputMount
 	mu        sync.RWMutex
 	relay     *Relay
+
+	// hub holds shared decoders keyed by input mount. The first
+	// transcoder for an input opens the decoder; subsequent ones
+	// attach to the existing PCM fanout. Saves a real CPU chunk
+	// when several outputs share an input (auto-mp3 + opus combos).
+	hub *DecoderHub
 }
 
 func NewTranscoderManager(r *Relay) *TranscoderManager {
 	return &TranscoderManager{
 		instances: make(map[string]*TranscoderInstance),
 		relay:     r,
+		hub:       NewDecoderHub(r),
 	}
 }
 
@@ -133,101 +140,57 @@ func (tm *TranscoderManager) safePerformTranscode(ctx context.Context, inst *Tra
 }
 
 func (tm *TranscoderManager) performTranscode(ctx context.Context, inst *TranscoderInstance) {
-	var input *Stream
-	var ok bool
-
-	// 1. Wait for input stream to become available
-	for {
-		input, ok = tm.relay.GetStream(inst.Config.InputMount)
-		if ok {
-			break
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(1 * time.Second):
-			// Keep waiting
-		}
-	}
-
-	logger.L.Infow("Transcoder: Input stream found, initializing...", "name", inst.Config.Name, "input", inst.Config.InputMount)
-
-	// 2. Subscribe to input
-	id := fmt.Sprintf("transcoder-%s", inst.Config.Name)
-	// Burst 256 KiB so the decoder has several seconds of data to initialise
-	// even when the source bitrate is low — 32 KiB left strict Opus / FLAC
-	// decoders short on bytes at startup, producing a noisy first packet.
-	offset, signal := input.SubscribeInternal(id, 256*1024)
-	defer input.Unsubscribe(id)
-
-	// For live Ogg inputs, the subscribe offset lands mid-stream. The decoder
-	// needs the BOS + setup pages to initialise, so we prepend the captured
-	// OggHead (stored by the Icecast SOURCE / WebRTC ingest) and align the
-	// live reader to the next valid page boundary so the Ogg page parser
-	// picks up from a clean edge.
-	input.mu.RLock()
-	isOgg := input.IsOggStream || strings.Contains(strings.ToLower(input.ContentType), "ogg") ||
-		strings.Contains(strings.ToLower(input.ContentType), "opus") ||
-		strings.Contains(strings.ToLower(input.ContentType), "vorbis") ||
-		strings.Contains(strings.ToLower(input.ContentType), "flac")
-	bufSize := input.Buffer.Size
-	bufHead := input.Buffer.Head
-	var headBytes []byte
-	if len(input.OggHead) > 0 {
-		headBytes = append(headBytes, input.OggHead...)
-	}
-	input.mu.RUnlock()
-
-	var reader io.Reader
-	if isOgg {
-		// FindNextPageBoundaryLocked holds the buffer's mutex so it can run
-		// safely while the ingest goroutine is still writing new bytes.
-		aligned := input.Buffer.FindNextPageBoundaryLocked(offset)
-		_ = bufSize
-		_ = bufHead
-		if aligned < input.Buffer.Head {
-			offset = aligned
-		}
-		live := NewStreamReader(input.Buffer, offset, signal, ctx, id).WithOggSync(input)
-		if len(headBytes) > 0 {
-			reader = io.MultiReader(bytes.NewReader(headBytes), live)
-		} else {
-			// Without stored headers the decoder will likely fail to init;
-			// log a hint so the operator knows to restart the source so we
-			// can capture BOS/Tags next time.
-			logger.L.Warnw("Transcoder: Ogg input has no captured headers; decoder may fail until source reconnects",
-				"name", inst.Config.Name, "input", inst.Config.InputMount,
-			)
-			reader = live
-		}
-	} else {
-		reader = NewStreamReader(input.Buffer, offset, signal, ctx, id).WithOggSync(input)
-	}
-
-	// 3. Decode — auto-detect MP3 / Ogg Opus / Ogg Vorbis / FLAC from the
-	// first bytes of the input stream.
-	decoder, err := OpenDecoder(reader)
+	// 1. Acquire a shared decoder for this input. The first
+	//    transcoder per input mount kicks off the underlying
+	//    decoder + PCM fanout pump; subsequent transcoders attach
+	//    to the existing PCM stream. Same-input encoders therefore
+	//    share one decode pass instead of running N redundantly.
+	subID := fmt.Sprintf("transcoder-%s", inst.Config.Name)
+	pcmReader, decoderRate, releaseDecoder, err := tm.hub.Acquire(ctx, inst.Config.InputMount, subID)
 	if err != nil {
-		logger.L.Errorw("Transcoder: Failed to initialize decoder", "name", inst.Config.Name, "input", inst.Config.InputMount, "error", err)
+		logger.L.Errorw("Transcoder: failed to acquire shared decoder",
+			"name", inst.Config.Name, "input", inst.Config.InputMount, "error", err)
 		return
 	}
+	defer releaseDecoder()
 
-	// 4. Create Output Stream. Take the stream mutex for the whole
-	// metadata block so concurrent Snapshot / listener reads see a
-	// coherent set of fields.
+	logger.L.Infow("Transcoder: shared decoder ready",
+		"name", inst.Config.Name, "input", inst.Config.InputMount, "rate", decoderRate)
+
+	// 2. Look up the input Stream so we can copy display metadata
+	//    (name, visibility) onto the output. Best-effort: if the
+	//    source disconnects between Acquire and now, we still proceed
+	//    with whatever we can produce; the output stream just gets a
+	//    generic name.
+	input, _ := tm.relay.GetStream(inst.Config.InputMount)
+	var inputName string
+	if input != nil {
+		input.mu.RLock()
+		inputName = input.Name
+		input.mu.RUnlock()
+	}
+
 	output := tm.relay.GetOrCreateStream(inst.Config.OutputMount)
-	input.mu.RLock()
-	inputName := input.Name
-	input.mu.RUnlock()
 	output.mu.Lock()
-	output.Name = fmt.Sprintf("%s (%s %dK)", inputName, inst.Config.Format, inst.Config.Bitrate)
+	if inputName != "" {
+		output.Name = fmt.Sprintf("%s (%s %dK)", inputName, inst.Config.Format, inst.Config.Bitrate)
+	} else {
+		output.Name = fmt.Sprintf("%s (%s %dK)", inst.Config.OutputMount, inst.Config.Format, inst.Config.Bitrate)
+	}
 	output.Bitrate = fmt.Sprintf("%d", inst.Config.Bitrate)
 	output.IsTranscoded = true
 	output.Visible = tm.relay.GetStreamVisibility(inst.Config.InputMount) // Follow input visibility
 	output.mu.Unlock()
 
-	go mirrorTranscodeMetadata(ctx, input, output)
+	if input != nil {
+		go mirrorTranscodeMetadata(ctx, input, output)
+	}
 
+	// pcmReader is an io.Reader producing S16LE stereo PCM at
+	// decoderRate. Wrap with a tiny shim so anything downstream that
+	// expects a PCMDecoder (NewLinearResampler, etc.) gets a
+	// SampleRate() method.
+	decoder := &readerDecoder{r: pcmReader, sr: decoderRate}
 
 	if inst.Config.Format == "mp3" {
 		output.mu.Lock()
