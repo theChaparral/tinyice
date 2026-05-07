@@ -22,12 +22,16 @@ import (
 func (s *Server) directoryReportingTask() {
 	ticker := time.NewTicker(3 * time.Minute)
 	defer ticker.Stop()
-	advertised := make(map[string]relay.StreamStats)
+	type advertEntry struct {
+		st  relay.StreamStats
+		sid string
+	}
+	advertised := make(map[string]advertEntry)
 	for {
 		select {
 		case <-s.done:
-			for mount, st := range advertised {
-				s.reportToDirectoryAction(st, "remove")
+			for mount, e := range advertised {
+				s.reportToDirectoryAction(e.st, "remove", e.sid)
 				delete(advertised, mount)
 			}
 			return
@@ -39,18 +43,22 @@ func (s *Server) directoryReportingTask() {
 				}
 			}
 			for mount, st := range next {
-				if _, had := advertised[mount]; had {
-					s.reportToDirectoryAction(st, "touch")
+				if e, had := advertised[mount]; had {
+					s.reportToDirectoryAction(st, "touch", e.sid)
+					advertised[mount] = advertEntry{st, e.sid}
 				} else {
-					s.reportToDirectoryAction(st, "add")
+					sid := s.reportToDirectoryAction(st, "add", "")
+					if sid != "" {
+						advertised[mount] = advertEntry{st, sid}
+					}
 				}
 			}
-			for mount, st := range advertised {
+			for mount, e := range advertised {
 				if _, still := next[mount]; !still {
-					s.reportToDirectoryAction(st, "remove")
+					s.reportToDirectoryAction(e.st, "remove", e.sid)
+					delete(advertised, mount)
 				}
 			}
-			advertised = next
 		}
 	}
 }
@@ -93,7 +101,12 @@ func (s *Server) statsRecordingTask() {
 // reportToDirectoryAction sends a single YP request. action is "add",
 // "touch" or "remove". The legacy reportToDirectory wrapper always used
 // "add", which isn't a lifecycle.
-func (s *Server) reportToDirectoryAction(st relay.StreamStats, action string) {
+// reportToDirectoryAction registers / refreshes / removes one stream
+// with the configured Icecast YP directory. Returns the SID assigned by
+// the directory on a successful "add" so the caller can include it in
+// subsequent "touch"/"remove" calls (the YP protocol requires it).
+// 201 Created is a normal success response; only non-2xx is "rejected".
+func (s *Server) reportToDirectoryAction(st relay.StreamStats, action, sid string) string {
 	proto := "http://"
 	if s.Config.UseHTTPS {
 		proto = "https://"
@@ -102,25 +115,40 @@ func (s *Server) reportToDirectoryAction(st relay.StreamStats, action string) {
 	if s.Config.UseHTTPS {
 		listenURL = proto + net.JoinHostPort(s.Config.HostName, s.Config.HTTPSPort) + st.MountName
 	}
+	mime := st.ContentType
+	if mime == "" {
+		mime = "audio/mpeg"
+	}
 	data := url.Values{}
 	data.Set("action", action)
+	if sid != "" {
+		data.Set("sid", sid)
+	}
 	data.Set("sn", st.Name)
 	data.Set("genre", st.Genre)
 	data.Set("cps", st.Bitrate)
 	data.Set("url", st.URL)
 	data.Set("desc", st.Description)
-	data.Set("st", st.ContentType)
 	data.Set("listenurl", listenURL)
-	data.Set("type", "audio/mpeg")
+	data.Set("type", mime)
+	data.Set("stype", "Icecast2")
+
 	resp, err := http.PostForm(s.Config.DirectoryServer, data)
 	if err != nil {
-		logger.L.Warnw("Failed to report to directory server", "error", err, "action", action)
-		return
+		logger.L.Warnw("Failed to report to directory server", "error", err, "action", action, "mount", st.MountName)
+		return ""
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		logger.L.Warnw("Directory server rejected update", "status", resp.Status, "action", action)
-	} else {
-		logger.L.Debugw("Reported to directory server", "mount", st.MountName, "action", action)
+	if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusCreated {
+		newSID := resp.Header.Get("SID")
+		logger.L.Infow("Reported to directory server",
+			"mount", st.MountName, "action", action, "status", resp.Status, "sid", newSID)
+		if action == "add" && newSID != "" {
+			return newSID
+		}
+		return sid
 	}
+	logger.L.Warnw("Directory server rejected update",
+		"status", resp.Status, "action", action, "mount", st.MountName)
+	return ""
 }
