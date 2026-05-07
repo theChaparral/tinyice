@@ -4,6 +4,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -127,18 +128,28 @@ func (s *Server) reportToDirectoryAction(st relay.StreamStats, action, sid strin
 	}
 	data.Set("sn", st.Name)
 	data.Set("genre", normaliseYPGenre(st.Genre))
+	// Bitrate: send under both `cps` (legacy tinyice) and `bitrate`
+	// (Icecast2 / dir.xiph.org canonical name) so whichever the YP
+	// server reads gets a value.
 	data.Set("cps", st.Bitrate)
+	if st.Bitrate != "" {
+		data.Set("bitrate", st.Bitrate)
+	}
 	data.Set("url", st.URL)
 	data.Set("desc", st.Description)
 	data.Set("listenurl", listenURL)
 	data.Set("type", mime)
 	data.Set("stype", "Icecast2")
-	// Current-song title: lets the public directory show "On Air:" /
-	// "Now playing:" without the operator having to use the admin
-	// metadata API. Updated on every touch.
+	// Current-song title: Icecast2's reference YP client sends `st`,
+	// so dir.xiph.org reads that key. Send `title` too (legacy tinyice
+	// + some forks expect it) so we cover both shapes.
 	if st.CurrentSong != "" {
+		data.Set("st", st.CurrentSong)
 		data.Set("title", st.CurrentSong)
 	}
+	// Listener count: lets the directory display "X listeners" and
+	// rank stations. Sent on every touch from the live snapshot.
+	data.Set("listeners", strconv.Itoa(st.ListenersCount))
 
 	resp, err := http.PostForm(s.Config.DirectoryServer, data)
 	if err != nil {
