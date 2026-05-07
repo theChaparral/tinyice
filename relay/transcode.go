@@ -372,6 +372,11 @@ func EncodeMP3(ctx context.Context, relay *Relay, output *Stream, decoder io.Rea
 	startTime := time.Now()
 	totalSamples := int64(0)
 
+	// Reuse a single streamWriter across iterations — recreating it on
+	// every frame churned 38 allocations/sec per transcoder for no
+	// benefit; the struct holds no per-call state.
+	writer := &streamWriter{stream: output, relay: relay, stats: stats}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -382,15 +387,21 @@ func EncodeMP3(ctx context.Context, relay *Relay, output *Stream, decoder io.Rea
 				return
 			}
 
+			// Idle gate — when the output mount has no listeners, skip
+			// the encode + broadcast. Decoder still drains so the
+			// upstream input buffer doesn't overrun us; encoder side
+			// CPU is the dominant cost so this is the lever. The
+			// encoder's bit-reservoir state may produce one suboptimal
+			// frame on the next listener join, which is inaudible.
+			if output.ListenersCount() == 0 {
+				continue
+			}
+
 			// Convert PCM bytes to int16 for Shine
 			for i := 0; i < n/2; i++ {
 				samples[i] = int16(pcmBuf[i*2]) | int16(pcmBuf[i*2+1])<<8
 			}
 
-			// Encode and broadcast
-			// Shine writes directly to an io.Writer
-			// We can wrap our broadcast in an io.Writer
-			writer := &streamWriter{stream: output, relay: relay, stats: stats}
 			err = encoder.Write(writer, samples[:n/2])
 			if err != nil {
 				return
@@ -482,6 +493,13 @@ func EncodeOpus(ctx context.Context, relay *Relay, output *Stream, decoder io.Re
 				return
 			}
 
+			// Idle gate — see EncodeMP3 for rationale. Saves the bulk
+			// of the per-frame work when no one's listening on the
+			// output mount.
+			if output.ListenersCount() == 0 {
+				continue
+			}
+
 			for i := 0; i < len(pcmSamples); i++ {
 				pcmSamples[i] = int16(pcmBuf[i*2]) | int16(pcmBuf[i*2+1])<<8
 			}
@@ -533,6 +551,20 @@ func (tm *TranscoderManager) GetInstance(outputMount string) *TranscoderInstance
 	tm.mu.RLock()
 	defer tm.mu.RUnlock()
 	return tm.instances[outputMount]
+}
+
+// snapshotInstances returns a flat slice of all live transcoder
+// instances for read-only iteration. Holds the manager mutex only
+// while copying — callers iterating the result must NOT mutate the
+// instances themselves; they're shared.
+func (tm *TranscoderManager) snapshotInstances() []*TranscoderInstance {
+	tm.mu.RLock()
+	defer tm.mu.RUnlock()
+	out := make([]*TranscoderInstance, 0, len(tm.instances))
+	for _, inst := range tm.instances {
+		out = append(out, inst)
+	}
+	return out
 }
 
 type TranscoderStats struct {
@@ -612,14 +644,47 @@ func (tm *TranscoderManager) EnsureAutoMP3Transcoders(inputMount string, bitrate
 		if tm.GetInstance(outputMount) != nil {
 			continue
 		}
+		// Skip when any existing transcoder — manual or already-running
+		// auto — produces the same input+format+bitrate combo, even
+		// under a different output-mount name. Without this check a
+		// manual entry like /dnb -> /dnb-128 (mp3 128) and an auto
+		// /dnb -> /dnb-mp3-128 (mp3 128) both run, doubling the
+		// encode work for zero listener benefit.
 		skip := false
 		for _, mc := range manualConfigs {
-			if mc != nil && mc.OutputMount == outputMount {
+			if mc == nil {
+				continue
+			}
+			if mc.OutputMount == outputMount {
+				skip = true
+				break
+			}
+			if mc.InputMount == inputMount &&
+				strings.EqualFold(mc.Format, "mp3") &&
+				mc.Bitrate == br {
 				skip = true
 				break
 			}
 		}
 		if skip {
+			continue
+		}
+		// Also dedupe against running auto/manual transcoder instances —
+		// covers the case where a manual transcoder was added at runtime
+		// via the admin API after we already spawned the auto twin.
+		dup := false
+		for _, other := range tm.snapshotInstances() {
+			if other == nil || other.Config == nil {
+				continue
+			}
+			if other.Config.InputMount == inputMount &&
+				strings.EqualFold(other.Config.Format, "mp3") &&
+				other.Config.Bitrate == br {
+				dup = true
+				break
+			}
+		}
+		if dup {
 			continue
 		}
 		cfg := &config.TranscoderConfig{
