@@ -157,6 +157,85 @@ type HistoricalStat struct {
 	BytesOut  int64     `json:"bytes_out"`
 }
 
+// TrafficTotals captures the total bytes transferred across all mounts
+// within a single time window.
+type TrafficTotals struct {
+	BytesIn  int64 `json:"bytes_in"`
+	BytesOut int64 `json:"bytes_out"`
+	Mounts   int   `json:"mounts"` // distinct mounts that produced any traffic in the window
+}
+
+// GetTrafficTotals walks listener_histories within the window and sums
+// the per-sample deltas of BytesIn / BytesOut, handling stream restarts
+// (where the cumulative counter drops to a smaller value) by treating
+// the new sample's whole value as fresh traffic. The first sample of
+// each mount in-window is treated as the baseline (delta zero) so we
+// don't count bytes that accumulated before the window started.
+//
+// Returns a single aggregated TrafficTotals across all mounts.
+func (hm *HistoryManager) GetTrafficTotals(window time.Duration) TrafficTotals {
+	if hm == nil || hm.db == nil {
+		return TrafficTotals{}
+	}
+	cutoff := time.Now().Add(-window)
+	if window <= 0 {
+		// Sentinel: "all time"
+		cutoff = time.Time{}
+	}
+
+	type row struct {
+		Mount    string
+		BytesIn  int64
+		BytesOut int64
+	}
+	var rows []row
+	q := hm.db.Model(&ListenerHistory{}).Order("mount ASC, timestamp ASC")
+	if !cutoff.IsZero() {
+		q = q.Where("timestamp > ?", cutoff)
+	}
+	if err := q.Find(&rows).Error; err != nil {
+		logger.L.Errorf("Failed to load traffic totals: %v", err)
+		return TrafficTotals{}
+	}
+
+	var totals TrafficTotals
+	mountsSeen := make(map[string]bool)
+
+	var curMount string
+	var prevIn, prevOut int64
+	first := true
+	for _, r := range rows {
+		if r.Mount != curMount {
+			curMount = r.Mount
+			prevIn = r.BytesIn
+			prevOut = r.BytesOut
+			first = true
+		}
+		if first {
+			first = false
+			continue // baseline; no delta to add
+		}
+		if r.BytesIn >= prevIn {
+			totals.BytesIn += r.BytesIn - prevIn
+		} else {
+			// counter reset (stream restarted) — credit the full new value
+			totals.BytesIn += r.BytesIn
+		}
+		if r.BytesOut >= prevOut {
+			totals.BytesOut += r.BytesOut - prevOut
+		} else {
+			totals.BytesOut += r.BytesOut
+		}
+		if r.BytesIn > 0 || r.BytesOut > 0 {
+			mountsSeen[r.Mount] = true
+		}
+		prevIn = r.BytesIn
+		prevOut = r.BytesOut
+	}
+	totals.Mounts = len(mountsSeen)
+	return totals
+}
+
 // GetAllHistoricalStats retrieves metrics for all mounts within a specific duration.
 func (hm *HistoryManager) GetAllHistoricalStats(duration time.Duration) map[string][]HistoricalStat {
 	var results []struct {

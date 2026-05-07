@@ -3,6 +3,7 @@ import { useEffect } from 'preact/hooks'
 import { createSSE } from '../../lib/sse'
 import { StatCard } from '../../components/StatCard'
 import { ListenerHistoryChart } from '../../components/ListenerHistoryChart'
+import { TrafficTotalsCard } from '../../components/TrafficTotalsCard'
 import type { StatsEvent, StreamEvent } from '../../types'
 
 // Reactive state
@@ -142,6 +143,11 @@ export function Dashboard() {
           ))}
         </div>
         <ListenerHistoryChart range={timeRange.value} />
+      </div>
+
+      {/* Cumulative bytes-in / bytes-out across day/week/month/all. */}
+      <div class="mb-6">
+        <TrafficTotalsCard />
       </div>
 
       {/* Streams table */}

@@ -552,6 +552,29 @@ func (s *Server) handleInsights(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(stats)
 }
 
+// handleTraffic returns total inbound (sources) and outbound (listeners)
+// bytes transferred over the standard reporting windows. Computed by
+// summing per-sample deltas of listener_histories with stream-restart
+// detection (see relay.HistoryManager.GetTrafficTotals).
+func (s *Server) handleTraffic(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.checkAuth(r); !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if s.Relay.History == nil {
+		http.Error(w, "History disabled", http.StatusServiceUnavailable)
+		return
+	}
+	resp := map[string]any{
+		"day":   s.Relay.History.GetTrafficTotals(24 * time.Hour),
+		"week":  s.Relay.History.GetTrafficTotals(7 * 24 * time.Hour),
+		"month": s.Relay.History.GetTrafficTotals(30 * 24 * time.Hour),
+		"all":   s.Relay.History.GetTrafficTotals(0),
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
 // downsampleHistorical buckets a sorted-ascending series into at most n
 // points by averaging listeners and summing bytes_in / bytes_out within
 // each bucket. Pass-through when the series already fits.
