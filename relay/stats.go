@@ -81,7 +81,7 @@ func (s *Stream) Snapshot() StreamStats {
 		Public:         s.Public,
 		Visible:        s.Visible,
 		IsTranscoded:   s.IsTranscoded,
-		ListenersCount: len(s.listeners),
+		ListenersCount: len(s.listeners) - len(s.internalListeners),
 		Uptime:         s.uptimeLocked(),
 		Health:         health,
 	}

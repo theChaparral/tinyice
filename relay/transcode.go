@@ -157,7 +157,7 @@ func (tm *TranscoderManager) performTranscode(ctx context.Context, inst *Transco
 	// Burst 256 KiB so the decoder has several seconds of data to initialise
 	// even when the source bitrate is low — 32 KiB left strict Opus / FLAC
 	// decoders short on bytes at startup, producing a noisy first packet.
-	offset, signal := input.Subscribe(id, 256*1024)
+	offset, signal := input.SubscribeInternal(id, 256*1024)
 	defer input.Unsubscribe(id)
 
 	// For live Ogg inputs, the subscribe offset lands mid-stream. The decoder

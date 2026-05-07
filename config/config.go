@@ -99,8 +99,12 @@ type RelayConfig struct {
 }
 
 type MountSettings struct {
-	Password  string `json:"password"` // Hashed
-	BurstSize int    `json:"burst_size"`
+	Password     string `json:"password"` // Hashed
+	BurstSize    int    `json:"burst_size"`
+	// NameOverride: when set, replaces the source's Ice-Name header on
+	// metadata update. Lets ops rebrand a station server-side without
+	// touching the encoder.
+	NameOverride string `json:"name_override,omitempty"`
 }
 
 type TranscoderConfig struct {

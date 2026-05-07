@@ -4,6 +4,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/DatanoiseTV/tinyice/logger"
@@ -125,13 +126,19 @@ func (s *Server) reportToDirectoryAction(st relay.StreamStats, action, sid strin
 		data.Set("sid", sid)
 	}
 	data.Set("sn", st.Name)
-	data.Set("genre", st.Genre)
+	data.Set("genre", normaliseYPGenre(st.Genre))
 	data.Set("cps", st.Bitrate)
 	data.Set("url", st.URL)
 	data.Set("desc", st.Description)
 	data.Set("listenurl", listenURL)
 	data.Set("type", mime)
 	data.Set("stype", "Icecast2")
+	// Current-song title: lets the public directory show "On Air:" /
+	// "Now playing:" without the operator having to use the admin
+	// metadata API. Updated on every touch.
+	if st.CurrentSong != "" {
+		data.Set("title", st.CurrentSong)
+	}
 
 	resp, err := http.PostForm(s.Config.DirectoryServer, data)
 	if err != nil {
@@ -151,4 +158,32 @@ func (s *Server) reportToDirectoryAction(st relay.StreamStats, action, sid strin
 	logger.L.Warnw("Directory server rejected update",
 		"status", resp.Status, "action", action, "mount", st.MountName)
 	return ""
+}
+
+// normaliseYPGenre prepares an Icecast YP `genre` field for dir.xiph.org.
+// The directory tokenises this field on whitespace, so a multi-word
+// genre like "drum and bass" would otherwise show up as three separate
+// tags. Convention: comma-separated entries are kept as distinct tags,
+// and inside each entry internal whitespace is hyphenated.
+//
+//	"drum and bass"           -> "drum-and-bass"
+//	"techno, house"           -> "techno house"
+//	"techno, drum and bass"   -> "techno drum-and-bass"
+func normaliseYPGenre(g string) string {
+	g = strings.TrimSpace(g)
+	if g == "" {
+		return ""
+	}
+	parts := strings.Split(g, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		// Collapse runs of whitespace into a single hyphen.
+		p = strings.Join(strings.Fields(p), "-")
+		out = append(out, p)
+	}
+	return strings.Join(out, " ")
 }

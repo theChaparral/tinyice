@@ -292,15 +292,19 @@ func (s *Server) updateSourceMetadata(stream *relay.Stream, mount string, r *htt
 	isPublic := r.Header.Get("Ice-Public") == "1"
 	isVisible := s.Config.VisibleMounts[mount]
 
-	// Spin up auto MP3 transcoders for non-mp3 sources, so Safari/iOS
-	// (no Ogg/Opus decoder) get a sibling they can play. Skips silently
-	// when the source is already mp3 or AutoTranscodeMP3Bitrates is
-	// empty.
 	if !isAlreadyMP3(r.Header.Get("Content-Type")) {
 		s.TranscoderM.EnsureAutoMP3Transcoders(mount, s.Config.AutoTranscodeMP3Bitrates, s.Config.Transcoders)
 	}
 
-	if stream.UpdateMetadata(r.Header.Get("Ice-Name"), r.Header.Get("Ice-Description"), r.Header.Get("Ice-Genre"), r.Header.Get("Ice-Url"), bitrate, r.Header.Get("Content-Type"), isPublic, isVisible) {
+	// Per-mount NameOverride from AdvancedMounts: rebrand a stream
+	// without poking the encoder. Empty / unset = use the source's
+	// Ice-Name as before.
+	iceName := r.Header.Get("Ice-Name")
+	if adv, ok := s.Config.AdvancedMounts[mount]; ok && adv != nil && adv.NameOverride != "" {
+		iceName = adv.NameOverride
+	}
+
+	if stream.UpdateMetadata(iceName, r.Header.Get("Ice-Description"), r.Header.Get("Ice-Genre"), r.Header.Get("Ice-Url"), bitrate, r.Header.Get("Content-Type"), isPublic, isVisible) {
 		s.dispatchWebhook("metadata_update", map[string]interface{}{
 			"mount":        mount,
 			"name":         stream.Name,
