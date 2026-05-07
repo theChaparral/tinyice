@@ -1,0 +1,71 @@
+#!/bin/sh
+#
+# FreeBSD rc.d script for tinyice.
+#
+# Drop in /usr/local/etc/rc.d/tinyice, then:
+#   sysrc tinyice_enable=YES
+#   sysrc tinyice_user=tinyice
+#   sysrc tinyice_config=/usr/local/etc/tinyice/tinyice.json
+#   service tinyice start
+#
+# Variables (defaults below; override in /etc/rc.conf):
+#   tinyice_enable        — YES to start at boot. Default NO.
+#   tinyice_user          — runtime user.        Default tinyice.
+#   tinyice_group         — runtime group.       Default tinyice.
+#   tinyice_bin           — binary path.         Default /usr/local/bin/tinyice.
+#   tinyice_config        — config file path.    Default /usr/local/etc/tinyice/tinyice.json.
+#   tinyice_workdir       — cwd at start.        Default /var/db/tinyice.
+#   tinyice_logfile       — combined stdout+stderr. Default /var/log/tinyice.log.
+#   tinyice_flags         — extra args to ${tinyice_bin}.
+#
+# Privileged ports (80 / 443): on FreeBSD a non-root user can bind low
+# ports if `net.inet.ip.portrange.reservedlow=0` is set in sysctl, OR
+# you run via daemon(8) and let tinyice drop privs after binding (the
+# binary doesn't currently do that), OR run as root and rely on the
+# sandbox flags below + ProcessJailing.
+# The simplest path: leave tinyice_user blank to run as root, OR set
+# the sysctl above. Most tinyice deployments use HTTPS via a frontend
+# proxy and bind tinyice on a high port.
+
+# PROVIDE: tinyice
+# REQUIRE: NETWORKING
+# KEYWORD: shutdown
+
+. /etc/rc.subr
+
+name="tinyice"
+rcvar="tinyice_enable"
+
+load_rc_config $name
+
+: ${tinyice_enable:="NO"}
+: ${tinyice_user:="tinyice"}
+: ${tinyice_group:="tinyice"}
+: ${tinyice_bin:="/usr/local/bin/tinyice"}
+: ${tinyice_config:="/usr/local/etc/tinyice/tinyice.json"}
+: ${tinyice_workdir:="/var/db/tinyice"}
+: ${tinyice_logfile:="/var/log/tinyice.log"}
+: ${tinyice_flags:=""}
+
+pidfile="/var/run/${name}.pid"
+command="/usr/sbin/daemon"
+command_args="-r -P ${pidfile} -o ${tinyice_logfile} -t ${name} \
+    -u ${tinyice_user} \
+    ${tinyice_bin} -config ${tinyice_config} ${tinyice_flags}"
+
+start_precmd="tinyice_precmd"
+
+tinyice_precmd()
+{
+    if [ ! -d "${tinyice_workdir}" ]; then
+        install -d -o "${tinyice_user}" -g "${tinyice_group}" -m 0750 "${tinyice_workdir}"
+    fi
+    if [ ! -f "${tinyice_logfile}" ]; then
+        install -o "${tinyice_user}" -g "${tinyice_group}" -m 0640 /dev/null "${tinyice_logfile}"
+    fi
+    if [ ! -r "${tinyice_config}" ]; then
+        warn "${tinyice_config} not readable; tinyice will probably exit immediately."
+    fi
+}
+
+run_rc_command "$1"
