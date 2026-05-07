@@ -550,7 +550,12 @@ type TranscoderStats struct {
 // upstream encoder, and the public Icecast directory listing shows
 // generic info on the transcoded sibling.
 func mirrorTranscodeMetadata(ctx context.Context, input, output *Stream) {
-	ticker := time.NewTicker(2 * time.Second)
+	// 5 s cadence is plenty for metadata that changes per-track
+	// (i.e. every few minutes). 2 s was poll-noise — with N
+	// transcoders sharing one input that's N RLock acquisitions per
+	// poll, and the latency benefit of catching a song change two
+	// seconds earlier vs five is invisible to the listener.
+	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 	var lastSong, lastGenre, lastURL, lastDesc string
 	var lastPublic, lastVisible bool

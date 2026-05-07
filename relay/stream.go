@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"bytes"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -441,15 +442,29 @@ func (s *Stream) Broadcast(data []byte, relay *Relay) {
 	atomic.AddInt64(&relay.BytesIn, int64(len(data)))
 	atomic.AddInt64(&s.BytesIn, int64(len(data)))
 
-	// Track Ogg Page boundaries for alignment
-	// This enables new Opus listeners to start at proper page boundaries
+	// Track Ogg page boundaries for alignment so new Opus / Vorbis
+	// listeners start at a proper page edge. Use bytes.IndexByte to
+	// skip ahead between candidate 'O' bytes — the previous loop
+	// inspected every byte one at a time even though the magic only
+	// starts where data[i] == 'O'. For a 4-8 KiB Broadcast call with
+	// few O bytes (the common case for Opus payload), this is roughly
+	// 16x fewer comparisons.
 	if s.IsOggStream {
-		for i := 0; i <= len(data)-4; i++ {
-			if data[i] == 'O' && data[i+1] == 'g' && data[i+2] == 'g' && data[i+3] == 'S' {
+		i := 0
+		for i <= len(data)-4 {
+			j := bytes.IndexByte(data[i:len(data)-3], 'O')
+			if j < 0 {
+				break
+			}
+			i += j
+			if data[i+1] == 'g' && data[i+2] == 'g' && data[i+3] == 'S' {
 				offset := s.Buffer.Head + int64(i)
 				s.LastPageOffset = offset
 				s.PageOffsets[s.PageIndex%len(s.PageOffsets)] = offset
 				s.PageIndex++
+				i += 4
+			} else {
+				i++
 			}
 		}
 	}
