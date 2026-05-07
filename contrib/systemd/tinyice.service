@@ -1,0 +1,57 @@
+[Unit]
+Description=TinyIce streaming server
+Documentation=https://github.com/DatanoiseTV/tinyice
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+# Run as a dedicated unprivileged user. Create with:
+#   useradd -r -s /usr/sbin/nologin -d /var/lib/tinyice tinyice
+User=tinyice
+Group=tinyice
+WorkingDirectory=/var/lib/tinyice
+
+# Default config path; override by editing this line or via a drop-in.
+ExecStart=/usr/local/bin/tinyice -config /etc/tinyice/tinyice.json
+Restart=on-failure
+RestartSec=5
+
+# CPU shaping. Tinyice is largely network + light transcoding work,
+# so a small Nice penalty + a sub-default CPUWeight keeps a busy
+# transcoder pool from starving interactive system tasks. Tune up
+# (Nice=0 / CPUWeight=100) if tinyice is the only thing on the box.
+Nice=5
+CPUWeight=70
+IOSchedulingClass=best-effort
+IOSchedulingPriority=4
+
+# Hardening — none of these are required for tinyice to run, but
+# they shrink the blast radius of an exploit.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/tinyice /etc/tinyice
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+
+# Allow binding to privileged ports (80 / 443) as the unprivileged
+# tinyice user. AmbientCapabilities is the cap actually granted to the
+# process; CapabilityBoundingSet hard-limits the upper set so a child
+# can't gain anything else even if the binary tried to.
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=multi-user.target

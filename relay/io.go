@@ -112,12 +112,22 @@ func (r *StreamReader) Read(p []byte) (int, error) {
 		// Handle Ogg synchronization if enabled. Use the buffer's own
 		// mutex rather than the stream mutex, since the slice we're
 		// scanning is protected by the buffer's lock (not the stream's).
+		//
+		// If FindNextPageBoundary doesn't move us forward we MUST yield
+		// — without this guard the loop hot-spins (skipped=true,
+		// boundary unchanged, continue, repeat) and pegs a CPU per
+		// transcoder. Waiting for the signal channel is correct: a
+		// fresh page only becomes findable once the source has written
+		// more bytes, which is exactly what `signal` tells us.
 		if skipped && r.oggSync && r.stream != nil {
-			r.offset = r.stream.Buffer.FindNextPageBoundaryLocked(next)
-			continue
-		}
-
-		if n > 0 {
+			aligned := r.stream.Buffer.FindNextPageBoundaryLocked(next)
+			if aligned > r.offset {
+				r.offset = aligned
+				continue
+			}
+			// No progress — fall through to the select below so we
+			// block on the signal channel instead of burning CPU.
+		} else if n > 0 {
 			r.offset = next
 			return n, nil
 		}
