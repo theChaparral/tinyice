@@ -350,14 +350,16 @@ async function pickAudioSource(mountPath: string): Promise<string> {
   const handlePlay = useCallback(async () => {
     const el = audioRef.current
     if (!el) return
-    // Audio context must be running before el.play() — without
-    // awaiting the resume, the first user-gesture click on iOS /
-    // Chromium routes audio into a still-suspended graph and we
-    // get silence until the user clicks a second time.
-    await resumeAudio()
+    // The AudioContext has to exist (connectAudio creates it) AND be
+    // resumed within the user-gesture call frame. Resuming first does
+    // nothing if there is no context yet, then connectAudio creates a
+    // fresh suspended one and the gesture is already consumed — net
+    // result is silent playback until the user clicks a second time.
+    // Order must be: connect -> resume -> play.
     if (!analyserRef.current) {
       analyserRef.current = connectAudio(el)
     }
+    await resumeAudio()
     // When the mount advertises a video track we play the HLS playlist —
     // the segments muxed by the server interleave audio and video, so a
     // single <video> element covers both. Safari/iOS play HLS natively;
