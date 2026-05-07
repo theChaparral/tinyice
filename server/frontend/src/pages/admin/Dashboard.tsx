@@ -2,6 +2,7 @@ import { signal } from '@preact/signals'
 import { useEffect } from 'preact/hooks'
 import { createSSE } from '../../lib/sse'
 import { StatCard } from '../../components/StatCard'
+import { ListenerHistoryChart } from '../../components/ListenerHistoryChart'
 import type { StatsEvent, StreamEvent } from '../../types'
 
 // Reactive state
@@ -120,51 +121,27 @@ export function Dashboard() {
         />
       </div>
 
-      {/* Traffic chart placeholder */}
-      <div class="rounded-lg border border-border bg-surface-raised p-4 mb-6">
-        <div class="flex items-center justify-between mb-4">
-          <span class="font-mono text-[10px] tracking-widest uppercase text-text-tertiary">
-            Listener Traffic
-          </span>
-          <div class="flex gap-1">
-            {(['1H', '24H', '7D'] as const).map((range) => (
-              <button
-                key={range}
-                onClick={() => (timeRange.value = range)}
-                class={`
-                  px-2 py-1 rounded font-mono text-[10px] tracking-wider transition-colors
-                  ${
-                    timeRange.value === range
-                      ? 'bg-accent/15 text-accent'
-                      : 'text-text-tertiary hover:text-text-secondary hover:bg-surface-hover'
-                  }
-                `}
-              >
-                {range}
-              </button>
-            ))}
-          </div>
+      {/* Listener history — real data from listener_histories table */}
+      <div class="mb-6">
+        <div class="flex justify-end gap-1 mb-2">
+          {(['1H', '24H', '7D'] as const).map((range) => (
+            <button
+              key={range}
+              onClick={() => (timeRange.value = range)}
+              class={`
+                px-2 py-1 rounded font-mono text-[10px] tracking-wider transition-colors
+                ${
+                  timeRange.value === range
+                    ? 'bg-accent/15 text-accent'
+                    : 'text-text-tertiary hover:text-text-secondary hover:bg-surface-hover'
+                }
+              `}
+            >
+              {range}
+            </button>
+          ))}
         </div>
-        {/* Listener traffic chart */}
-        <div class="h-32 flex items-end gap-px">
-          {stats.value.listeners > 0 ? Array.from({ length: 48 }, (_, i) => (
-            <div
-              key={i}
-              class="flex-1 rounded-t bg-accent/20 transition-all duration-300"
-              style={{ height: `${Math.max(4, (i === 47 ? stats.value.listeners : 0) * 10)}%` }}
-            />
-          )) : (
-            <div class="flex-1 flex items-center justify-center text-text-tertiary text-xs font-mono">
-              No listener data yet
-            </div>
-          )}
-        </div>
-        <div class="flex justify-between mt-2">
-          <span class="font-mono text-[9px] text-text-tertiary">
-            {timeRange.value === '1H' ? '60m ago' : timeRange.value === '24H' ? '24h ago' : '7d ago'}
-          </span>
-          <span class="font-mono text-[9px] text-text-tertiary">now</span>
-        </div>
+        <ListenerHistoryChart range={timeRange.value} />
       </div>
 
       {/* Streams table */}

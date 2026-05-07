@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -509,6 +510,15 @@ func (s *Server) handleGetStats(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleInsights returns per-mount listener / bandwidth time-series data
+// from the listener_histories table, optionally filtered to a smaller
+// window and downsampled so the payload stays small enough to chart.
+//
+//	hours       — window size (default 24, max 168 = 7 days)
+//	max_points  — server-side downsample target per mount (default 200,
+//	              max 2000); buckets average listeners and sum bytes
+//	              within each bucket so a 7-day view doesn't ship 10k
+//	              rows per stream.
 func (s *Server) handleInsights(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.checkAuth(r); !ok {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
@@ -520,9 +530,58 @@ func (s *Server) handleInsights(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	stats := s.Relay.History.GetAllHistoricalStats(24 * time.Hour)
+	hours := 24
+	if v := r.URL.Query().Get("hours"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 168 {
+			hours = n
+		}
+	}
+	maxPoints := 200
+	if v := r.URL.Query().Get("max_points"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 10 && n <= 2000 {
+			maxPoints = n
+		}
+	}
+
+	stats := s.Relay.History.GetAllHistoricalStats(time.Duration(hours) * time.Hour)
+	for mount, series := range stats {
+		stats[mount] = downsampleHistorical(series, maxPoints)
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(stats)
+}
+
+// downsampleHistorical buckets a sorted-ascending series into at most n
+// points by averaging listeners and summing bytes_in / bytes_out within
+// each bucket. Pass-through when the series already fits.
+func downsampleHistorical(series []relay.HistoricalStat, n int) []relay.HistoricalStat {
+	if len(series) <= n {
+		return series
+	}
+	bucketSize := (len(series) + n - 1) / n
+	out := make([]relay.HistoricalStat, 0, n)
+	for i := 0; i < len(series); i += bucketSize {
+		end := i + bucketSize
+		if end > len(series) {
+			end = len(series)
+		}
+		var listeners int
+		var bi, bo int64
+		for _, s := range series[i:end] {
+			listeners += s.Listeners
+			bi += s.BytesIn
+			bo += s.BytesOut
+		}
+		cnt := end - i
+		out = append(out, relay.HistoricalStat{
+			Timestamp: series[i+cnt/2].Timestamp,
+			Listeners: listeners / cnt,
+			BytesIn:   bi,
+			BytesOut:  bo,
+		})
+	}
+	return out
 }
 
 func (s *Server) handleWebRTCOffer(w http.ResponseWriter, r *http.Request) {
