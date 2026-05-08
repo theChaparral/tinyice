@@ -154,10 +154,18 @@ export function KioskDashboard() {
     return () => window.clearInterval(id)
   }, [])
 
-  // Map init + live geo.
+  // Map init + live geo. Leaflet computes lat/lon → pixel from the
+  // container size at render time; if the container resizes (kiosk
+  // mounts, container starts at 0×0 before flexbox layout settles,
+  // viewport rotates, etc.) the projection goes stale and
+  // flyToBounds picks a target against the wrong viewport — markers
+  // land in the wrong place and the fly zoom is off. Hooking a
+  // ResizeObserver fires invalidateSize() on every container size
+  // change, which keeps the projection honest.
   useEffect(() => {
-    if (!mapEl.current || mapRef.current) return
-    const m = L.map(mapEl.current, {
+    const container = mapEl.current
+    if (!container || mapRef.current) return
+    const m = L.map(container, {
       attributionControl: true,
       zoomControl: false,
       worldCopyJump: true,
@@ -175,7 +183,18 @@ export function KioskDashboard() {
     ).addTo(m)
     layerRef.current = L.layerGroup().addTo(m)
     mapRef.current = m
+
+    // Initial nudge: in case the container started at 0×0 (flexbox
+    // hadn't laid out yet) re-validate after one paint.
+    requestAnimationFrame(() => m.invalidateSize())
+
+    const ro = new ResizeObserver(() => {
+      m.invalidateSize()
+    })
+    ro.observe(container)
+
     return () => {
+      ro.disconnect()
       m.remove()
       mapRef.current = null
       layerRef.current = null
@@ -193,6 +212,10 @@ export function KioskDashboard() {
     const map = mapRef.current
     const layer = layerRef.current
     if (!map || !layer) return
+    // Re-validate the projection before computing fly targets — if a
+    // resize raced with this update the bounds math would otherwise
+    // be against a stale viewport.
+    map.invalidateSize()
     layer.clearLayers()
     const d = geo.value
     const points: L.LatLngExpression[] = []

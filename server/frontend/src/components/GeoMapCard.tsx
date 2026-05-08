@@ -74,12 +74,22 @@ export function GeoMapCard() {
     layerRef.current = L.layerGroup().addTo(m)
     mapRef.current = m
 
+    // Leaflet projects lat/lon → pixel against the container size.
+    // If the dashboard layout shifts after init (the card grows
+    // when other cards finish loading, flexbox reflows, etc.) the
+    // projection goes stale and flyToBounds targets the wrong
+    // viewport. ResizeObserver + invalidateSize keeps it honest.
+    requestAnimationFrame(() => m.invalidateSize())
+    const ro = new ResizeObserver(() => m.invalidateSize())
+    ro.observe(containerRef.current!)
+
     const sse = createSSE('/admin/events')
     const off = sse.on('geo', (payload: GeoCity[]) => {
       data.value = Array.isArray(payload) ? payload : []
     })
 
     return () => {
+      ro.disconnect()
       off()
       sse.close()
       m.remove()
@@ -96,6 +106,7 @@ export function GeoMapCard() {
     const map = mapRef.current
     const layer = layerRef.current
     if (!map || !layer) return
+    map.invalidateSize()
     layer.clearLayers()
     const d = data.value
     if (!d.length) {
