@@ -22,7 +22,7 @@ const stats = signal<StatsEvent>({
 
 const streams = signal<StreamEvent[]>([])
 const connected = signal(false)
-const timeRange = signal<'1H' | '24H' | '7D'>('1H')
+const timeRange = signal<'1H' | '24H' | '7D' | '30D' | '90D' | '1Y' | 'ALL'>('1H')
 
 function formatUptime(seconds: number): string {
   if (seconds < 60) return `${seconds}s`
@@ -141,7 +141,7 @@ export function Dashboard() {
       {/* Listener history — real data from listener_histories table */}
       <div class="mb-6">
         <div class="flex justify-end gap-1 mb-2">
-          {(['1H', '24H', '7D'] as const).map((range) => (
+          {(['1H', '24H', '7D', '30D', '90D', '1Y', 'ALL'] as const).map((range) => (
             <button
               key={range}
               onClick={() => (timeRange.value = range)}

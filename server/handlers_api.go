@@ -540,7 +540,7 @@ func (s *Server) handleGetStats(w http.ResponseWriter, r *http.Request) {
 // from the listener_histories table, optionally filtered to a smaller
 // window and downsampled so the payload stays small enough to chart.
 //
-//	hours       — window size (default 24, max 168 = 7 days)
+//	hours       — window size (default 24, max 24*365*5 = 5 years)
 //	max_points  — server-side downsample target per mount (default 200,
 //	              max 2000); buckets average listeners and sum bytes
 //	              within each bucket so a 7-day view doesn't ship 10k
@@ -558,7 +558,10 @@ func (s *Server) handleInsights(w http.ResponseWriter, r *http.Request) {
 
 	hours := 24
 	if v := r.URL.Query().Get("hours"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 168 {
+		// 5-year ceiling — generous for an "all-time" view without
+		// letting a malformed query trigger a multi-decade SELECT.
+		const maxHours = 24 * 365 * 5
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= maxHours {
 			hours = n
 		}
 	}

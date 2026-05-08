@@ -13,16 +13,30 @@ type HistoricalStat = {
 // no data has been recorded yet for the chosen window.
 type InsightsResp = Record<string, HistoricalStat[]>
 
-type Range = '1H' | '24H' | '7D'
+type Range = '1H' | '24H' | '7D' | '30D' | '90D' | '1Y' | 'ALL'
 
-const HOURS: Record<Range, number> = { '1H': 1, '24H': 24, '7D': 168 }
+// 5-year ceiling for ALL — matches the backend hours guard and is
+// generous enough that no realistic deployment hits it.
+const HOURS: Record<Range, number> = {
+  '1H':  1,
+  '24H': 24,
+  '7D':  168,
+  '30D': 24 * 30,
+  '90D': 24 * 90,
+  '1Y':  24 * 365,
+  'ALL': 24 * 365 * 5,
+}
 
 // Module-level cache so flipping range tabs doesn't refetch on every
 // remount (Dashboard re-renders frequently from SSE updates).
 const cache = signal<Record<Range, InsightsResp | null>>({
-  '1H': null,
+  '1H':  null,
   '24H': null,
-  '7D': null,
+  '7D':  null,
+  '30D': null,
+  '90D': null,
+  '1Y':  null,
+  'ALL': null,
 })
 const loading = signal<Range | null>(null)
 const error = signal<string | null>(null)
@@ -177,18 +191,28 @@ export function ListenerHistoryChart({ range }: Props) {
             />
           ))}
 
-          {/* X-axis tick labels — start, mid, now */}
+          {/* X-axis tick labels — start, mid, now. Auto-pick the
+              best unit (m / h / d / mo / y) for the chosen range so
+              long views like 1Y / ALL don't end up labelled in
+              awkward fractional days. */}
           {[0, 0.5, 1].map((f) => {
             const x = PAD_L + f * innerW
             const ms = windowStart + f * HOURS[range] * 3600_000
             const lbl =
               f === 1
                 ? 'now'
-                : range === '1H'
-                  ? `${Math.round((1 - f) * 60)}m ago`
-                  : range === '24H'
-                    ? `${Math.round((1 - f) * 24)}h ago`
-                    : `${Math.round((1 - f) * 7)}d ago`
+                : (() => {
+                    const minsBack = (1 - f) * HOURS[range] * 60
+                    const hoursBack = minsBack / 60
+                    const daysBack = hoursBack / 24
+                    const monthsBack = daysBack / 30
+                    const yearsBack = daysBack / 365
+                    if (yearsBack >= 1) return `${yearsBack.toFixed(1)}y ago`
+                    if (monthsBack >= 1) return `${Math.round(monthsBack)}mo ago`
+                    if (daysBack >= 1) return `${Math.round(daysBack)}d ago`
+                    if (hoursBack >= 1) return `${Math.round(hoursBack)}h ago`
+                    return `${Math.round(minsBack)}m ago`
+                  })()
             return (
               <text
                 key={f}

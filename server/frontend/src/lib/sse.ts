@@ -1,4 +1,25 @@
 import type { StatsEvent, StreamEvent, AutoDJEvent, StreamInfo } from '../types'
+import { redirectToLogin } from './api'
+
+// EventSource doesn't surface HTTP status codes — onerror just fires
+// for any failure, including a 401 from a stale session post-deploy.
+// To distinguish "session dead" from "server temporarily down" we
+// probe the same URL with fetch() on each connection failure: a
+// 401 response means we should boot the operator to /login; any
+// other failure is a real network/server problem and we keep
+// retrying.
+async function probeAuth(url: string) {
+  try {
+    const res = await fetch(url, { method: 'GET', credentials: 'same-origin' })
+    if (res.status === 401) {
+      redirectToLogin()
+    }
+    // Drain so the connection isn't held open by an unread body.
+    try { await res.body?.cancel() } catch {}
+  } catch {
+    // Real network failure — let the SSE reconnect loop keep trying.
+  }
+}
 
 type SSEEventMap = {
   stats: StatsEvent
@@ -48,6 +69,10 @@ export function createSSE(url: string) {
       source = null
       attached = new Set()
       if (closed) return
+      // Distinguish "session expired" from "server unreachable" by
+      // probing the same URL synchronously. probeAuth redirects to
+      // /login on 401 and is a no-op otherwise.
+      probeAuth(url)
       reconnectTimer = setTimeout(connect, reconnectDelay)
       reconnectDelay = Math.min(reconnectDelay * 2, 30000)
     }
