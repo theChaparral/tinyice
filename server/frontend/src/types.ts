@@ -67,6 +67,12 @@ export interface StreamEvent {
   listeners: number
   viewers?: number
   health: number
+  is_transcoded?: boolean
+  // For transcoded outputs: the source mount + its format/bitrate
+  // so the dashboard can render "<src-format> → <out-format>".
+  source_mount?: string
+  source_type?: string
+  source_bitrate?: string
   video_width?: number
   video_height?: number
   video_fps?: number

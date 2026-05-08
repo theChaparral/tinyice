@@ -38,6 +38,14 @@ type streamEventInfo struct {
 	Health       float64 `json:"health"`
 	IsTranscoded bool    `json:"is_transcoded"`
 
+	// SourceMount / SourceContentType / SourceBitrate carry the
+	// upstream's format on transcoded outputs so the dashboard can
+	// render "audio/ogg 160k → audio/mpeg 320k" rather than just the
+	// output format. Empty on non-transcoded streams.
+	SourceMount       string `json:"source_mount,omitempty"`
+	SourceContentType string `json:"source_type,omitempty"`
+	SourceBitrate     string `json:"source_bitrate,omitempty"`
+
 	// Video-only metrics. Zero on audio mounts; the frontend hides
 	// the video-stats strip when Width == 0.
 	VideoWidth    int     `json:"video_width,omitempty"`
@@ -84,6 +92,24 @@ func (s *Server) collectStatsPayload(user *config.User) ([]byte, error) {
 				Uptime: st.Uptime, ContentType: st.ContentType, SourceIP: st.SourceIP,
 				BytesIn: st.BytesIn, BytesOut: st.BytesOut, BytesDropped: st.BytesDropped,
 				CurrentSong: st.CurrentSong, Health: st.Health, IsTranscoded: st.IsTranscoded,
+			}
+			// For transcoded outputs, surface the source mount + its
+			// content-type + bitrate so the dashboard can render
+			// "<src-format> → <out-format>". Look up via the
+			// transcoder manager: each TranscoderInstance.Config
+			// remembers InputMount; the live source stream gives us
+			// the real content-type + bitrate it's producing.
+			if st.IsTranscoded {
+				if inst := s.TranscoderM.GetInstance(st.MountName); inst != nil && inst.Config != nil {
+					entry.SourceMount = inst.Config.InputMount
+					if src, ok := s.Relay.GetStream(inst.Config.InputMount); ok {
+						// Direct field reads — same accept-the-race
+						// profile the rest of this file uses for
+						// display-only metadata.
+						entry.SourceContentType = src.ContentType
+						entry.SourceBitrate = src.Bitrate
+					}
+				}
 			}
 			// Attach video metrics when the live Stream has them.
 			// Zero width means either "audio mount" or "we haven't
@@ -552,6 +578,32 @@ func (s *Server) handleInsights(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(stats)
 }
 
+// handleGeo returns a per-country aggregated view of currently active
+// listeners. Powers the dashboard map. Optional ?mount= narrows to
+// one stream. Includes (lat, lon) centroid for each country so the
+// frontend can plot bubbles without an extra round-trip.
+//
+// Attribution: GeoIP data sourced from db-ip.com / CC BY 4.0 — the
+// dashboard surfaces this near the map.
+func (s *Server) handleGeo(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.checkAuth(r); !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	mount := strings.TrimSpace(r.URL.Query().Get("mount"))
+	rows := s.GeoTracker.Snapshot(mount)
+	total := 0
+	for _, row := range rows {
+		total += row.Listeners
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"countries":   rows,
+		"total":       total,
+		"attribution": "GeoIP data: db-ip.com / CC BY 4.0",
+	})
+}
+
 // handleTraffic returns total inbound (sources) and outbound (listeners)
 // bytes transferred over the standard reporting windows. Computed by
 // summing per-sample deltas of listener_histories with stream-restart
@@ -566,10 +618,15 @@ func (s *Server) handleTraffic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resp := map[string]any{
-		"day":   s.Relay.History.GetTrafficTotals(24 * time.Hour),
-		"week":  s.Relay.History.GetTrafficTotals(7 * 24 * time.Hour),
-		"month": s.Relay.History.GetTrafficTotals(30 * 24 * time.Hour),
-		"all":   s.Relay.History.GetTrafficTotals(0),
+		"day":      s.Relay.History.GetTrafficTotals(24 * time.Hour),
+		"week":     s.Relay.History.GetTrafficTotals(7 * 24 * time.Hour),
+		"month":    s.Relay.History.GetTrafficTotals(30 * 24 * time.Hour),
+		"quarter":  s.Relay.History.GetTrafficTotals(90 * 24 * time.Hour),
+		"year":     s.Relay.History.GetTrafficTotals(365 * 24 * time.Hour),
+		"lifetime": s.Relay.History.GetTrafficTotals(0),
+		// Kept for back-compat with the existing TrafficTotalsCard; same
+		// value as `lifetime`.
+		"all": s.Relay.History.GetTrafficTotals(0),
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)

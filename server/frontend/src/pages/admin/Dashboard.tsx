@@ -4,6 +4,7 @@ import { createSSE } from '../../lib/sse'
 import { StatCard } from '../../components/StatCard'
 import { ListenerHistoryChart } from '../../components/ListenerHistoryChart'
 import { TrafficTotalsCard } from '../../components/TrafficTotalsCard'
+import { GeoMapCard } from '../../components/GeoMapCard'
 import type { StatsEvent, StreamEvent } from '../../types'
 
 // Reactive state
@@ -34,6 +35,21 @@ function formatUptime(seconds: number): string {
   const d = Math.floor(seconds / 86400)
   const h = Math.floor((seconds % 86400) / 3600)
   return `${d}d ${h}h`
+}
+
+// formatLabel — pretty-print a content-type into a short tag for the
+// streams table. "audio/mpeg" → "MP3", "audio/ogg" → "OGG", etc.
+function formatLabel(ct: string): string {
+  const lower = (ct || '').toLowerCase()
+  if (lower.includes('mpeg') || lower.includes('mp3')) return 'MP3'
+  if (lower.includes('opus')) return 'OPUS'
+  if (lower.includes('ogg')) return 'OGG'
+  if (lower.includes('aac')) return 'AAC'
+  if (lower.includes('flac')) return 'FLAC'
+  if (lower.includes('vorbis')) return 'VORBIS'
+  // Fallback: drop the "audio/" prefix and uppercase.
+  if (lower.startsWith('audio/')) return lower.slice(6).toUpperCase()
+  return lower.toUpperCase()
 }
 
 function formatBandwidth(bytesPerSec: number): string {
@@ -150,6 +166,11 @@ export function Dashboard() {
         <TrafficTotalsCard />
       </div>
 
+      {/* Live listener map (CartoDB Dark Matter tiles, DB-IP geolocation). */}
+      <div class="mb-6">
+        <GeoMapCard />
+      </div>
+
       {/* Streams table */}
       <div class="rounded-lg border border-border bg-surface-raised overflow-hidden">
         <div class="px-4 py-3 border-b border-border">
@@ -201,15 +222,44 @@ export function Dashboard() {
                       </div>
                     )}
                   </td>
-                  {/* Format */}
+                  {/* Format — for transcoded outputs we show
+                      "<source format/bitrate> → <output format/bitrate>"
+                      so the operator can see at a glance what's being
+                      converted. Source format is the upstream mount's
+                      content-type (e.g. audio/ogg) and its advertised
+                      bitrate. */}
                   <td class="px-4 py-3">
-                    <span class="font-mono text-xs text-text-secondary uppercase">
-                      {stream.format}
-                    </span>
-                    {stream.bitrate > 0 && (
-                      <span class="text-text-tertiary text-xs ml-1">
-                        {stream.bitrate}k
-                      </span>
+                    {stream.is_transcoded && stream.source_type ? (
+                      <div class="flex items-center gap-1.5">
+                        <span class="font-mono text-xs text-text-tertiary uppercase">
+                          {formatLabel(stream.source_type)}
+                        </span>
+                        {stream.source_bitrate && (
+                          <span class="text-text-tertiary text-[10px]">
+                            {stream.source_bitrate}k
+                          </span>
+                        )}
+                        <span class="text-text-tertiary text-[10px]">→</span>
+                        <span class="font-mono text-xs text-text-secondary uppercase">
+                          {stream.format}
+                        </span>
+                        {Number(stream.bitrate) > 0 && (
+                          <span class="text-text-tertiary text-[10px]">
+                            {stream.bitrate}k
+                          </span>
+                        )}
+                      </div>
+                    ) : (
+                      <>
+                        <span class="font-mono text-xs text-text-secondary uppercase">
+                          {stream.format}
+                        </span>
+                        {Number(stream.bitrate) > 0 && (
+                          <span class="text-text-tertiary text-xs ml-1">
+                            {stream.bitrate}k
+                          </span>
+                        )}
+                      </>
                     )}
                   </td>
                   {/* Listeners */}

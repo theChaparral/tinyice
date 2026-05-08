@@ -106,6 +106,14 @@ type Server struct {
 
 	tokenSaveTimer *time.Timer
 	tokenSaveMu    sync.Mutex
+
+	// GeoIP — looks up listener IPs against the embedded DB-IP
+	// country-lite database; auto-downloads + monthly-refreshes.
+	GeoIP *relay.GeoLookup
+
+	// GeoTracker — keeps a live (country, mount) listener count
+	// updated by handleListener for the dashboard map.
+	GeoTracker *GeoTracker
 }
 
 func NewServer(cfg *config.Config, authLog *zap.SugaredLogger, version, commit, setupToken string) *Server {
@@ -192,6 +200,12 @@ func NewServer(cfg *config.Config, authLog *zap.SugaredLogger, version, commit, 
 		webauthnSessions: make(map[string]*webauthn.SessionData),
 	}
 
+	// GeoIP — bound to the same data dir we use for the history
+	// SQLite. The lookup is lazy (returns "" until the first
+	// download lands) so handleListener never blocks on it.
+	srv.GeoIP = relay.NewGeoLookup("/var/lib/tinyice/geoip")
+	srv.GeoTracker = NewGeoTracker(srv.GeoIP)
+
 	// Ensure default tenant exists for backward compatibility
 	srv.TenantM.GetOrCreateDefaultTenant()
 
@@ -277,6 +291,7 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/admin/statistics", s.handleGetStats)
 	mux.HandleFunc("/admin/insights", s.handleInsights)
 	mux.HandleFunc("/admin/traffic", s.handleTraffic)
+	mux.HandleFunc("/admin/geo", s.handleGeo)
 	mux.HandleFunc("/login", s.handleLogin)
 	mux.HandleFunc("/logout", s.handleLogout)
 

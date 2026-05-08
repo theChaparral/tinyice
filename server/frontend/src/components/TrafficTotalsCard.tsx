@@ -2,7 +2,14 @@ import { useEffect } from 'preact/hooks'
 import { signal } from '@preact/signals'
 import { api } from '../lib/api'
 
-type Window = 'day' | 'week' | 'month' | 'all'
+// TrafficTotalsCard — compact horizontal table of cumulative traffic
+// across day / week / month / quarter / year / lifetime windows.
+// Each row shows the window label, an "in" arrow (↓ from sources),
+// and an "out" arrow (↑ to listeners). Single-line dense layout
+// reads at a glance and scales linearly to more windows without
+// breaking the dashboard grid.
+
+type Window = 'day' | 'week' | 'month' | 'quarter' | 'year' | 'lifetime'
 
 type Totals = {
   bytes_in: number
@@ -10,24 +17,23 @@ type Totals = {
   mounts: number
 }
 
-type TrafficResp = Record<Window, Totals>
+type TrafficResp = Record<Window, Totals> & { all?: Totals }
 
 const data = signal<TrafficResp | null>(null)
 const loading = signal(false)
 const error = signal<string | null>(null)
 
-const WINDOW_LABEL: Record<Window, string> = {
-  day: 'last 24h',
-  week: 'last 7d',
-  month: 'last 30d',
-  all: 'all time',
-}
+const WINDOWS: { key: Window; label: string }[] = [
+  { key: 'day',      label: '24 h'  },
+  { key: 'week',     label: '7 d'   },
+  { key: 'month',    label: '30 d'  },
+  { key: 'quarter',  label: '90 d'  },
+  { key: 'year',     label: '365 d' },
+  { key: 'lifetime', label: 'all'   },
+]
 
-// formatBytes converts an int64 byte total into a compact human-readable
-// string. Uses 1024-based units (KiB-style sizes) but renders without
-// the "i" — what "GB" colloquially means in dashboard contexts. Picks
-// the unit that lands a value between 0.5 and 1000 so the eye can read
-// it without doing math.
+// formatBytes — base-1024 with concise decimals so totals fit in a
+// single column ("4.2 GB" / "12 MB" / "850 KB").
 function formatBytes(b: number): string {
   if (b < 0 || !Number.isFinite(b)) return '—'
   if (b === 0) return '0 B'
@@ -38,7 +44,6 @@ function formatBytes(b: number): string {
     v /= 1024
     i++
   }
-  // Fewer decimals for big numbers.
   const decimals = i <= 1 ? 0 : v >= 100 ? 0 : v >= 10 ? 1 : 2
   return `${v.toFixed(decimals)} ${units[i]}`
 }
@@ -49,22 +54,16 @@ function fetchTotals() {
   error.value = null
   api
     .get<TrafficResp>('/admin/traffic')
-    .then((d) => {
-      data.value = d
-    })
-    .catch((err) => {
-      error.value = err?.message || 'Failed to load traffic totals'
-    })
-    .finally(() => {
-      loading.value = false
-    })
+    .then((d) => (data.value = d))
+    .catch((err) => (error.value = err?.message || 'Failed to load traffic totals'))
+    .finally(() => (loading.value = false))
 }
 
 export function TrafficTotalsCard() {
   useEffect(() => {
     fetchTotals()
-    // Refresh every two minutes — the underlying samples update at the
-    // RecordStats cadence (~1 min), faster polling is wasted bytes.
+    // Refresh every two minutes — RecordStats samples each minute,
+    // anything tighter is wasted polling.
     const id = window.setInterval(fetchTotals, 120_000)
     return () => window.clearInterval(id)
   }, [])
@@ -76,7 +75,7 @@ export function TrafficTotalsCard() {
           Total traffic
         </span>
         <span class="font-mono text-[10px] text-text-tertiary">
-          inbound (sources) · outbound (listeners)
+          ↓ inbound (sources) · ↑ outbound (listeners)
         </span>
       </div>
 
@@ -84,47 +83,44 @@ export function TrafficTotalsCard() {
         <div class="text-danger text-xs font-mono">{error.value}</div>
       )}
 
-      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {(['day', 'week', 'month', 'all'] as const).map((w) => {
-          const t = data.value?.[w]
-          return (
-            <div
-              key={w}
-              class="rounded-md border border-border/70 bg-surface-base p-3 flex flex-col gap-1"
-            >
-              <span class="font-mono text-[9px] tracking-widest uppercase text-text-tertiary">
-                {WINDOW_LABEL[w]}
-              </span>
-              <div class="flex items-baseline justify-between gap-2">
-                <span
-                  class="font-mono text-[9px] text-text-tertiary uppercase tracking-wider"
-                  title="bytes received from sources"
-                >
-                  in
-                </span>
-                <span class="font-mono text-sm text-text-primary tabular-nums">
-                  {t ? formatBytes(t.bytes_in) : '…'}
-                </span>
-              </div>
-              <div class="flex items-baseline justify-between gap-2">
-                <span
-                  class="font-mono text-[9px] text-text-tertiary uppercase tracking-wider"
-                  title="bytes served to listeners"
-                >
-                  out
-                </span>
-                <span class="font-mono text-sm text-text-primary tabular-nums">
-                  {t ? formatBytes(t.bytes_out) : '…'}
-                </span>
-              </div>
-              {t && t.mounts > 0 && (
-                <span class="font-mono text-[9px] text-text-tertiary mt-0.5">
-                  {t.mounts} {t.mounts === 1 ? 'mount' : 'mounts'}
-                </span>
-              )}
-            </div>
-          )
-        })}
+      <div class="overflow-x-auto">
+        <table class="w-full font-mono text-xs tabular-nums">
+          <thead>
+            <tr class="text-text-tertiary border-b border-border">
+              <th class="text-left py-1.5 px-2 text-[10px] tracking-widest uppercase font-normal">
+                Window
+              </th>
+              <th class="text-right py-1.5 px-2 text-[10px] tracking-widest uppercase font-normal">
+                ↓ in
+              </th>
+              <th class="text-right py-1.5 px-2 text-[10px] tracking-widest uppercase font-normal">
+                ↑ out
+              </th>
+              <th class="text-right py-1.5 px-2 text-[10px] tracking-widest uppercase font-normal">
+                Mounts
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {WINDOWS.map(({ key, label }) => {
+              const t = data.value?.[key]
+              return (
+                <tr key={key} class="border-b border-border last:border-b-0 hover:bg-surface-hover transition-colors">
+                  <td class="py-1.5 px-2 text-text-secondary">{label}</td>
+                  <td class="py-1.5 px-2 text-right text-text-primary">
+                    {t ? formatBytes(t.bytes_in) : '…'}
+                  </td>
+                  <td class="py-1.5 px-2 text-right text-text-primary">
+                    {t ? formatBytes(t.bytes_out) : '…'}
+                  </td>
+                  <td class="py-1.5 px-2 text-right text-text-tertiary">
+                    {t && t.mounts > 0 ? t.mounts : '—'}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
       </div>
     </div>
   )
