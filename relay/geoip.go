@@ -18,23 +18,36 @@ import (
 	"github.com/oschwald/maxminddb-golang"
 )
 
-// GeoIP — free, key-less country lookup for listener locations.
+// GeoIP — free, key-less city lookup for listener locations.
 //
-// We pull DB-IP's "ip-to-country-lite" database, published monthly
+// We pull DB-IP's "ip-to-city-lite" database, published monthly
 // under CC-BY-4.0 with no API key, no signup, and no per-request
-// quota. The .mmdb file is ~6 MB; we cache it under
-// dataDir/dbip-country-lite.mmdb and refresh whenever it crosses
-// 30 days stale.
+// quota. The .mmdb file is ~250 MB uncompressed; we cache it under
+// dataDir/dbip-city-lite.mmdb and refresh whenever it crosses 30
+// days stale. City lookups give us per-listener lat/lon directly,
+// which the dashboard plots as one bubble per city instead of one
+// per country.
 //
 // Attribution requirement (CC-BY-4.0): the dashboard surfaces
 // "GeoIP data: db-ip.com / CC BY 4.0" near the map.
 
 const (
-	dbipFilename     = "dbip-country-lite.mmdb"
+	dbipFilename     = "dbip-city-lite.mmdb"
 	dbipMaxAge       = 30 * 24 * time.Hour
-	dbipDownloadTmpl = "https://download.db-ip.com/free/dbip-country-lite-%s.mmdb.gz"
+	dbipDownloadTmpl = "https://download.db-ip.com/free/dbip-city-lite-%s.mmdb.gz"
 	dbipUserAgent    = "tinyice-geoip/1.0 (+https://github.com/DatanoiseTV/tinyice)"
 )
+
+// GeoInfo is the lookup result. Empty fields mean "unknown" — the
+// city DB only resolves to country for some IP ranges (corporate
+// allocations, CGNAT pools, etc.); we still surface those at the
+// country centroid using the legacy CountryCentroids() table.
+type GeoInfo struct {
+	ISO  string  // ISO-3166-1 alpha-2 country code
+	City string  // city common name, English
+	Lat  float64 // city latitude
+	Lon  float64 // city longitude
+}
 
 // GeoLookup is the read side of the geoip cache. Listener-connect
 // hot path takes a read lock per Lookup; a periodic update goroutine
@@ -91,33 +104,67 @@ func (g *GeoLookup) tryLoad() error {
 	return nil
 }
 
-// Lookup returns an ISO-3166 alpha-2 country code (e.g. "DE") for
-// the given IP, or "" when the IP is private / loopback / not
-// resolvable / the database isn't loaded. Safe to call concurrently.
-func (g *GeoLookup) Lookup(ip string) string {
+// Lookup returns the city + country + lat/lon for the given IP,
+// or a zero GeoInfo when the IP is private / loopback / not
+// resolvable / the database isn't loaded. Safe to call
+// concurrently. Falls back to the embedded CountryCentroids table
+// when the MMDB record has a country code but no city/coords (a
+// real DB-IP lite quirk for some CGNAT ranges).
+func (g *GeoLookup) Lookup(ip string) GeoInfo {
 	if g == nil || ip == "" {
-		return ""
+		return GeoInfo{}
 	}
 	addr := net.ParseIP(stripPort(ip))
 	if addr == nil || addr.IsLoopback() || addr.IsPrivate() ||
 		addr.IsLinkLocalUnicast() || addr.IsUnspecified() {
-		return ""
+		return GeoInfo{}
 	}
 	g.mu.RLock()
 	rdr := g.reader
 	g.mu.RUnlock()
 	if rdr == nil {
-		return ""
+		return GeoInfo{}
 	}
 	var rec struct {
 		Country struct {
 			ISOCode string `maxminddb:"iso_code"`
 		} `maxminddb:"country"`
+		City struct {
+			Names map[string]string `maxminddb:"names"`
+		} `maxminddb:"city"`
+		Location struct {
+			Latitude  float64 `maxminddb:"latitude"`
+			Longitude float64 `maxminddb:"longitude"`
+		} `maxminddb:"location"`
 	}
 	if err := rdr.Lookup(addr, &rec); err != nil {
-		return ""
+		return GeoInfo{}
 	}
-	return strings.ToUpper(rec.Country.ISOCode)
+	info := GeoInfo{
+		ISO:  strings.ToUpper(rec.Country.ISOCode),
+		City: rec.City.Names["en"],
+		Lat:  rec.Location.Latitude,
+		Lon:  rec.Location.Longitude,
+	}
+	// MMDB encoded an iso but no lat/lon — fall back to the country
+	// centroid so we still place the marker SOMEWHERE meaningful.
+	if info.ISO != "" && info.Lat == 0 && info.Lon == 0 {
+		if meta, ok := countryCentroids[info.ISO]; ok {
+			info.Lat = meta.Lat
+			info.Lon = meta.Lon
+			if info.City == "" {
+				info.City = meta.Name
+			}
+		}
+	}
+	return info
+}
+
+// LookupCountry is a back-compat shim that returns just the ISO
+// alpha-2 (or "" when unresolvable). Existing callers that don't
+// need the city/lat/lon continue to compile.
+func (g *GeoLookup) LookupCountry(ip string) string {
+	return g.Lookup(ip).ISO
 }
 
 func stripPort(s string) string {

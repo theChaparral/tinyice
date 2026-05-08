@@ -465,13 +465,14 @@ func (s *Server) serveStreamData(w http.ResponseWriter, r *http.Request, stream 
 	offset, signal := stream.Subscribe(id, burst)
 	defer stream.Unsubscribe(id)
 
-	// Geo-track this listener for the dashboard map. The country code
-	// is captured here (synchronous mmdb lookup, sub-millisecond) so
-	// the deferred Remove uses the SAME code we registered with —
-	// avoids races where the lookup might briefly differ across calls
-	// (DB swap mid-listen) and double-counts.
-	listenerCountry := s.GeoTracker.Add(r.RemoteAddr, currentMount)
-	defer s.GeoTracker.Remove(listenerCountry, currentMount)
+	// Geo-track this listener for the dashboard map. The full
+	// (city, country, lat, lon) tuple is captured here (synchronous
+	// mmdb lookup, sub-millisecond) so the deferred Remove uses the
+	// SAME tuple we registered with — avoids races where the lookup
+	// might briefly differ across calls (DB swap mid-listen) and
+	// double-counts.
+	listenerGeo := s.GeoTracker.Add(r.RemoteAddr, currentMount)
+	defer s.GeoTracker.Remove(listenerGeo, currentMount)
 
 	// For Ogg streams (Opus / Vorbis / FLAC-in-Ogg) route all output through
 	// a per-listener Ogg page rewriter. It regenerates the bitstream serial,

@@ -2,57 +2,47 @@ import { useEffect, useRef } from 'preact/hooks'
 import { signal } from '@preact/signals'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import { api } from '../lib/api'
+import { createSSE } from '../lib/sse'
 
-// GeoMapCard — live listener map.
+// GeoMapCard — live listener map at city granularity.
 //
-// Tiles come from CartoDB's free "Dark Matter" basemap: no API key,
-// no signup, OpenStreetMap data, free for non-commercial use with
-// attribution. Tracks subdomains a-d for browser-side request
-// parallelism.
+// Tiles: CartoDB Dark Matter (no API key, OpenStreetMap data).
+// Geo data: city + lat/lon from DB-IP city-lite (CC BY 4.0, no key,
+// no signup). Resolved per listener at connect time, aggregated on
+// the server by (country, city) so co-located listeners collapse
+// into one bigger bubble.
 //
-// Listener data comes from /admin/geo, refreshed every 15 s. Each
-// country with at least one listener is rendered as a circle marker
-// at its centroid; radius scales with sqrt(listeners) so 100
-// listeners isn't 100x the size of one.
+// Updates: piggyback on the dashboard's `/admin/events` SSE stream
+// instead of polling /admin/geo. Each connect / disconnect pushes a
+// fresh `geo` event so the map ticks live with the rest of the
+// dashboard counters.
 
-type GeoCountry = {
+type GeoCity = {
   iso: string
-  name: string
+  country?: string
+  city?: string
   lat: number
   lon: number
   listeners: number
   mounts?: Record<string, number>
 }
 
-type GeoResp = {
-  countries: GeoCountry[]
-  total: number
-  attribution: string
-}
+const data = signal<GeoCity[]>([])
 
-const data = signal<GeoResp | null>(null)
-const loading = signal(false)
-const error = signal<string | null>(null)
-
-function fetchGeo() {
-  if (loading.value) return
-  loading.value = true
-  error.value = null
-  api
-    .get<GeoResp>('/admin/geo')
-    .then((d) => (data.value = d))
-    .catch((err) => (error.value = err?.message || 'Failed to load geo'))
-    .finally(() => (loading.value = false))
-}
-
-// Marker radius in pixels: sqrt scaling so a 100-listener country
-// isn't 100x the area of a 1-listener country, but still
-// proportional. Floor at 4 px so single-listener bubbles are
-// clickable.
+// Marker radius in pixels: sqrt scaling so a 100-listener city
+// isn't 100x the area of a 1-listener city, but still proportional.
+// Floor at 4 px so single-listener bubbles stay clickable.
 function radiusFor(n: number): number {
   if (n <= 0) return 0
   return Math.max(4, Math.round(4 + Math.sqrt(n) * 3))
+}
+
+function totalListeners(d: GeoCity[]): number {
+  return d.reduce((acc, c) => acc + c.listeners, 0)
+}
+
+function cityCount(d: GeoCity[]): number {
+  return d.filter((c) => c.lat !== 0 || c.lon !== 0).length
 }
 
 export function GeoMapCard() {
@@ -60,7 +50,7 @@ export function GeoMapCard() {
   const mapRef = useRef<L.Map | null>(null)
   const layerRef = useRef<L.LayerGroup | null>(null)
 
-  // Init map once on mount.
+  // Init map once on mount; subscribe to SSE for live updates.
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
     const m = L.map(containerRef.current, {
@@ -68,7 +58,7 @@ export function GeoMapCard() {
       zoomControl: true,
       worldCopyJump: true,
       minZoom: 1,
-      maxZoom: 6,
+      maxZoom: 8,
     }).setView([20, 0], 2)
 
     L.tileLayer(
@@ -83,36 +73,38 @@ export function GeoMapCard() {
 
     layerRef.current = L.layerGroup().addTo(m)
     mapRef.current = m
-    fetchGeo()
-    const id = window.setInterval(fetchGeo, 15_000)
+
+    const sse = createSSE('/admin/events')
+    const off = sse.on('geo', (payload: GeoCity[]) => {
+      data.value = Array.isArray(payload) ? payload : []
+    })
+
     return () => {
-      window.clearInterval(id)
+      off()
+      sse.close()
       m.remove()
       mapRef.current = null
       layerRef.current = null
     }
   }, [])
 
-  // Re-render markers whenever data changes. Auto-fits the map to
-  // the bounding box of all currently active countries so the
-  // operator sees a frame that's actually relevant — a worldwide
-  // default view buries the dots when listeners cluster in one
-  // region. fitBounds is animated; we cap maxZoom so a single
-  // listener doesn't slam the camera onto a city, and we add
-  // generous padding so circle markers near the edge stay visible.
+  // Re-render markers + auto-fit whenever data changes. Auto-fits
+  // the camera to the bounding box of all currently active cities;
+  // a single city pans to it at zoom 5 (city-wide), no listeners
+  // returns to the world view.
   useEffect(() => {
     const map = mapRef.current
     const layer = layerRef.current
     if (!map || !layer) return
     layer.clearLayers()
     const d = data.value
-    if (!d || !d.countries.length) {
+    if (!d.length) {
       map.flyTo([20, 0], 2, { animate: true, duration: 0.8 })
       return
     }
     const points: L.LatLngExpression[] = []
-    for (const c of d.countries) {
-      if (!c.lat && !c.lon) continue // unknown centroid
+    for (const c of d) {
+      if (!c.lat && !c.lon) continue // unknown / unresolved
       const marker = L.circleMarker([c.lat, c.lon], {
         radius: radiusFor(c.listeners),
         color: '#ff8a3d',
@@ -120,13 +112,16 @@ export function GeoMapCard() {
         fillColor: '#ff8a3d',
         fillOpacity: 0.55,
       })
+      const cityLine = c.city
+        ? `<strong>${c.city}</strong>${c.country ? ` · ${c.country}` : ''}`
+        : `<strong>${c.country || c.iso}</strong>`
       const mountsLine = c.mounts
         ? Object.entries(c.mounts)
             .map(([m, n]) => `${m}: ${n}`)
             .join('<br/>')
         : ''
       marker.bindTooltip(
-        `<strong>${c.name}</strong><br/>${c.listeners} listener${c.listeners === 1 ? '' : 's'}` +
+        `${cityLine}<br/>${c.listeners} listener${c.listeners === 1 ? '' : 's'}` +
           (mountsLine ? `<br/><span style="opacity:.7">${mountsLine}</span>` : ''),
         { direction: 'top' },
       )
@@ -138,15 +133,13 @@ export function GeoMapCard() {
       return
     }
     if (points.length === 1) {
-      // Single dot — pan to it but stay continent-wide so the user
-      // still has a sense of where it is on the globe.
-      map.flyTo(points[0], 4, { animate: true, duration: 0.8 })
+      map.flyTo(points[0], 5, { animate: true, duration: 0.8 })
       return
     }
     const bounds = L.latLngBounds(points)
     map.flyToBounds(bounds, {
       padding: [40, 40],
-      maxZoom: 5,
+      maxZoom: 6,
       animate: true,
       duration: 0.8,
     })
@@ -159,20 +152,17 @@ export function GeoMapCard() {
           Listeners worldwide
         </span>
         <span class="font-mono text-[10px] text-text-tertiary tabular-nums">
-          {data.value
-            ? `${data.value.total} listener${data.value.total === 1 ? '' : 's'} · ${data.value.countries.length} ${data.value.countries.length === 1 ? 'country' : 'countries'}`
-            : '…'}
+          {data.value.length
+            ? `${totalListeners(data.value)} listener${totalListeners(data.value) === 1 ? '' : 's'} · ${cityCount(data.value)} ${cityCount(data.value) === 1 ? 'city' : 'cities'}`
+            : 'no listeners yet'}
         </span>
       </div>
-      {error.value && (
-        <div class="text-danger text-xs font-mono mb-2">{error.value}</div>
-      )}
       <div
         ref={containerRef}
         class="h-72 w-full rounded-md border border-border/70 bg-surface-base overflow-hidden"
       />
       <div class="mt-2 font-mono text-[9px] text-text-tertiary">
-        Tiles: CARTO / OpenStreetMap. GeoIP data: db-ip.com / CC BY 4.0.
+        Tiles: CARTO / OpenStreetMap. GeoIP: db-ip.com / CC BY 4.0.
       </div>
     </div>
   )

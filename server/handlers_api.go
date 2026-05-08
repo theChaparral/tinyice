@@ -185,6 +185,13 @@ func (s *Server) collectStatsPayload(user *config.User) ([]byte, error) {
 		totalDropped += st.BytesDropped
 	}
 
+	// Live geo snapshot piggybacks on every stats SSE tick so the
+	// dashboard map updates with the same cadence as the listener
+	// counters and traffic chart — no separate /admin/geo poll
+	// needed. Snapshot is in-memory + cheap; ~one map walk over a
+	// (small) set of (city, mount) tuples.
+	geoCities := s.GeoTracker.Snapshot("")
+
 	return json.Marshal(map[string]interface{}{
 		"bytes_in":        bi,
 		"bytes_out":       bo,
@@ -203,6 +210,7 @@ func (s *Server) collectStatsPayload(user *config.User) ([]byte, error) {
 		"goroutines":      runtime.NumGoroutine(),
 		"total_dropped":   totalDropped,
 		"server_uptime":   time.Since(s.startTime).Round(time.Second).String(),
+		"geo":             geoCities,
 	})
 }
 
@@ -318,6 +326,16 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 				stJSON, _ := json.Marshal(st)
 				fmt.Fprintf(w, "event: autodj\ndata: %s\n\n", stJSON)
 			}
+		}
+
+		// geo event — full city list per tick. Cheap (the snapshot
+		// is in-memory) and lets the dashboard map auto-refresh
+		// without a separate /admin/geo poll. We send it on every
+		// SSE tick so the operator sees connect/disconnect events
+		// immediately.
+		if geo, ok := full["geo"]; ok {
+			geoJSON, _ := json.Marshal(geo)
+			fmt.Fprintf(w, "event: geo\ndata: %s\n\n", geoJSON)
 		}
 
 		flusher.Flush()
