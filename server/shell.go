@@ -12,7 +12,12 @@ import (
 )
 
 //go:generate sh -c "cd frontend && npm install --silent && npm run build"
-//go:embed frontend/dist
+// `all:` is required because Vite emits underscore-prefixed vendor
+// chunks (e.g. _commonjsHelpers-*.js) when a dependency uses
+// CommonJS modules; the default `//go:embed` directive silently
+// skips files starting with `_` or `.`, so without the prefix those
+// chunks would 404 at runtime even though they're present on disk.
+//go:embed all:frontend/dist
 var frontendDistFS embed.FS
 
 // ShellRenderer serves the new Preact-based frontend.
@@ -79,12 +84,26 @@ func (sr *ShellRenderer) Render(w http.ResponseWriter, page string, title string
 	html = strings.Replace(html, `<div id="app"></div>`, dataScript+"\n"+`<div id="app"></div>`, 1)
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	// Always re-validate the shell HTML — its `<script src=…>` tags
+	// reference Vite-hashed asset names that change every build.
+	// A cached shell pointing at a deleted hash is what causes the
+	// classic "404 + text/plain MIME refused" stall after a deploy.
+	// no-cache (NOT no-store) lets the browser re-use the body if
+	// the ETag still matches; stale browsers re-validate cheaply.
+	w.Header().Set("Cache-Control", "no-cache")
 	w.Write([]byte(html))
 }
 
-// AssetHandler returns an http.Handler that serves the frontend asset files (JS/CSS).
+// AssetHandler returns an http.Handler that serves the frontend asset
+// files (JS/CSS). Vite-hashed file names are content-addressed by
+// design — once a hash exists it serves the same bytes forever — so
+// it's safe to mark them immutable for a year.
 func (sr *ShellRenderer) AssetHandler() http.Handler {
-	return http.FileServer(http.FS(sr.assetFS))
+	fs := http.FileServer(http.FS(sr.assetFS))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		fs.ServeHTTP(w, r)
+	})
 }
 
 // FileServer returns an http.Handler that serves all frontend dist files.
