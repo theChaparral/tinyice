@@ -280,11 +280,18 @@ func (s *Server) startHTTPS(handler http.Handler, addr string) error {
 	}
 
 	httpsSrv := &http.Server{
-		Addr:         httpsAddr,
-		Handler:      handler,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 0,
-		IdleTimeout:  120 * time.Second,
+		Addr:    httpsAddr,
+		Handler: handler,
+		// ReadHeaderTimeout instead of ReadTimeout — the latter
+		// bounds the WHOLE request including streaming bodies,
+		// which is wrong for source ingest. Headers must be in
+		// within 10 s; bodies use their own per-read deadline
+		// (handleSource refreshes a 60 s deadline on every Read).
+		// Listener writes get a per-write deadline via
+		// http.NewResponseController inside the handler.
+		ReadHeaderTimeout: 10 * time.Second,
+		WriteTimeout:      0,
+		IdleTimeout:       120 * time.Second,
 	}
 	if s.certManager != nil {
 		httpsSrv.TLSConfig = s.certManager.TLSConfig()
@@ -312,8 +319,11 @@ func (s *Server) startHTTPS(handler http.Handler, addr string) error {
 			}
 			http.Redirect(w, r, target, http.StatusMovedPermanently)
 		}),
-		ReadTimeout: 10 * time.Second,
-		IdleTimeout: 120 * time.Second,
+		// Same rationale as the HTTPS server above: ReadHeaderTimeout
+		// caps slowloris attacks without breaking PUT/SOURCE streams
+		// that use Hijack and do their own per-read deadlines.
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 	s.httpServers = append(s.httpServers, httpSrv)
 

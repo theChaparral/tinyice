@@ -152,6 +152,15 @@ func (s *Server) handleSource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer conn.Close()
+	// Per-read deadline on the source. Without it, a source that
+	// silently drops (network blip, encoder crash without FIN)
+	// holds the handler goroutine in bufrw.Read forever; the stream
+	// stays mounted, transcoders keep their input subscription, and
+	// the next reconnect from the same encoder leaves zombies. The
+	// deadline is refreshed after every successful read so a
+	// continuously-streaming source is never penalised — only
+	// genuinely silent connections die.
+	const sourceReadTimeout = 60 * time.Second
 
 	bufrw.WriteString("HTTP/1.0 200 OK\r\nServer: Icecast 2.4.4\r\nConnection: Keep-Alive\r\n\r\n")
 	bufrw.Flush()
@@ -178,6 +187,7 @@ func (s *Server) handleSource(w http.ResponseWriter, r *http.Request) {
 
 	buf := make([]byte, 8192)
 	for {
+		_ = conn.SetReadDeadline(time.Now().Add(sourceReadTimeout))
 		n, err := bufrw.Read(buf)
 		if n > 0 {
 			stream.Broadcast(buf[:n], s.Relay)
@@ -504,6 +514,22 @@ func (s *Server) serveStreamData(w http.ResponseWriter, r *http.Request, stream 
 		}
 	}
 
+	// Per-write deadline. Without it, a Write to a slow / dead /
+	// half-disconnected listener blocks forever — the handler
+	// goroutine sits in TCP-write-blocked state, the listener slot
+	// stays registered on the stream, and the conn ends up in
+	// CLOSE_WAIT. With many of those accumulating, the runtime ran
+	// out of usable handler slots and NEW HTTPS requests started
+	// timing out wholesale (recurring "i/o timeout" symptom).
+	//
+	// 30 s is conservative — typical TCP send to a healthy listener
+	// returns in <1 ms; 30 s only fires when the kernel send buffer
+	// is full and not draining (i.e. the receiver is gone). On
+	// deadline expiry Write returns an error → we exit the handler →
+	// Unsubscribe runs → the conn cleans up.
+	rc := http.NewResponseController(w)
+	const writeTimeout = 30 * time.Second
+
 	// 64 KiB read chunk: we flush after draining the buffer on each signal,
 	// so a larger chunk means fewer syscalls / TCP writes per second without
 	// adding latency. 4 KiB was causing tiny-segment writes whenever the
@@ -573,6 +599,7 @@ func (s *Server) serveStreamData(w http.ResponseWriter, r *http.Request, stream 
 				}
 				offset = next
 
+				_ = rc.SetWriteDeadline(time.Now().Add(writeTimeout))
 				if _, err := out.Write(buf[:n]); err != nil {
 					return false
 				}
@@ -592,6 +619,7 @@ func (s *Server) serveStreamData(w http.ResponseWriter, r *http.Request, stream 
 						res[0] = byte(l)
 						copy(res[1:], meta)
 
+						_ = rc.SetWriteDeadline(time.Now().Add(writeTimeout))
 						if _, err := w.Write(res); err != nil {
 							return false
 						}
