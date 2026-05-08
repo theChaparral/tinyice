@@ -37,7 +37,7 @@ func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Only treat as stream listener if it's not a known app route
-	appPrefixes := []string{"/login", "/logout", "/setup", "/auth/", "/api/", "/explore", "/developers", "/assets/", "/events", "/player", "/embed/", "/webrtc"}
+	appPrefixes := []string{"/login", "/logout", "/setup", "/auth/", "/api/", "/explore", "/developers", "/assets/", "/events", "/player", "/embed/", "/webrtc", "/kiosk"}
 	isAppRoute := path == "/" || path == "/favicon.ico"
 	for _, prefix := range appPrefixes {
 		if strings.HasPrefix(path, prefix) || path == prefix {

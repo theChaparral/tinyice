@@ -12,6 +12,26 @@ import (
 	"github.com/DatanoiseTV/tinyice/relay"
 )
 
+// handleKiosk renders the studio / NOC wall display. Same auth as
+// /admin (admin session required) but the frontend skips all the
+// admin chrome (sidebar, tabs, action buttons) and shows a single
+// full-screen layout with a big LTC-style clock, the listener map
+// and per-mount stream cards. Page data is the slim subset the
+// kiosk component reads from window.__TINYICE__.
+func (s *Server) handleKiosk(w http.ResponseWriter, r *http.Request) {
+	user, ok := s.checkAuth(r)
+	if !ok {
+		http.Redirect(w, r, "/login?next=/kiosk", http.StatusSeeOther)
+		return
+	}
+	pageData := s.BasePageData("")
+	pageData["user"] = map[string]interface{}{
+		"username": user.Username,
+		"role":     user.Role,
+	}
+	s.shell.Render(w, "kiosk", "Kiosk — "+s.Config.PageTitle, pageData)
+}
+
 func (s *Server) handleAdmin(w http.ResponseWriter, r *http.Request) {
 	user, ok := s.checkAuth(r)
 	if !ok {

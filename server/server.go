@@ -233,6 +233,7 @@ func NewServer(cfg *config.Config, authLog *zap.SugaredLogger, version, commit, 
 func (s *Server) setupRoutes() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/admin", s.handleAdmin)
+	mux.HandleFunc("/kiosk", s.handleKiosk)
 	mux.HandleFunc("/admin/golive", s.handleGoLive)
 	mux.HandleFunc("/admin/golive/chunk", s.handleGoLiveChunk)
 	mux.HandleFunc("/admin/add-mount", s.handleAddMount)
