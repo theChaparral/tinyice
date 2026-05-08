@@ -316,11 +316,12 @@ export function KioskDashboard() {
         </div>
       </div>
 
-      {/* Main grid — flex-1 fills the rest; min-h-0 lets the children
-          (map, scrollable stream column) actually constrain to the
-          available height instead of overflowing. */}
-      <div class="flex-1 grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-3 p-3 min-h-0 min-w-0">
-        <div class="rounded-lg border border-border bg-surface-raised overflow-hidden flex flex-col min-h-0">
+      {/* Main flex row — map fills all remaining space; stream
+          column on the right is fixed-width with compact rows that
+          fit 8+ mounts on 720p without scrolling. No bottom bar —
+          attribution sits inside the map's footer overlay. */}
+      <div class="flex-1 flex gap-3 p-3 min-h-0 min-w-0">
+        <div class="flex-1 rounded-lg border border-border bg-surface-raised overflow-hidden flex flex-col min-h-0 min-w-0">
           <div class="flex items-center justify-between px-3 py-1.5 border-b border-border shrink-0">
             <span class="font-mono text-[10px] tracking-widest uppercase text-text-tertiary">
               Listeners worldwide
@@ -332,23 +333,27 @@ export function KioskDashboard() {
           <div ref={mapEl} class="flex-1 min-h-0" />
         </div>
 
-        <div class="flex flex-col gap-2 min-h-0 overflow-y-auto pr-1">
-          {streamList.length === 0 && (
-            <div class="rounded-lg border border-border bg-surface-raised p-4 text-center text-text-tertiary font-mono text-sm">
-              waiting for streams…
+        <div class="w-[320px] shrink-0 flex flex-col min-h-0 gap-2">
+          <div class="rounded-lg border border-border bg-surface-raised flex flex-col min-h-0 overflow-hidden flex-1">
+            <div class="flex items-center justify-between px-3 py-1.5 border-b border-border shrink-0">
+              <span class="font-mono text-[10px] tracking-widest uppercase text-text-tertiary">
+                Streams
+              </span>
+              <span class="font-mono text-[10px] text-text-tertiary tabular-nums">
+                {streamList.length}
+              </span>
             </div>
-          )}
-          {streamList.map((s) => (
-            <StreamCard key={s.mount} s={s} />
-          ))}
+            <div class="flex-1 min-h-0 overflow-y-auto">
+              {streamList.length === 0 ? (
+                <div class="p-4 text-center text-text-tertiary font-mono text-xs">
+                  waiting for streams…
+                </div>
+              ) : (
+                streamList.map((s) => <StreamRow key={s.mount} s={s} />)
+              )}
+            </div>
+          </div>
         </div>
-      </div>
-
-      {/* Bottom bar — branding + attribution. shrink-0 so it never
-          steals space from the main grid. */}
-      <div class="flex items-center justify-between px-5 py-1.5 border-t border-border bg-surface-raised text-text-tertiary font-mono text-[9px] shrink-0">
-        <span class="truncate">{data.subtitle || ''}</span>
-        <span class="truncate">kiosk · /admin/events SSE · GeoIP db-ip.com CC BY 4.0</span>
       </div>
     </div>
   )
@@ -374,29 +379,36 @@ function Kpi({
   )
 }
 
-function StreamCard({ s }: { s: StreamEv }) {
+// StreamRow — compact two-line per-mount summary that fits ~10 mounts
+// on a 720p screen without overflow. Top line: live dot + mount +
+// big listener count. Bottom line: format chip ("OPUS 160k → MP3
+// 320k" for transcoded) + thin health bar. Now-playing text is
+// hidden in the kiosk to keep height tight; the operator-facing
+// /admin view keeps the full card layout.
+function StreamRow({ s }: { s: StreamEv }) {
   const live = (s.listeners ?? 0) > 0
   const health = s.health ?? 0
   return (
-    <div class="rounded-lg border border-border bg-surface-raised p-4 flex flex-col gap-2">
+    <div class="border-b border-border last:border-b-0 px-3 py-2 hover:bg-surface-hover transition-colors">
       <div class="flex items-baseline justify-between gap-2">
-        <span class="font-mono font-bold text-base text-text-primary">{s.mount}</span>
-        <span
-          class="w-2 h-2 rounded-full"
-          style={{
-            backgroundColor: live ? 'var(--color-live)' : 'var(--color-text-tertiary)',
-            animation: live ? 'pulse-glow 2s ease-in-out infinite' : 'none',
-          }}
-        />
-      </div>
-      {s.title && (
-        <div class="text-sm text-text-secondary leading-tight">
-          <span class="text-text-tertiary text-[9px] tracking-widest uppercase block">Now playing</span>
-          {s.artist ? `${s.artist} — ${s.title}` : s.title}
+        <div class="flex items-center gap-2 min-w-0">
+          <span
+            class="w-1.5 h-1.5 rounded-full shrink-0"
+            style={{
+              backgroundColor: live ? 'var(--color-live)' : 'var(--color-text-tertiary)',
+              animation: live ? 'pulse-glow 2s ease-in-out infinite' : 'none',
+            }}
+          />
+          <span class="font-mono font-bold text-sm text-text-primary truncate">
+            {s.mount}
+          </span>
         </div>
-      )}
-      <div class="flex items-center justify-between mt-1">
-        <div class="flex items-center gap-1.5 font-mono text-[11px]">
+        <span class="font-mono text-xl font-bold text-accent tabular-nums leading-none">
+          {s.listeners ?? 0}
+        </span>
+      </div>
+      <div class="flex items-center gap-2 mt-1">
+        <div class="flex items-center gap-1 font-mono text-[10px] min-w-0 truncate">
           {s.is_transcoded && s.source_type ? (
             <>
               <span class="text-text-tertiary uppercase">{formatChip(s.source_type)}</span>
@@ -412,12 +424,6 @@ function StreamCard({ s }: { s: StreamEv }) {
             </>
           )}
         </div>
-        <span class="font-mono text-2xl font-bold text-accent tabular-nums">
-          {s.listeners ?? 0}
-        </span>
-      </div>
-      {/* Health bar */}
-      <div class="flex items-center gap-2">
         <div class="flex-1 h-1 rounded-full bg-surface-overlay overflow-hidden">
           <div
             class="h-full rounded-full transition-all duration-500"
@@ -432,9 +438,6 @@ function StreamCard({ s }: { s: StreamEv }) {
             }}
           />
         </div>
-        <span class="font-mono text-[10px] text-text-tertiary tabular-nums">
-          {Math.round(health)}%
-        </span>
       </div>
     </div>
   )
