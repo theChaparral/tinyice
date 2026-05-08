@@ -93,12 +93,24 @@ export function GeoMapCard() {
     }
   }, [])
 
-  // Re-render markers whenever data changes.
+  // Re-render markers whenever data changes. Auto-fits the map to
+  // the bounding box of all currently active countries so the
+  // operator sees a frame that's actually relevant — a worldwide
+  // default view buries the dots when listeners cluster in one
+  // region. fitBounds is animated; we cap maxZoom so a single
+  // listener doesn't slam the camera onto a city, and we add
+  // generous padding so circle markers near the edge stay visible.
   useEffect(() => {
-    if (!layerRef.current) return
-    layerRef.current.clearLayers()
+    const map = mapRef.current
+    const layer = layerRef.current
+    if (!map || !layer) return
+    layer.clearLayers()
     const d = data.value
-    if (!d || !d.countries.length) return
+    if (!d || !d.countries.length) {
+      map.flyTo([20, 0], 2, { animate: true, duration: 0.8 })
+      return
+    }
+    const points: L.LatLngExpression[] = []
     for (const c of d.countries) {
       if (!c.lat && !c.lon) continue // unknown centroid
       const marker = L.circleMarker([c.lat, c.lon], {
@@ -118,8 +130,26 @@ export function GeoMapCard() {
           (mountsLine ? `<br/><span style="opacity:.7">${mountsLine}</span>` : ''),
         { direction: 'top' },
       )
-      marker.addTo(layerRef.current!)
+      marker.addTo(layer)
+      points.push([c.lat, c.lon])
     }
+    if (points.length === 0) {
+      map.flyTo([20, 0], 2, { animate: true, duration: 0.8 })
+      return
+    }
+    if (points.length === 1) {
+      // Single dot — pan to it but stay continent-wide so the user
+      // still has a sense of where it is on the globe.
+      map.flyTo(points[0], 4, { animate: true, duration: 0.8 })
+      return
+    }
+    const bounds = L.latLngBounds(points)
+    map.flyToBounds(bounds, {
+      padding: [40, 40],
+      maxZoom: 5,
+      animate: true,
+      duration: 0.8,
+    })
   }, [data.value])
 
   return (
