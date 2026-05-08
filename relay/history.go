@@ -53,8 +53,21 @@ type HistoryManager struct {
 
 // NewHistoryManager initializes the GORM database connection and performs auto-migration.
 // It uses the non-CGO SQLite driver for maximum portability.
+//
+// PRAGMA tuning:
+//   - journal_mode=WAL — writers no longer fsync the whole DB file
+//     and readers don't block writers. Without this, concurrent
+//     RecordUA calls under burst load were serialising at >1 s each
+//     and starving the HTTPS handler pool (login, listener handlers,
+//     etc.) on the shared write lock.
+//   - synchronous=NORMAL — fsync only on checkpoint, fine for
+//     non-financial dashboard data; the win is ~10x write latency.
+//   - busy_timeout=5000 — wait up to 5 s on the lock instead of
+//     returning SQLITE_BUSY immediately, so a brief contention spike
+//     doesn't bubble up as a user-visible error.
 func NewHistoryManager(path string) (*HistoryManager, error) {
-	db, err := gorm.Open(sqlite.Open(path), &gorm.Config{
+	dsn := path + "?_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(5000)"
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{
 		Logger: nil, // We'll handle logging via zap
 	})
 	if err != nil {
@@ -115,19 +128,24 @@ func (hm *HistoryManager) RecordStats(mount string, listeners int, bi, bo int64)
 	}
 }
 
-// RecordUA tracks or updates usage counts for specific User-Agent strings.
+// RecordUA tracks or updates usage counts for specific User-Agent
+// strings. Fire-and-forget: the actual SQLite INSERT runs on its own
+// goroutine so a slow disk / lock contention never blocks the
+// listener-connect or source-connect handler. Caller bears no
+// latency cost beyond the goroutine spawn (sub-microsecond).
 func (hm *HistoryManager) RecordUA(ua, uaType string) {
 	if ua == "" {
 		ua = "Unknown"
 	}
-	err := hm.db.Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "ua"}, {Name: "type"}},
-		DoUpdates: clause.Assignments(map[string]interface{}{"count": gorm.Expr("user_agents.count + 1")}),
-	}).Create(&UserAgent{UA: ua, Type: uaType, Count: 1}).Error
-
-	if err != nil {
-		logger.L.Errorf("Failed to record User-Agent: %v", err)
-	}
+	go func() {
+		err := hm.db.Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "ua"}, {Name: "type"}},
+			DoUpdates: clause.Assignments(map[string]interface{}{"count": gorm.Expr("user_agents.count + 1")}),
+		}).Create(&UserAgent{UA: ua, Type: uaType, Count: 1}).Error
+		if err != nil {
+			logger.L.Errorf("Failed to record User-Agent: %v", err)
+		}
+	}()
 }
 
 type UAStat struct {
