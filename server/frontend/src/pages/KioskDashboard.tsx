@@ -182,7 +182,13 @@ export function KioskDashboard() {
     }
   }, [])
 
-  // Map markers + autozoom on every geo refresh.
+  // Map markers + autozoom. Smart-fit:
+  //   - 0 listeners: world view centred at (20, 0), zoom 2.
+  //   - 1 city: fly to that point at zoom 5 (city-wide).
+  //   - many cities, all within ~one continent (bounds < ~60° in
+  //     either lat or lon): fly to bounds with maxZoom 5.
+  //   - many cities spread worldwide: world view at zoom 2 — no
+  //     wandering camera centred on mid-ocean.
   useEffect(() => {
     const map = mapRef.current
     const layer = layerRef.current
@@ -217,9 +223,20 @@ export function KioskDashboard() {
       map.flyTo(points[0], 5, { animate: true, duration: 1.0 })
       return
     }
-    map.flyToBounds(L.latLngBounds(points), {
+    const bounds = L.latLngBounds(points)
+    const sw = bounds.getSouthWest()
+    const ne = bounds.getNorthEast()
+    const latSpan = Math.abs(ne.lat - sw.lat)
+    const lonSpan = Math.abs(ne.lng - sw.lng)
+    if (latSpan > 60 || lonSpan > 100) {
+      // Worldwide spread — fitBounds would centre on a meaningless
+      // mid-ocean point. Show the world instead.
+      map.flyTo([20, 0], 2, { animate: true, duration: 1.0 })
+      return
+    }
+    map.flyToBounds(bounds, {
       padding: [60, 60],
-      maxZoom: 6,
+      maxZoom: 5,
       animate: true,
       duration: 1.0,
     })
@@ -231,70 +248,57 @@ export function KioskDashboard() {
   const liveMounts = streamList.filter((s) => (s.listeners ?? 0) > 0 || (s.health ?? 0) > 0).length
 
   return (
-    <div class="min-h-screen bg-surface-base text-text-primary flex flex-col">
-      {/* Top bar — station name, big LTC clock, KPIs */}
-      <div class="flex items-center gap-6 px-6 py-3 border-b border-border bg-surface-raised">
-        <div class="flex flex-col">
-          <span class="font-mono text-[10px] tracking-[3px] uppercase text-text-tertiary">
+    <div class="h-screen w-screen overflow-hidden bg-surface-base text-text-primary flex flex-col">
+      {/* Top bar — station name, big LTC clock, KPIs. Fixed height,
+          single row, content tightened so it fits a 720p TV without
+          wrapping. */}
+      <div class="flex items-center gap-4 px-5 py-2 border-b border-border bg-surface-raised shrink-0">
+        <div class="flex items-baseline gap-2 min-w-0">
+          <span class="font-mono text-[9px] tracking-[3px] uppercase text-text-tertiary">
             On Air
           </span>
-          <span class="text-xl font-bold leading-tight">
+          <span class="text-lg font-bold leading-none truncate">
             {data.title || 'TinyIce'}
           </span>
         </div>
 
-        <div class="flex-1 flex items-center justify-center gap-6 font-mono tabular-nums">
-          <div class="flex flex-col items-center">
-            <span class="text-[9px] tracking-[3px] uppercase text-text-tertiary">LTC · 25 fps</span>
-            <span class="text-5xl font-bold tracking-wider text-accent">
-              {ltc.hms}
-              <span class="text-3xl text-text-secondary ml-1">:{ltc.ff}</span>
-            </span>
-          </div>
-          <div class="flex flex-col items-center">
-            <span class="text-[9px] tracking-[3px] uppercase text-text-tertiary">UTC</span>
-            <span class="text-2xl text-text-secondary">{ltc.utc}</span>
+        <div class="flex-1 flex items-baseline justify-center gap-4 font-mono tabular-nums">
+          <span class="text-4xl font-bold tracking-wider text-accent leading-none">
+            {ltc.hms}
+            <span class="text-2xl text-text-secondary ml-1">:{ltc.ff}</span>
+          </span>
+          <div class="flex flex-col leading-none">
+            <span class="text-[8px] tracking-[3px] uppercase text-text-tertiary">UTC</span>
+            <span class="text-base text-text-secondary mt-0.5">{ltc.utc}</span>
           </div>
         </div>
 
-        <div class="flex gap-6 font-mono">
-          <div class="flex flex-col items-end">
-            <span class="text-[9px] tracking-[3px] uppercase text-text-tertiary">Listeners</span>
-            <span class="text-3xl font-bold text-accent tabular-nums">{totalListeners}</span>
-          </div>
-          <div class="flex flex-col items-end">
-            <span class="text-[9px] tracking-[3px] uppercase text-text-tertiary">Mounts live</span>
-            <span class="text-3xl font-bold tabular-nums">{liveMounts}</span>
-          </div>
-          <div class="flex flex-col items-end">
-            <span class="text-[9px] tracking-[3px] uppercase text-text-tertiary">Out</span>
-            <span class="text-xl text-text-secondary tabular-nums">
-              {formatBandwidth(stats.value.bandwidth_out ?? stats.value.bytes_out ?? 0)}
-            </span>
-          </div>
-          <div class="flex flex-col items-end">
-            <span class="text-[9px] tracking-[3px] uppercase text-text-tertiary">Uptime</span>
-            <span class="text-xl text-text-secondary tabular-nums">
-              {formatUptime(stats.value.uptime ?? 0)}
-            </span>
-          </div>
-          <div class="flex flex-col items-end justify-center">
-            <span class="text-[9px] tracking-[3px] uppercase text-text-tertiary">SSE</span>
-            <span
-              class="w-2.5 h-2.5 rounded-full mt-1"
-              style={{
-                backgroundColor: sseUp.value ? 'var(--color-live)' : 'var(--color-danger)',
-                animation: sseUp.value ? 'pulse-glow 2s ease-in-out infinite' : 'none',
-              }}
-            />
-          </div>
+        <div class="flex gap-4 font-mono items-baseline">
+          <Kpi label="Listeners" value={String(totalListeners)} accent />
+          <Kpi label="Mounts" value={String(liveMounts)} />
+          <Kpi
+            label="Out"
+            value={formatBandwidth(stats.value.bandwidth_out ?? stats.value.bytes_out ?? 0)}
+            small
+          />
+          <Kpi label="Uptime" value={formatUptime(stats.value.uptime ?? 0)} small />
+          <span
+            class="w-2 h-2 rounded-full self-center"
+            title={sseUp.value ? 'SSE live' : 'SSE down'}
+            style={{
+              backgroundColor: sseUp.value ? 'var(--color-live)' : 'var(--color-danger)',
+              animation: sseUp.value ? 'pulse-glow 2s ease-in-out infinite' : 'none',
+            }}
+          />
         </div>
       </div>
 
-      {/* Main grid — left: map, right: per-mount stream cards */}
-      <div class="flex-1 grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-4 p-4 min-h-0">
+      {/* Main grid — flex-1 fills the rest; min-h-0 lets the children
+          (map, scrollable stream column) actually constrain to the
+          available height instead of overflowing. */}
+      <div class="flex-1 grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-3 p-3 min-h-0 min-w-0">
         <div class="rounded-lg border border-border bg-surface-raised overflow-hidden flex flex-col min-h-0">
-          <div class="flex items-center justify-between px-4 py-2 border-b border-border">
+          <div class="flex items-center justify-between px-3 py-1.5 border-b border-border shrink-0">
             <span class="font-mono text-[10px] tracking-widest uppercase text-text-tertiary">
               Listeners worldwide
             </span>
@@ -305,9 +309,9 @@ export function KioskDashboard() {
           <div ref={mapEl} class="flex-1 min-h-0" />
         </div>
 
-        <div class="flex flex-col gap-3 min-h-0 overflow-y-auto">
+        <div class="flex flex-col gap-2 min-h-0 overflow-y-auto pr-1">
           {streamList.length === 0 && (
-            <div class="rounded-lg border border-border bg-surface-raised p-6 text-center text-text-tertiary font-mono text-sm">
+            <div class="rounded-lg border border-border bg-surface-raised p-4 text-center text-text-tertiary font-mono text-sm">
               waiting for streams…
             </div>
           )}
@@ -317,11 +321,32 @@ export function KioskDashboard() {
         </div>
       </div>
 
-      {/* Bottom bar — branding + attribution */}
-      <div class="flex items-center justify-between px-6 py-2 border-t border-border bg-surface-raised text-text-tertiary font-mono text-[10px]">
-        <span>{data.subtitle || ''}</span>
-        <span>kiosk · live data via /admin/events SSE · GeoIP db-ip.com CC BY 4.0</span>
+      {/* Bottom bar — branding + attribution. shrink-0 so it never
+          steals space from the main grid. */}
+      <div class="flex items-center justify-between px-5 py-1.5 border-t border-border bg-surface-raised text-text-tertiary font-mono text-[9px] shrink-0">
+        <span class="truncate">{data.subtitle || ''}</span>
+        <span class="truncate">kiosk · /admin/events SSE · GeoIP db-ip.com CC BY 4.0</span>
       </div>
+    </div>
+  )
+}
+
+// Kpi — compact top-bar tile. accent=true paints the value in the
+// brand orange; small=true makes the value smaller (used for less-
+// important metrics like bandwidth and uptime).
+function Kpi({
+  label, value, accent = false, small = false,
+}: { label: string; value: string; accent?: boolean; small?: boolean }) {
+  return (
+    <div class="flex flex-col items-end leading-none">
+      <span class="text-[8px] tracking-[3px] uppercase text-text-tertiary">{label}</span>
+      <span
+        class={`mt-0.5 font-bold tabular-nums ${
+          small ? 'text-base' : 'text-2xl'
+        } ${accent ? 'text-accent' : 'text-text-primary'}`}
+      >
+        {value}
+      </span>
     </div>
   )
 }
