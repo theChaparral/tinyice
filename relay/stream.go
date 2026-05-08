@@ -432,24 +432,32 @@ func (s *Stream) Broadcast(data []byte, relay *Relay) {
 	if atomic.LoadInt32(&s.closed) == 1 {
 		return
 	}
+
+	// 1. Write phase — hold the write lock only for the bookkeeping
+	//    mutations (timestamp, page-offset table, buffer write). The
+	//    listener-signal fan-out is the expensive part and only
+	//    needs concurrent-safe channel sends, so we don't keep the
+	//    write lock for it.
+	//
+	//    Rationale: with N listeners on a busy mount, holding the
+	//    WRITE lock during the channel-send loop made every other
+	//    goroutine touching the stream — listener Reads, SSE
+	//    Snapshot, GeoTracker.Add/Remove — queue behind it. At ~50
+	//    broadcasts/sec across multiple mounts the lock saturated
+	//    and unrelated HTTPS handlers (login, /healthz, kiosk SSE)
+	//    visibly hung. Channel sends are inherently safe across
+	//    goroutines so we capture the listener slice under RLock
+	//    and signal outside any lock.
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	// Update timestamp to track source activity
 	s.LastDataReceived = time.Now()
-
-	// Update Metrics (Incoming) - uses atomic for performance
 	atomic.AddInt64(&relay.BytesIn, int64(len(data)))
 	atomic.AddInt64(&s.BytesIn, int64(len(data)))
-
-	// Track Ogg page boundaries for alignment so new Opus / Vorbis
-	// listeners start at a proper page edge. Use bytes.IndexByte to
-	// skip ahead between candidate 'O' bytes — the previous loop
-	// inspected every byte one at a time even though the magic only
-	// starts where data[i] == 'O'. For a 4-8 KiB Broadcast call with
-	// few O bytes (the common case for Opus payload), this is roughly
-	// 16x fewer comparisons.
 	if s.IsOggStream {
+		// Track Ogg page boundaries for alignment so new Opus /
+		// Vorbis listeners start at a proper page edge. bytes.IndexByte
+		// skips ahead between candidate 'O' bytes — for a 4-8 KiB
+		// Broadcast call with few O bytes (Opus payload) this is
+		// ~16x fewer comparisons than a byte-by-byte scan.
 		i := 0
 		for i <= len(data)-4 {
 			j := bytes.IndexByte(data[i:len(data)-3], 'O')
@@ -468,18 +476,28 @@ func (s *Stream) Broadcast(data []byte, relay *Relay) {
 			}
 		}
 	}
-
-	// 1. Write to shared buffer - this makes data available to listeners
 	s.Buffer.Write(data)
+	s.mu.Unlock()
 
-	// 2. Signal all listeners that new data is available
-	// Use non-blocking send to avoid blocking on slow listeners
+	// 2. Signal phase — copy the listener channel slice under
+	//    RLock then drop the lock before sending. Subscribe /
+	//    Unsubscribe holds the write lock to mutate the map; an
+	//    Unsubscribe racing with a Broadcast just means we may
+	//    signal a now-closed channel, which the non-blocking
+	//    select default handles safely. RLocks are concurrent so
+	//    multiple Broadcasts (different streams) never serialise.
+	s.mu.RLock()
+	chans := make([]chan struct{}, 0, len(s.listeners))
 	for _, ch := range s.listeners {
+		chans = append(chans, ch)
+	}
+	s.mu.RUnlock()
+	for _, ch := range chans {
 		select {
 		case ch <- struct{}{}:
-			// Successfully signaled listener
+			// signalled
 		default:
-			// Listener is already signaled or slow, skip
+			// already pending; slow listener, skip
 		}
 	}
 }

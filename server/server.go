@@ -114,6 +114,7 @@ type Server struct {
 	// GeoTracker — keeps a live (country, mount) listener count
 	// updated by handleListener for the dashboard map.
 	GeoTracker *GeoTracker
+
 }
 
 func NewServer(cfg *config.Config, authLog *zap.SugaredLogger, version, commit, setupToken string) *Server {
