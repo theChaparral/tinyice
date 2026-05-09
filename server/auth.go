@@ -70,6 +70,16 @@ func (s *Server) logAuthFailed(user, ip, reason string) {
 }
 
 func (s *Server) checkAuthLimit(ip string) error {
+	// Whitelist check first — if an operator added an IP to the
+	// whitelist after that IP got itself locked out (e.g. they tested
+	// auth with the wrong password from their dev box, then added the
+	// dev box to whitelist to fix it), the attempt entry persists and
+	// the lockout would otherwise still bite. Bypass before consulting
+	// the rate-limit map.
+	if s.isWhitelisted(ip) {
+		return nil
+	}
+
 	s.authAttemptsMu.Lock()
 	defer s.authAttemptsMu.Unlock()
 
@@ -84,10 +94,6 @@ func (s *Server) checkAuthLimit(ip string) error {
 
 	if time.Now().After(attempt.LockoutBy) && attempt.Count >= 5 {
 		attempt.Count = 0
-	}
-
-	if s.isWhitelisted(ip) {
-		return nil
 	}
 	return nil
 }
@@ -552,8 +558,22 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// Always run bcrypt (against dummyBcryptHash when the user
+		// doesn't exist) so login response time doesn't leak user
+		// existence — the Basic-auth path in checkAuth already does
+		// this. The plain `!exists || !CheckPasswordHash` short-circuit
+		// returned in microseconds for unknown users vs ~250 ms for
+		// known users, which is a textbook account-enumeration timing
+		// oracle.
 		user, exists := s.Config.Users[u]
-		if !exists || !config.CheckPasswordHash(p, user.Password) {
+		var passOK bool
+		if exists {
+			passOK = config.CheckPasswordHash(p, user.Password)
+		} else {
+			_ = config.CheckPasswordHash(p, dummyBcryptHash)
+			passOK = false
+		}
+		if !exists || !passOK {
 			s.recordAuthFailure(host)
 			s.logAuthFailed(u, r.RemoteAddr, "invalid credentials")
 			s.Audit(r, "login_failed", "auth", u, "invalid credentials")
