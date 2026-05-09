@@ -727,6 +727,44 @@ func (s *Server) handleWebRTCSourceOffer(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// Auth gate. The icecast SOURCE / RTMP / SRT ingest paths all
+	// require the per-mount source password (or DefaultSourcePassword)
+	// before accepting a publish; this endpoint MUST do the same.
+	// Without it, anyone on the internet who can POST here can hijack
+	// any mount's broadcast — pion happily ingests whatever audio they
+	// send, and tinyice broadcasts it to the radio's listeners.
+	//
+	// Accept the credentials via either Basic auth (matches handleSource)
+	// or a `password` query parameter for browser callers that can't
+	// always send Basic on a fetch().
+	host, _, _ := net.SplitHostPort(r.RemoteAddr)
+	if err := s.checkAuthLimit(host); err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	requiredPass, found := s.getSourcePassword(mount)
+	if !found {
+		requiredPass = s.Config.DefaultSourcePassword
+	}
+	supplied := ""
+	if _, p, ok := r.BasicAuth(); ok {
+		supplied = p
+	} else if q := r.URL.Query().Get("password"); q != "" {
+		supplied = q
+	}
+	if requiredPass == "" || !config.CheckPasswordHash(supplied, requiredPass) {
+		s.recordAuthFailure(host)
+		s.logAuthFailed("webrtc-source", r.RemoteAddr, "invalid source password")
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	s.recordAuthSuccess(host)
+
+	if s.Config.DisabledMounts[mount] {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
 	var offer webrtc.SessionDescription
 	if err := json.NewDecoder(r.Body).Decode(&offer); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -774,6 +812,15 @@ func (s *Server) handleGoLiveChunk(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	// Block cross-origin form POSTs that could trick a logged-in admin's
+	// browser into broadcasting attacker-supplied bytes. The handler
+	// reads raw audio off r.Body, so the JSON Content-Type fast-path
+	// in isCSRFSafe doesn't apply automatically — caller must include
+	// the CSRF token.
+	if !s.isCSRFSafe(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
 
 	mount := r.URL.Query().Get("mount")
 	if mount == "" {
@@ -781,8 +828,15 @@ func (s *Server) handleGoLiveChunk(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, ok := s.checkAuth(r); !ok {
+	user, ok := s.checkAuth(r)
+	if !ok {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	// Without this, any authenticated user could broadcast to any
+	// mount — including mounts owned by other users.
+	if !s.hasAccess(user, mount) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 
