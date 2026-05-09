@@ -855,6 +855,9 @@ func (s *Server) Start() error {
 	go s.statsRecordingTask()
 	go s.HealthM.Start(context.Background())
 	go s.sessionReaperTask()
+	// Internal-only metrics + pprof port. See startMetricsServer for the
+	// expected firewalling.
+	s.startMetricsServer()
 
 	for _, rc := range s.Config.Relays {
 		if rc.Enabled {

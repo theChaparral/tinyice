@@ -7,6 +7,8 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/pprof"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -370,10 +372,29 @@ func (s *Server) startMetricsServer() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/metrics", s.handleMetrics)
 
+	// Expose runtime diagnostics on the same internal-only port. The
+	// metrics port is intended to bind on the loopback / private side of
+	// the deployment, so we do not gate pprof behind auth — operators are
+	// expected to firewall this port the same way they do /metrics. When
+	// the server next hangs, capture goroutine + mutex profiles with:
+	//   curl -o goroutines.txt 'http://HOST:8081/debug/pprof/goroutine?debug=2'
+	//   curl -o mutex.txt      'http://HOST:8081/debug/pprof/mutex?debug=2'
+	//   curl -o heap.pb        'http://HOST:8081/debug/pprof/heap'
+	mux.HandleFunc("/debug/pprof/", pprof.Index)
+	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	// Sample mutex / block events so the contention profile is meaningful.
+	// Rates of 1 = sample every event (cheap relative to actual contention
+	// the user is hitting; tune down if it shows up in CPU profiles).
+	runtime.SetMutexProfileFraction(1)
+	runtime.SetBlockProfileRate(1)
+
 	// In TinyIce, the metrics port might not be in the config yet, fallback to 8081
 	addr := ":8081"
 
-	logger.L.Infof("Starting metrics server on %s", addr)
+	logger.L.Infof("Starting metrics + pprof server on %s", addr)
 	srv := &http.Server{
 		Addr:    addr,
 		Handler: mux,
