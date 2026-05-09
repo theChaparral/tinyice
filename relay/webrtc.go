@@ -112,8 +112,18 @@ func (wm *WebRTCManager) HandleOffer(mount string, offer webrtc.SessionDescripti
 	}
 	<-gatherComplete
 
-	// Start feeding the track
-	go wm.streamToTrack(peerConnection, audioTrack, stream)
+	// Start feeding the track. Register OnConnectionStateChange once
+	// here (pion replaces handlers, so registering inside the goroutine
+	// caused leaks under WHEP). Cancelling pumpCtx unblocks the pump.
+	pumpCtx, pumpCancel := context.WithCancel(context.Background())
+	peerConnection.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
+		if state == webrtc.PeerConnectionStateClosed ||
+			state == webrtc.PeerConnectionStateFailed ||
+			state == webrtc.PeerConnectionStateDisconnected {
+			pumpCancel()
+		}
+	})
+	go wm.streamToTrack(pumpCtx, peerConnection, audioTrack, stream)
 
 	return peerConnection.LocalDescription(), nil
 }
@@ -224,15 +234,11 @@ func (wm *WebRTCManager) HandleSourceOffer(mount string, offer webrtc.SessionDes
 	return peerConnection.LocalDescription(), nil
 }
 
-func (wm *WebRTCManager) streamToTrack(pc *webrtc.PeerConnection, track *webrtc.TrackLocalStaticSample, stream *Stream) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	pc.OnConnectionStateChange(func(s webrtc.PeerConnectionState) {
-		if s == webrtc.PeerConnectionStateClosed || s == webrtc.PeerConnectionStateFailed {
-			cancel()
-		}
-	})
+func (wm *WebRTCManager) streamToTrack(ctx context.Context, pc *webrtc.PeerConnection, track *webrtc.TrackLocalStaticSample, stream *Stream) {
+	// ctx is shared with the matching streamVideoToTrack goroutine and
+	// is cancelled by the single OnConnectionStateChange registered in
+	// HandleWHEPOffer. Don't register another one here — pion replaces
+	// the prior handler and the loser leaks.
 
 	id := fmt.Sprintf("webrtc-%d", time.Now().UnixNano())
 	// For WebRTC we start at the current head (no burst)
@@ -398,11 +404,27 @@ func (wm *WebRTCManager) HandleWHEPOffer(mount, sdpOffer string) (string, error)
 	}
 	<-gather
 
+	// Register OnConnectionStateChange ONCE per peer connection.
+	// pion replaces the previous handler on each call, so when both
+	// streamToTrack and streamVideoToTrack registered their own,
+	// only the second won and the first goroutine never saw the
+	// PC close — leaking one Stream subscription + goroutine per
+	// WHEP listener disconnect. Cancel a shared context here that
+	// both pump goroutines select on.
+	pumpCtx, pumpCancel := context.WithCancel(context.Background())
+	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
+		if state == webrtc.PeerConnectionStateClosed ||
+			state == webrtc.PeerConnectionStateFailed ||
+			state == webrtc.PeerConnectionStateDisconnected {
+			pumpCancel()
+		}
+	})
+
 	if audioTrack != nil {
-		go wm.streamToTrack(pc, audioTrack, stream)
+		go wm.streamToTrack(pumpCtx, pc, audioTrack, stream)
 	}
 	if videoTrack != nil {
-		go wm.streamVideoToTrack(pc, videoTrack, videoStream)
+		go wm.streamVideoToTrack(pumpCtx, pc, videoTrack, videoStream)
 	}
 
 	return pc.LocalDescription().SDP, nil
@@ -413,20 +435,12 @@ func (wm *WebRTCManager) HandleWHEPOffer(mount, sdpOffer string) (string, error)
 // runs RTP packetization (FU-A fragmentation for NAL units larger than
 // MTU) internally; we just need to feed it one full access unit per
 // WriteSample call with a realistic Duration.
-func (wm *WebRTCManager) streamVideoToTrack(pc *webrtc.PeerConnection, track *webrtc.TrackLocalStaticSample, stream *Stream) {
+func (wm *WebRTCManager) streamVideoToTrack(ctx context.Context, pc *webrtc.PeerConnection, track *webrtc.TrackLocalStaticSample, stream *Stream) {
 	if stream == nil || stream.Frames == nil {
 		return
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	pc.OnConnectionStateChange(func(st webrtc.PeerConnectionState) {
-		if st == webrtc.PeerConnectionStateClosed ||
-			st == webrtc.PeerConnectionStateFailed ||
-			st == webrtc.PeerConnectionStateDisconnected {
-			cancel()
-		}
-	})
+	// ctx comes from HandleWHEPOffer's shared pump context — see
+	// streamToTrack for why we don't register OnConnectionStateChange here.
 
 	frames := stream.Frames.Subscribe(ctx)
 	var lastDTS int64 = -1
