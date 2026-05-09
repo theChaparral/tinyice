@@ -466,7 +466,13 @@ func (s *Server) handleClearAuthLockout(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
-	if _, ok := s.checkAuth(r); !ok {
+	user, ok := s.checkAuth(r)
+	// Restrict to admin / superadmin: clearing IP-based lockouts is
+	// a security-sensitive operation (re-enables an attacker that the
+	// rate-limiter has temporarily blocked). A DJ-role user has no
+	// business undoing it.
+	if !ok || (user.Role != config.RoleSuperAdmin && user.Role != config.RoleAdmin) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 	ip := r.FormValue("ip")
@@ -481,7 +487,9 @@ func (s *Server) handleClearScanLockout(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
-	if _, ok := s.checkAuth(r); !ok {
+	user, ok := s.checkAuth(r)
+	if !ok || (user.Role != config.RoleSuperAdmin && user.Role != config.RoleAdmin) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 	ip := r.FormValue("ip")
