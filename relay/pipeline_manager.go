@@ -3,6 +3,7 @@ package relay
 import (
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -162,8 +163,13 @@ func (p *Pipeline) Stats() PipelineStats {
 			Codec: t.Codec,
 		}
 		if t.Stream != nil {
-			ts.BytesIn = t.Stream.BytesIn
-			ts.BytesOut = t.Stream.BytesOut
+			// BytesIn / BytesOut are mutated by Broadcast / serveStreamData
+			// via atomic.AddInt64 — read them with atomic.LoadInt64 to
+			// match. Direct field access would be a data race the race
+			// detector would flag, and on weakly-ordered hardware could
+			// occasionally see torn values.
+			ts.BytesIn = atomic.LoadInt64(&t.Stream.BytesIn)
+			ts.BytesOut = atomic.LoadInt64(&t.Stream.BytesOut)
 			ps.Listeners += t.Stream.ListenersCount()
 		}
 		ts.Bitrate = t.Metadata.Bitrate
