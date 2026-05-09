@@ -535,8 +535,18 @@ func (s *Server) apiCreateAutoDJ(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "Forbidden", http.StatusForbidden)
 		return
 	}
-	if _, ok := s.checkAuth(r); !ok {
+	user, ok := s.checkAuth(r)
+	if !ok {
 		jsonError(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	// AutoDJ accepts SongCommand / OnPlayCommand strings that get exec'd
+	// via `sh -c` in the streamer's lifetime context. Allowing any
+	// authenticated DJ to register those is privilege escalation — they
+	// can run arbitrary shell as the tinyice service user. Match the
+	// relay / transcoder endpoints, which already require superadmin.
+	if user.Role != config.RoleSuperAdmin {
+		jsonError(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 
@@ -637,6 +647,14 @@ func (s *Server) apiUpdateAutoDJ(w http.ResponseWriter, r *http.Request) {
 	user, authed := s.checkAuth(r)
 	if !authed {
 		jsonError(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	// Same reasoning as apiCreateAutoDJ — updating song_command /
+	// on_play_command is shell-execution privilege. The mount-access
+	// check below only verifies the user owns this mount; that doesn't
+	// imply they should be able to register arbitrary shell.
+	if user.Role != config.RoleSuperAdmin {
+		jsonError(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 
@@ -753,8 +771,13 @@ func (s *Server) apiDeleteAutoDJ(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "Forbidden", http.StatusForbidden)
 		return
 	}
-	if _, ok := s.checkAuth(r); !ok {
+	user, ok := s.checkAuth(r)
+	if !ok {
 		jsonError(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if user.Role != config.RoleSuperAdmin {
+		jsonError(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 
