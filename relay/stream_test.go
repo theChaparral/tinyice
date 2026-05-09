@@ -43,6 +43,34 @@ func TestBroadcastAfterCloseNoPanic(t *testing.T) {
 	wg.Wait()
 }
 
+func TestBroadcastUnsubscribeRaceNoPanic(t *testing.T) {
+	r := NewRelay(false, nil)
+	s := r.GetOrCreateStream("/race")
+
+	const listeners = 32
+	ids := make([]string, listeners)
+	for i := range ids {
+		ids[i] = "l-" + string(rune('a'+i))
+		s.Subscribe(ids[i], 0)
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 5000; i++ {
+			s.Broadcast([]byte("x"), r)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for _, id := range ids {
+			s.Unsubscribe(id)
+		}
+	}()
+	wg.Wait()
+}
+
 func TestSubscribeAfterCloseRejects(t *testing.T) {
 	r := NewRelay(false, nil)
 	s := r.GetOrCreateStream("/test")

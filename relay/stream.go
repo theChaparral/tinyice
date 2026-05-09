@@ -482,10 +482,13 @@ func (s *Stream) Broadcast(data []byte, relay *Relay) {
 	// 2. Signal phase — copy the listener channel slice under
 	//    RLock then drop the lock before sending. Subscribe /
 	//    Unsubscribe holds the write lock to mutate the map; an
-	//    Unsubscribe racing with a Broadcast just means we may
-	//    signal a now-closed channel, which the non-blocking
-	//    select default handles safely. RLocks are concurrent so
-	//    multiple Broadcasts (different streams) never serialise.
+	//    Unsubscribe racing with a Broadcast can leave us holding a
+	//    reference to a channel that has been closed in the meantime.
+	//    A select-default does NOT protect against that — sending on
+	//    a closed channel panics regardless of select. The recover
+	//    inside the per-channel anon-func contains the panic to one
+	//    listener so a subscriber tearing down at the wrong moment
+	//    can't crash the source / encoder goroutine that called us.
 	s.mu.RLock()
 	chans := make([]chan struct{}, 0, len(s.listeners))
 	for _, ch := range s.listeners {
@@ -493,12 +496,15 @@ func (s *Stream) Broadcast(data []byte, relay *Relay) {
 	}
 	s.mu.RUnlock()
 	for _, ch := range chans {
-		select {
-		case ch <- struct{}{}:
-			// signalled
-		default:
-			// already pending; slow listener, skip
-		}
+		func(ch chan struct{}) {
+			defer func() { _ = recover() }()
+			select {
+			case ch <- struct{}{}:
+				// signalled
+			default:
+				// already pending; slow listener, skip
+			}
+		}(ch)
 	}
 }
 
