@@ -50,6 +50,7 @@ type Streamer struct {
 	Volume               float64 // 0..1 playback gain applied before encode
 
 	relay  *Relay
+	ctx    context.Context // streamer-lifetime context, parents file/command ctxs
 	cancel context.CancelFunc
 	mu     sync.RWMutex
 
@@ -217,6 +218,13 @@ func (s *Streamer) Stop() {
 	s.State = StateStopped
 	if s.fileCancel != nil {
 		s.fileCancel()
+	}
+	// Cancel the streamer-lifetime context too, so any children
+	// (e.g. on_play_command sh -c invocations) get SIGKILL via
+	// exec.CommandContext rather than living up to their per-command
+	// timeout (default 10 s) past the operator's Stop click.
+	if s.cancel != nil {
+		s.cancel()
 	}
 	s.signalStateChange()
 }
@@ -620,8 +628,18 @@ func (s *Streamer) execOnPlayCommand(artist, title, album, filePath, mount strin
 		timeout = 10
 	}
 
+	parent := s.ctx
+	if parent == nil {
+		parent = context.Background()
+	}
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
+		// Inherit from the streamer's lifetime context so Stop()
+		// propagates cancellation to the child shell (and thus the
+		// command it spawned). The per-call WithTimeout still bounds
+		// well-behaved commands; what changes is that an operator
+		// stopping the streamer no longer waits 10 s of zombie
+		// children to drain.
+		ctx, cancel := context.WithTimeout(parent, time.Duration(timeout)*time.Second)
 		defer cancel()
 
 		cmd := exec.CommandContext(ctx, "sh", "-c", s.OnPlayCommand)
@@ -737,6 +755,7 @@ func (sm *StreamerManager) StartStreamer(name, mount, musicDir string, loop bool
 		OnPlayCommand:        onPlayCommand,
 		OnPlayCommandTimeout: onPlayCommandTimeout,
 		relay:                sm.relay,
+		ctx:               ctx,
 		cancel:            cancel,
 		titleCache:        make(map[string]string),
 		NextID:            nextID, // Start NextID after initial playlist
