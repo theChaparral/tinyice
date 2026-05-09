@@ -299,7 +299,23 @@ func (s *Server) getHLSOutput(mount string) *relay.HLSOutput {
 // sibling "/video" sub-mount exists for this mount (created by the RTMP or
 // SRT ingest when an H.264 track is present), the output is started with
 // both tracks and the resulting segments interleave audio + video.
+//
+// Idempotent and race-safe: two concurrent first-listener requests for the
+// same mount won't each spawn a segmentLoop goroutine. The previous
+// implementation created+started the HLSOutput before taking the map
+// lock, so a second goroutine arriving between getHLSOutput's "not
+// found" return and Register's map write would also build+start its
+// own output, then atomically overwrite the first one in the map —
+// leaking the first's goroutine + its segment ring forever.
 func (s *Server) RegisterHLS(mount string) *relay.HLSOutput {
+	// Fast-path under read lock.
+	s.hlsMu.RLock()
+	if existing, ok := s.hlsOutputs[mount]; ok {
+		s.hlsMu.RUnlock()
+		return existing
+	}
+	s.hlsMu.RUnlock()
+
 	stream, ok := s.Relay.GetStream(mount)
 	if !ok {
 		return nil
@@ -318,9 +334,19 @@ func (s *Server) RegisterHLS(mount string) *relay.HLSOutput {
 	if vs, ok := s.Relay.GetStream(mount + "/video"); ok {
 		tracks = append(tracks, relay.NewTrackFromStream(relay.MediaVideo, "h264", vs))
 	}
-	hls.Start(s.hlsCtx, tracks)
 
+	// Take the write lock BEFORE Start so a parallel Register that
+	// arrived between our fast-path check and now sees the map entry
+	// rather than racing us into a duplicate goroutine. Re-check the
+	// map under the write lock; if a peer beat us, throw away the
+	// not-yet-started HLSOutput (no goroutine to leak — Start hasn't
+	// been called) and return theirs.
 	s.hlsMu.Lock()
+	if existing, ok := s.hlsOutputs[mount]; ok {
+		s.hlsMu.Unlock()
+		return existing
+	}
+	hls.Start(s.hlsCtx, tracks)
 	s.hlsOutputs[mount] = hls
 	s.hlsMu.Unlock()
 
