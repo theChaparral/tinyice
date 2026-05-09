@@ -90,13 +90,21 @@ func (rs *RTMPServer) Start() error {
 			// Track so Stop() can close it later. Handler also holds
 			// the untrack func to remove itself on clean close.
 			untrack := rs.trackConn(conn)
+			// Wrap the conn in an idle-watchdog reader that auto-
+			// refreshes a 60s read deadline on every successful read.
+			// Without this, an RTMP publisher that opens a TCP conn
+			// but never finishes the handshake (or silently drops
+			// mid-stream) holds an rtmp library handler goroutine
+			// parked in conn.Read until the kernel TCP timeout (hours).
+			// At scale that's a goroutine drip per misbehaving peer.
+			wrapped := newRTMPIdleConn(conn, 60*time.Second)
 			h := &rtmpHandler{
 				relay:   rs.relay,
 				config:  rs.config,
 				conn:    conn,
 				untrack: untrack,
 			}
-			return conn, &rtmp.ConnConfig{
+			return wrapped, &rtmp.ConnConfig{
 				Handler: h,
 			}
 		},
@@ -405,7 +413,14 @@ func (h *rtmpHandler) OnVideo(timestamp uint32, payload io.Reader) error {
 			isKeyframe := ContainsKeyframe(annexB)
 			if isKeyframe {
 				annexB = h.prependParameterSets(annexB)
-				h.videoStream.Buffer.RecordKeyframe(h.videoStream.Buffer.Head)
+				// HeadOffset takes the buffer mutex; Buffer.Head directly
+				// is racy under the race detector. The value we want is
+				// the next-write offset after the SPS/PPS prepend will
+				// have been done by Broadcast — RecordKeyframe just
+				// records "the IDR begins around here" so an off-by-N is
+				// fine; what matters is that we don't tear a 64-bit
+				// value during a concurrent Buffer.Write.
+				h.videoStream.Buffer.RecordKeyframe(h.videoStream.Buffer.HeadOffset())
 			}
 
 			h.videoStream.Broadcast(annexB, h.relay)
@@ -634,6 +649,24 @@ func parseStreamKey(key string) (string, string) {
 	}
 
 	return mount, password
+}
+
+// rtmpIdleConn wraps a net.Conn and refreshes a read deadline before
+// every Read. A silent or dead RTMP peer (TCP open but no protocol
+// activity) trips the deadline; conn.Read returns an i/o timeout and
+// the rtmp library handler exits, freeing the goroutine + slot.
+type rtmpIdleConn struct {
+	net.Conn
+	idle time.Duration
+}
+
+func newRTMPIdleConn(c net.Conn, idle time.Duration) *rtmpIdleConn {
+	return &rtmpIdleConn{Conn: c, idle: idle}
+}
+
+func (c *rtmpIdleConn) Read(p []byte) (int, error) {
+	_ = c.Conn.SetReadDeadline(time.Now().Add(c.idle))
+	return c.Conn.Read(p)
 }
 
 // getSourcePassword looks up the configured source password for a mount.
