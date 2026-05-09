@@ -2,6 +2,7 @@ package relay
 
 import (
 	"bufio"
+	"crypto/subtle"
 	"fmt"
 	"io"
 	"math/rand"
@@ -189,6 +190,18 @@ func (m *MPDServer) handleConnection(conn net.Conn) {
 		}
 
 		if commandList {
+			// Bound the command list — without this an authenticated
+			// client could send `command_list_begin` followed by
+			// millions of lines and never close the list, growing
+			// commandListBuffer until the process OOMs. 10 000 is
+			// well past any real client (typical MPD clients send a
+			// few dozen commands per list).
+			const maxCmdListLen = 10000
+			if len(commandListBuffer) >= maxCmdListLen {
+				resp.ACK(5, 0, "command_list", "command list too long")
+				writer.Flush()
+				return
+			}
 			commandListBuffer = append(commandListBuffer, line)
 			continue
 		}
@@ -203,12 +216,16 @@ func (m *MPDServer) handleConnection(conn net.Conn) {
 func (m *MPDServer) dispatchCommand(cmd, args string, resp *MPDResponse) bool {
 	switch cmd {
 	case "password":
-		if args == m.Password {
+		// Constant-time compare — without this the comparison short-
+		// circuits on the first wrong byte, leaking the prefix length
+		// of m.Password to an attacker probing one byte at a time.
+		// MPD passwords are short and plaintext (protocol-level) but
+		// timing leaks are still fixable.
+		if subtle.ConstantTimeCompare([]byte(args), []byte(m.Password)) == 1 {
 			return true
-		} else {
-			resp.ACK(3, 0, "password", "incorrect password")
-			return false
 		}
+		resp.ACK(3, 0, "password", "incorrect password")
+		return false
 	case "status":
 		m.handleStatus(resp)
 	case "currentsong":
