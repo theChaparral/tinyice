@@ -44,7 +44,7 @@ func (s *IcecastIngestSource) Stop() {}
 
 func (s *IcecastIngestSource) Health() SourceHealth {
 	return SourceHealth{
-		Status:  calculateHealthStatus(s.stream.LastDataReceived),
+		Status:  calculateHealthStatus(s.stream.GetLastDataReceived()),
 		Uptime:  time.Since(s.started),
 		BytesIn: atomic.LoadInt64(&s.stream.BytesIn),
 	}

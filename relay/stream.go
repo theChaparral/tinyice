@@ -364,6 +364,18 @@ func (s *Stream) GetOggHead() []byte {
 	return s.OggHead
 }
 
+// GetLastDataReceived returns the timestamp of the last byte received from
+// the source, under the stream mutex. time.Time is a 24-byte struct on
+// amd64 — an unsynchronised read against Broadcast's
+// `s.LastDataReceived = time.Now()` write can tear the value across the
+// monotonic + wall + ext fields and yield a meaningless time. Callers
+// outside the relay package can't see s.mu directly, so use this.
+func (s *Stream) GetLastDataReceived() time.Time {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.LastDataReceived
+}
+
 // Close closes all listeners on the stream and cleans up resources.
 //
 // This method should be called when a stream is being removed or when the source
