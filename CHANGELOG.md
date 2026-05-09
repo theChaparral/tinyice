@@ -1,0 +1,153 @@
+# Changelog
+
+All notable changes to this project are documented here.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [2.5.0] - 2026-05-09
+
+### Security
+
+- **CVE-PENDING (GHSA-xxxx-xxxx-xxxx)** — Missing authentication on
+  the WebRTC source-ingest endpoint. `POST /webrtc/source-offer`
+  accepted any inbound SDP offer with no source-password check;
+  any internet user able to reach the server could hijack any
+  mount's broadcast and replace the legitimate publisher's audio.
+  The icecast SOURCE / RTMP / SRT ingest paths already required
+  the per-mount source password — this one didn't. Affected
+  versions: **>= 0.8.95, <= 2.4.1** (introduced 2026-02-21 in
+  `e2b60d6`). Fixed in this release. CWE-306. CVSS 3.1: **7.4
+  High** (`AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:H/A:L`). The same fix
+  also adds source-password rate-limit hookup so wrong-password
+  attempts contribute to the IP-level brute-force lockout.
+- Hardened additional auth gaps surfaced during the audit that
+  shipped this release:
+  - `POST /admin/golive/chunk` now requires CSRF + per-mount
+    access. Previously, any authenticated user could broadcast
+    raw audio bytes to any mount.
+  - AutoDJ create / update / delete (both `/api/v2/autodjs` and
+    the legacy `/admin/autodj/*` form handlers) now require
+    `superadmin`. Previously a `dj`-role user could register an
+    AutoDJ with arbitrary `song_command` / `on_play_command`
+    shell strings that the server executes via `sh -c` —
+    privilege escalation to the tinyice service user.
+  - `POST /api/pending-users/approve` and `/deny` now check CSRF.
+    Without it, an attacker page that a logged-in admin visited
+    could submit a form-encoded POST with a JSON body that the
+    handler would still decode and use to promote an attacker-
+    controlled pending user to `superadmin`.
+  - `/admin/clear-auth-lockout` and `/admin/clear-scan-lockout`
+    now require `admin` or `superadmin`. A `dj` could
+    previously clear an attacker's brute-force lockout, undoing
+    the rate-limiter.
+  - `handleLogin` now runs bcrypt against a dummy hash for
+    unknown users to close the account-enumeration timing
+    oracle (~250 ms vs <1 ms).
+  - `checkAuthLimit` now bypasses the lockout when the IP is
+    whitelisted, so an operator's own IP can recover after a
+    misconfiguration without restarting the service.
+  - MPD `password` comparison now uses
+    `crypto/subtle.ConstantTimeCompare`. The MPD
+    `command_list_*` accumulator is now bounded at 10 000 lines
+    so an authenticated client can't OOM the process by opening
+    a list and never closing it.
+
+### Fixed
+
+- **Production hang root cause:** `FindNextPageBoundary` infinite
+  loop at the circular-buffer wrap. When the search window was
+  clamped to `≤ 3` bytes, the iterator advanced by `n - 3 ≤ 0`
+  and never moved forward, holding `cb.mu.RLock` until the
+  process restarted. Every concurrent `Buffer.Write` then queued
+  on the buffer's write lock, which queued every `Stream.Snapshot`,
+  which queued every `GetStream`, freezing the relay. r4dio's
+  pprof showed one stuck listener and 100+ goroutines blocked
+  behind it. Fix: never advance by less than 1 byte; skip the
+  search when `n < magicLen`.
+- `Stream.Broadcast` could panic with `send on closed channel`
+  when a listener's `Unsubscribe` raced with the listener-signal
+  fan-out (production journal showed 4 occurrences in 7 days,
+  all from the icecast SOURCE goroutine). Two-phase fix:
+  recover() in the signal loop as a defense, and remove the
+  `close(ch)` from `Unsubscribe` — every caller is a self-exit
+  defer that doesn't need the wake-up signal. Eliminates the
+  race entirely.
+- `Stream.SetCurrentSong` was holding `s.mu.Lock` across five
+  GORM/SQLite queries inside `History.Add`. Every ICY
+  metadata update froze every broadcast / subscribe / snapshot
+  / listener handler on the stream for the duration. Capture
+  the diff under the lock, release, then call `History.Add`
+  outside.
+- Icecast SOURCE hijacked TCP connections now have a 60s idle
+  read deadline; a silent encoder (NAT idle drop, frozen
+  process) used to pin a goroutine + FD + mounted Stream
+  forever, eventually exhausting FDs.
+- Same idle-read deadline now also applies to the icecast
+  pull-relay body, RTMP per-conn reads, and SRT publish reads.
+- WebRTC `OnConnectionStateChange` is now registered ONCE per
+  PeerConnection (in HandleWHEPOffer / HandleOffer) rather than
+  by both `streamToTrack` and `streamVideoToTrack` — pion's
+  API replaces the prior handler, so the loser was leaking a
+  goroutine + Stream subscription per WHEP listener disconnect.
+- WebRTC source-ingest now drains the previous publisher's pump
+  goroutine (up to 3s) before letting the successor start
+  writing — without this, two pumps briefly ran in parallel and
+  produced torn Ogg pages on listener tabs.
+- `pc.Close()` is now called explicitly in the WebRTC terminal
+  state-change handler to release pion's UDP sockets / DTLS
+  state.
+- `Track.ResolveCodec` no longer panics on a nil receiver. The
+  function's nil-check branch dereferenced `t.Codec` after
+  asserting `t == nil`.
+- `SavePlaylist` no longer takes `s.mu.RLock` recursively via
+  `GetSongTitle`. Recursive RLock is undefined behaviour in
+  Go's writer-preferring `RWMutex` and deadlocks if a writer
+  queues between the outer and inner acquisitions.
+- `Pipeline.Stats` now uses `atomic.LoadInt64` for `BytesIn` /
+  `BytesOut` (matching the atomic writes from `Broadcast`) and
+  `Stream.GetLastDataReceived` / `GetOggHead` synchronise
+  reads of those fields against their locked writes (avoids
+  torn `time.Time` and torn slice headers).
+- TS demuxer now resyncs byte-by-byte when the sync byte is
+  missing instead of jumping by 188 — silent data loss on
+  misaligned SRT inputs is gone.
+- HLS `RegisterHLS` is now race-safe; two concurrent first
+  listeners no longer each spawn their own `segmentLoop`.
+- `decoder_hub.contextDeadline` no longer leaks a 30 s goroutine
+  per pump cycle (replaced with `time.After`).
+- `OnTrackStart` callback runs in a goroutine outside any HTTP
+  handler — recover() now contains panics in user-supplied
+  webhook subscribers so they can't crash the process.
+- `Streamer.Stop` now cancels the streamer-lifetime context, so
+  `on_play_command` child shells get SIGKILL via
+  `exec.CommandContext` instead of lingering up to their
+  per-command timeout (default 10s) past the operator's Stop.
+- YP directory `POST` now has a 15 s context timeout. Previously
+  used `http.PostForm` against the default client with no
+  timeout, so a hung directory server pinned the
+  `directoryReportingTask` goroutine forever.
+
+### Added
+
+- `feat(transcoder): per-output visibility` — TranscoderConfig has
+  a new `visibility` field with `""` (follow input, default),
+  `"public"` (listed), or `"unlisted"` (hidden, still
+  streamable). Surfaces in the admin add-transcoder form and
+  the v2 API.
+- `feat(metrics): /debug/pprof on the metrics server` — the
+  metrics-server bootstrap function existed but was never
+  called from `Server.Start()`. Now it is, and it also
+  registers `net/http/pprof` so a stuck production instance
+  can be triaged with `curl
+  http://HOST:8081/debug/pprof/goroutine?debug=2` etc.
+  Mutex- and block-profile sampling is enabled at rate 1.
+
+### Changed
+
+- `relay.Broadcast` now releases the stream's write lock before
+  fanning out listener signal channels (committed earlier in
+  this release line as `daf5368`). The previous full-lock fan-
+  out was the dominant lock-contention vector under load.
+
+[2.5.0]: https://github.com/DatanoiseTV/tinyice/releases/tag/v2.5.0

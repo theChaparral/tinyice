@@ -18,3 +18,4 @@ bin/
 .gemini/
 .antigravity/
 .worktrees/
+.github/ADVISORY-DRAFT-*.md
