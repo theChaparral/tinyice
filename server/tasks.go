@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net"
 	"net/http"
 	"net/url"
@@ -151,7 +152,21 @@ func (s *Server) reportToDirectoryAction(st relay.StreamStats, action, sid strin
 	// rank stations. Sent on every touch from the live snapshot.
 	data.Set("listeners", strconv.Itoa(st.ListenersCount))
 
-	resp, err := http.PostForm(s.Config.DirectoryServer, data)
+	// http.PostForm uses http.DefaultClient with no timeout. A hung YP
+	// directory server would otherwise pin this goroutine forever and
+	// the directoryReportingTask loop would freeze, leaving stream
+	// state un-reported and a goroutine leak per stall. Build the
+	// request ourselves with a context so a slow/dead YP responds in
+	// at most 15s.
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, "POST", s.Config.DirectoryServer, strings.NewReader(data.Encode()))
+	if err != nil {
+		logger.L.Warnw("Failed to build directory request", "error", err, "action", action, "mount", st.MountName)
+		return ""
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		logger.L.Warnw("Failed to report to directory server", "error", err, "action", action, "mount", st.MountName)
 		return ""
