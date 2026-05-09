@@ -254,12 +254,47 @@ func (rm *RelayManager) performPull(ctx context.Context, inst *RelayInstance) {
 
 	stream.UpdateMetadata(name, desc, genre, resp.Header.Get("Ice-Url"), bitrate, resp.Header.Get("Content-Type"), false, inst.Visible)
 
+	// Wrap the response body in an idle-watchdog reader. The
+	// http.Client only has a ResponseHeaderTimeout — once the upstream
+	// returns headers, body.Read parks indefinitely if the remote half-
+	// closes silently (NAT idle drop, common on long-lived icecast
+	// pulls). The watchdog fires the request context if no bytes arrive
+	// within the idle window, which propagates an i/o cancellation up
+	// to body.Read so the loop exits and runRelay can reconnect.
+	pullCtx, pullCancel := context.WithCancel(ctx)
+	defer pullCancel()
+	const relayIdleTimeout = 60 * time.Second
+	watchdog := time.AfterFunc(relayIdleTimeout, func() {
+		logger.L.Warnw("Relay pull went silent past idle window — reconnecting",
+			"mount", inst.Mount, "url", inst.URL, "idle_window", relayIdleTimeout.String())
+		pullCancel()
+	})
+	defer watchdog.Stop()
+	body := &idleResetReader{r: resp.Body, timer: watchdog, reset: relayIdleTimeout}
+
 	// In-stream metadata parsing
 	if metaInt > 0 {
-		rm.pullWithMetadata(ctx, resp.Body, stream, metaInt)
+		rm.pullWithMetadata(pullCtx, body, stream, metaInt)
 	} else {
-		rm.pullSimple(ctx, resp.Body, stream)
+		rm.pullSimple(pullCtx, body, stream)
 	}
+}
+
+// idleResetReader resets a timer on every byte received. Used to bound
+// silent stalls on a long-lived HTTP body where the kernel TCP layer
+// hasn't noticed the peer is gone (e.g. NAT idle drop, half-open).
+type idleResetReader struct {
+	r     io.Reader
+	timer *time.Timer
+	reset time.Duration
+}
+
+func (i *idleResetReader) Read(p []byte) (int, error) {
+	n, err := i.r.Read(p)
+	if n > 0 {
+		i.timer.Reset(i.reset)
+	}
+	return n, err
 }
 
 func (rm *RelayManager) pullSimple(ctx context.Context, body io.Reader, stream *Stream) {
