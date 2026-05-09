@@ -1,6 +1,9 @@
 package relay
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestFindNextPageBoundaryRejectsFalseOggS(t *testing.T) {
 	bufSize := int64(256)
@@ -34,5 +37,31 @@ func TestFindNextPageBoundaryFindsValidOgg(t *testing.T) {
 	result := FindNextPageBoundary(data, bufSize, 256, 0)
 	if result != 0 {
 		t.Fatalf("expected offset 0, got %d", result)
+	}
+}
+
+// TestFindNextPageBoundaryNoInfiniteLoopAtWrap reproduces the production
+// hang from r4dio (2026-05-09): if the search position landed near the
+// circular-buffer wrap so that the truncated segment had n <= 3 bytes,
+// the iterator advanced by `n - 3` (which is 0, -1, or -2) and the
+// loop pinned cb.mu.RLock forever, blocking every Broadcast. The fix
+// guarantees forward progress; this test bounds completion at 1s as a
+// regression guard.
+func TestFindNextPageBoundaryNoInfiniteLoopAtWrap(t *testing.T) {
+	bufSize := int64(256)
+	data := make([]byte, bufSize)
+	// Place the start position 3 bytes before the wrap so the
+	// segment is clamped to n=3, which is < len("OggS"). The
+	// pre-fix code stepped by `n-3 = 0` here.
+	start := int64(253)
+	head := int64(300) // ahead of bufSize so wrap is in play
+	done := make(chan int64, 1)
+	go func() {
+		done <- FindNextPageBoundary(data, bufSize, head, start)
+	}()
+	select {
+	case <-done:
+	case <-time.After(1 * time.Second):
+		t.Fatal("FindNextPageBoundary spun for >1s — infinite-loop regression at buffer wrap")
 	}
 }
