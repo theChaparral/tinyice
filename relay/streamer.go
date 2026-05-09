@@ -414,24 +414,49 @@ func (s *Streamer) ScanMusicDir() error {
 }
 
 func (s *Streamer) SavePlaylist() error {
+	// Snapshot the playlist + name + cached titles under the lock,
+	// then write to disk and call helpers (GetSongTitle) without
+	// holding it. The previous code held s.mu.RLock for the entire
+	// function and called GetSongTitle inside, which itself takes
+	// s.mu.RLock — recursive RLock is undefined behaviour in Go's
+	// RWMutex and deadlocks if a writer queues between the outer
+	// and inner RLock acquisitions.
 	s.mu.RLock()
-	defer s.mu.RUnlock()
+	name := s.Name
+	pl := make([]PlaylistSong, len(s.Playlist))
+	copy(pl, s.Playlist)
+	// Pre-populate a local title map from the cache so we don't have
+	// to call back into GetSongTitle (which would re-RLock).
+	titles := make(map[string]string, len(pl))
+	for _, p := range pl {
+		if t, ok := s.titleCache[p.Path]; ok {
+			titles[p.Path] = t
+		}
+	}
+	s.mu.RUnlock()
 
 	if err := os.MkdirAll("playlists", 0755); err != nil {
 		return err
 	}
 
-	path := filepath.Join("playlists", s.Name+".pls")
+	path := filepath.Join("playlists", name+".pls")
 	f, err := os.Create(path)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
 
-	fmt.Fprintf(f, "[playlist]\nNumberOfEntries=%d\n", len(s.Playlist))
-	for i, p := range s.Playlist {
+	fmt.Fprintf(f, "[playlist]\nNumberOfEntries=%d\n", len(pl))
+	for i, p := range pl {
 		fmt.Fprintf(f, "File%d=%s\n", i+1, p.Path)
-		fmt.Fprintf(f, "Title%d=%s\n", i+1, s.GetSongTitle(p.Path))
+		// Fall through to GetSongTitle if the cache miss — it'll
+		// take its own RLock now that we've released ours. May
+		// trigger a background fetch which is fine.
+		title, ok := titles[p.Path]
+		if !ok {
+			title = s.GetSongTitle(p.Path)
+		}
+		fmt.Fprintf(f, "Title%d=%s\n", i+1, title)
 	}
 	fmt.Fprintf(f, "Version=2\n")
 	return nil
