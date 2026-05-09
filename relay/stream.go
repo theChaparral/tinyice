@@ -654,15 +654,28 @@ func (s *Stream) SubscribeSafe(id string, burstSize int) (int64, chan struct{}, 
 	return offset, ch, true
 }
 
-// Unsubscribe removes a listener
+// Unsubscribe removes a listener.
+//
+// Every caller in this codebase invokes Unsubscribe via `defer` from
+// the same goroutine that subscribed — i.e. a self-exit path. There is
+// no caller that needs to wake the listener from another goroutine via
+// this entry point. Closing the signal channel under the lock used to
+// be done "for safety", but combined with the lock-released signal
+// fan-out in Broadcast it created a real send-on-closed-channel panic
+// in production (4 occurrences in r4dio's journal, 7 days). We don't
+// close the channel here — only Stream.Close / DisconnectListeners
+// (the external kick paths) close, and those are already serialised
+// against Broadcast's snapshot via the stream mutex.
+//
+// The orphaned channel is GC'd as soon as the caller drops its
+// reference; it carries no payload and never blocks any goroutine.
 func (s *Stream) Unsubscribe(id string) {
 	s.mu.Lock()
-	if s.internalListeners != nil { delete(s.internalListeners, id) }
 	defer s.mu.Unlock()
-	if ch, ok := s.listeners[id]; ok {
-		close(ch)
-		delete(s.listeners, id)
+	if s.internalListeners != nil {
+		delete(s.internalListeners, id)
 	}
+	delete(s.listeners, id)
 }
 
 // UpdateMetadata updates stream info
