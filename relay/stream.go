@@ -701,15 +701,23 @@ func (s *Stream) UpdateMetadata(name, desc, genre, url, bitrate, contentType str
 	return changed
 }
 
-// SetCurrentSong updates the current song info thread-safely
+// SetCurrentSong updates the current song info thread-safely.
+//
+// History.Add issues several SQLite/GORM queries; running them under
+// s.mu would freeze every listener, broadcast, snapshot and metadata
+// reader for the duration of those queries. Capture the diff under the
+// lock, release it, then write to history outside.
 func (s *Stream) SetCurrentSong(song string, relay *Relay) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.CurrentSong != song {
+	changed := s.CurrentSong != song
+	if changed {
 		s.CurrentSong = song
-		if relay.History != nil {
-			relay.History.Add(s.MountName, song)
-		}
+	}
+	mount := s.MountName
+	s.mu.Unlock()
+
+	if changed && relay != nil && relay.History != nil {
+		relay.History.Add(mount, song)
 	}
 }
 
