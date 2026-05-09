@@ -181,6 +181,24 @@ func (h *DecoderHub) runPump(inputMount string, ps *pcmStream) {
 		default:
 			close(ps.ready)
 		}
+		// Kick the PCM-stream subscribers so transcoders unblock
+		// immediately on source disconnect. Before this, when the
+		// pump exited (e.g. on `unexpected EOF` after the source
+		// dropped), the orphaned PCM stream's listeners stayed
+		// subscribed and StreamReader.Read blocked on the dead
+		// signal channel. Transcoders only resumed when the
+		// HealthMonitor's 2-minute auto-remove finally swept the
+		// stale stream — a 1-2 minute gap between source-back and
+		// transcoder-back, even though the source had already
+		// reconnected. Removing the PCM stream here closes its
+		// listener channels (Stream.Close kicks them), the
+		// transcoders' encode loops error out, performTranscode
+		// returns, the deferred releaseDecoder fires, and the next
+		// retry tick (~5 s later) creates a fresh pump. Resync
+		// time goes from ~2 min to ~5 s.
+		if ps.stream != nil {
+			h.relay.RemoveStream(ps.stream.MountName)
+		}
 	}()
 
 	// 1. Wait for the input stream to exist. Up to 30 s — if the
