@@ -48,6 +48,12 @@ type WebRTCManager struct {
 	relay   *Relay
 	mu      sync.RWMutex
 	sources map[string]*webrtc.PeerConnection
+	// sourceDone[mount] is closed by the OnTrack pump goroutine when
+	// it exits. Lets a successor HandleSourceOffer wait for the
+	// previous pump to drain before starting its own, preventing the
+	// brief two-pumps-into-one-stream overlap that produces torn Ogg
+	// pages. Indexed by mount so each source rotation is isolated.
+	sourceDone map[string]chan struct{}
 }
 
 func NewWebRTCManager(r *Relay) *WebRTCManager {
@@ -57,9 +63,10 @@ func NewWebRTCManager(r *Relay) *WebRTCManager {
 
 	api := webrtc.NewAPI(webrtc.WithSettingEngine(s))
 	return &WebRTCManager{
-		api:     api,
-		relay:   r,
-		sources: make(map[string]*webrtc.PeerConnection),
+		api:        api,
+		relay:      r,
+		sources:    make(map[string]*webrtc.PeerConnection),
+		sourceDone: make(map[string]chan struct{}),
 	}
 }
 
@@ -149,19 +156,51 @@ func (wm *WebRTCManager) HandleSourceOffer(mount string, offer webrtc.SessionDes
 		return nil, err
 	}
 
+	// Per-source-ingest context, cancelled when the PC tears down.
+	// The OnTrack ReadRTP loop selects on it so a closed PC unwinds
+	// the pump goroutine immediately rather than waiting for pion's
+	// internal track teardown.
+	srcCtx, srcCancel := context.WithCancel(context.Background())
+
+	// When a source reconnects (same mount, new peer connection), we
+	// must wait for the previous source's pump goroutine to actually
+	// EXIT before letting the new one start writing — otherwise both
+	// run briefly and interleave bytes into the shared Stream.Buffer,
+	// producing torn Ogg pages until pion finishes closing the prior
+	// track. existingDone is closed by the prior OnTrack on exit.
 	wm.mu.Lock()
-	if existing, ok := wm.sources[mount]; ok {
-		existing.Close()
+	existingPC, _ := wm.sources[mount]
+	existingDone := wm.sourceDone[mount]
+	doneCh := make(chan struct{})
+	if wm.sourceDone == nil {
+		wm.sourceDone = make(map[string]chan struct{})
 	}
 	wm.sources[mount] = peerConnection
+	wm.sourceDone[mount] = doneCh
 	wm.mu.Unlock()
+	if existingPC != nil {
+		_ = existingPC.Close()
+	}
+	if existingDone != nil {
+		// Bounded wait: pion's track.ReadRTP returns promptly on
+		// PC.Close. 3 s is generous; if it hasn't unwound by then
+		// we proceed anyway and accept the brief overlap rather
+		// than blocking the new source forever.
+		select {
+		case <-existingDone:
+		case <-time.After(3 * time.Second):
+			logger.L.Warnw("WebRTC Source: previous pump didn't exit in time", "mount", mount)
+		}
+	}
 
 	peerConnection.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
 		logger.L.Infow("WebRTC Source: Connection state changed", "mount", mount, "state", state.String())
 		if state == webrtc.PeerConnectionStateFailed || state == webrtc.PeerConnectionStateClosed || state == webrtc.PeerConnectionStateDisconnected {
+			srcCancel()
 			wm.mu.Lock()
 			if wm.sources[mount] == peerConnection {
 				delete(wm.sources, mount)
+				delete(wm.sourceDone, mount)
 			}
 			wm.mu.Unlock()
 		}
@@ -169,6 +208,9 @@ func (wm *WebRTCManager) HandleSourceOffer(mount string, offer webrtc.SessionDes
 
 	peerConnection.OnTrack(func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
 		logger.L.Infow("WebRTC Source: Received track", "track", track.ID(), "mount", mount)
+		// doneCh handshake with a successor source — close on exit so
+		// the next HandleSourceOffer can stop waiting for us.
+		defer close(doneCh)
 
 		stream := wm.relay.GetOrCreateStream(mount)
 		headOffset := stream.Buffer.HeadOffset()
@@ -202,6 +244,11 @@ func (wm *WebRTCManager) HandleSourceOffer(mount string, offer webrtc.SessionDes
 		stream.mu.Unlock()
 
 		for {
+			select {
+			case <-srcCtx.Done():
+				return
+			default:
+			}
 			rtpPacket, _, err := track.ReadRTP()
 			if err != nil {
 				if err != io.EOF {
