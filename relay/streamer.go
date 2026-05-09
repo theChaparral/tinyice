@@ -1078,8 +1078,11 @@ func (sm *StreamerManager) streamFile(ctx context.Context, s *Streamer, path str
 	// Notify the server so it can dispatch webhook subscribers. Run in a
 	// goroutine: the server callback may block briefly on JSON marshal /
 	// HTTP send setup and we don't want to delay the encoder start.
+	// recover() because this runs outside any HTTP handler so net/http's
+	// own panic guard doesn't apply — a panic here would otherwise crash
+	// the whole process.
 	if cb := sm.OnTrackStart; cb != nil {
-		go cb(TrackStartInfo{
+		info := TrackStartInfo{
 			Mount:           s.OutputMount,
 			StreamerName:    s.Name,
 			Artist:          s.CurrentArtist,
@@ -1089,7 +1092,16 @@ func (sm *StreamerManager) streamFile(ctx context.Context, s *Streamer, path str
 			Format:          s.Format,
 			Bitrate:         s.Bitrate,
 			DurationSeconds: s.CurrentFileDuration.Seconds(),
-		})
+		}
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					logger.L.Errorw("OnTrackStart callback panicked",
+						"mount", info.Mount, "panic", fmt.Sprintf("%v", r))
+				}
+			}()
+			cb(info)
+		}()
 	}
 
 	// Apply the streamer's volume setting (0..1) to the PCM stream before
