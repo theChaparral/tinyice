@@ -211,8 +211,17 @@ func (ss *SRTServer) handlePublish(conn srt.Conn) {
 		videoStream.Broadcast(data, ss.relay)
 	})
 
+	// Per-read deadline. A wedged peer can keep the SRT connection
+	// technically "alive" while delivering zero bytes — protocol-level
+	// keepalives don't help if the publisher is silent at the data
+	// layer. Without this, conn.Read parks forever, listeners get a
+	// stale stream while the source still counts as connected, and on
+	// the next reconnect we leak the prior handler goroutine.
+	const srtIdleTimeout = 60 * time.Second
+
 	buf := make([]byte, 4096)
 	for {
+		_ = conn.SetReadDeadline(time.Now().Add(srtIdleTimeout))
 		n, err := conn.Read(buf)
 		if err != nil {
 			if err != io.EOF {
