@@ -26,13 +26,26 @@ func (d *TSDemuxer) OnVideo(fn func(data []byte, pts int64, isKeyframe bool)) {
 	d.onVideoData = fn
 }
 
-// Feed processes raw MPEG-TS data (must be aligned to 188-byte packets).
+// Feed processes raw MPEG-TS data. The previous implementation jumped
+// 188 bytes at a time looking for the sync byte at fixed offsets — if
+// the input was even 1 byte misaligned (which can happen with SRT
+// payload boundaries that don't fall on TS boundaries) the demuxer
+// silently dropped every packet because the sync byte never landed at
+// the expected position.
+//
+// Re-sync by advancing one byte at a time until we see 0x47, then
+// process 188-byte packets from there. Once aligned, every following
+// packet is at +188 so we stay in lock-step until we hit a missing
+// sync byte (typical sign of dropped UDP packets), at which point we
+// resync the same way.
 func (d *TSDemuxer) Feed(data []byte) {
-	for i := 0; i+tsPacketSize <= len(data); i += tsPacketSize {
+	for i := 0; i+tsPacketSize <= len(data); {
 		if data[i] != tsSyncByte {
-			continue // skip until sync
+			i++
+			continue
 		}
 		d.processPacket(data[i : i+tsPacketSize])
+		i += tsPacketSize
 	}
 }
 
