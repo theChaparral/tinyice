@@ -488,11 +488,11 @@ func (s *Server) serveStreamData(w http.ResponseWriter, r *http.Request, stream 
 		out = oggRewriter
 	}
 
-	if stream.OggHead != nil {
-		if _, err := out.Write(stream.OggHead); err != nil {
+	if oggHead := stream.GetOggHead(); oggHead != nil {
+		if _, err := out.Write(oggHead); err != nil {
 			return false
 		}
-		logger.L.Debugf("Ogg Listener %s: Sending stored headers (%d bytes), then starting burst at %d", id, len(stream.OggHead), offset)
+		logger.L.Debugf("Ogg Listener %s: Sending stored headers (%d bytes), then starting burst at %d", id, len(oggHead), offset)
 	}
 
 	// Respect the stream's minimum valid offset — set whenever the

@@ -352,6 +352,18 @@ func (s *Stream) StoreOggHead(head []byte, audioStartOffset int64) {
 	s.IsOggStream = true
 }
 
+// GetOggHead returns a snapshot of the captured Ogg header bytes (or nil).
+// Callers MUST use this rather than reading s.OggHead directly: StoreOggHead
+// writes the slice header (ptr+len+cap) under s.mu, and a concurrent
+// unsynchronised read can observe a torn slice header (updated len with
+// stale ptr) per the Go memory model. The returned slice is safe to write
+// to the wire — we don't share the backing array.
+func (s *Stream) GetOggHead() []byte {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.OggHead
+}
+
 // Close closes all listeners on the stream and cleans up resources.
 //
 // This method should be called when a stream is being removed or when the source
