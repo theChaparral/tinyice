@@ -33,6 +33,17 @@ func (s *Server) handleApprovePendingUser(w http.ResponseWriter, r *http.Request
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	// CSRF check: every other api_v2 mutating handler does this. Without it
+	// an attacker page that the admin visits could submit a form-encoded
+	// POST whose body json.Decoder still parses (Go's decoder doesn't gate
+	// on Content-Type), promoting an attacker-controlled pending user to
+	// superadmin. /api/ + Content-Type: application/json is implicitly
+	// CSRF-safe (CORS preflights non-simple types) so legitimate JSON
+	// callers from the admin UI keep working.
+	if !s.isCSRFSafe(r) {
+		jsonError(w, "Forbidden", http.StatusForbidden)
+		return
+	}
 	user, ok := s.checkAuth(r)
 	if !ok || user.Role != config.RoleSuperAdmin {
 		jsonError(w, "Unauthorized", http.StatusUnauthorized)
@@ -106,6 +117,10 @@ func (s *Server) handleApprovePendingUser(w http.ResponseWriter, r *http.Request
 func (s *Server) handleDenyPendingUser(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !s.isCSRFSafe(r) {
+		jsonError(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 	user, ok := s.checkAuth(r)
