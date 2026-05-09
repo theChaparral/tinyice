@@ -553,7 +553,9 @@ func (s *Server) handleAddAutoDJ(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
-	if _, ok := s.checkAuth(r); !ok {
+	user, ok := s.checkAuth(r)
+	if !ok || user.Role != config.RoleSuperAdmin {
+		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 
@@ -636,7 +638,9 @@ func (s *Server) handleDeleteAutoDJ(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
-	if _, ok := s.checkAuth(r); !ok {
+	user, ok := s.checkAuth(r)
+	if !ok || user.Role != config.RoleSuperAdmin {
+		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 
@@ -660,7 +664,9 @@ func (s *Server) handleToggleAutoDJ(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
-	if _, ok := s.checkAuth(r); !ok {
+	user, ok := s.checkAuth(r)
+	if !ok || user.Role != config.RoleSuperAdmin {
+		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 
@@ -749,7 +755,9 @@ func (s *Server) handleUpdateAutoDJ(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
-	if _, ok := s.checkAuth(r); !ok {
+	user, ok := s.checkAuth(r)
+	if !ok || user.Role != config.RoleSuperAdmin {
+		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 
