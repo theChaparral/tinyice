@@ -128,6 +128,9 @@ func (wm *WebRTCManager) HandleOffer(mount string, offer webrtc.SessionDescripti
 			state == webrtc.PeerConnectionStateFailed ||
 			state == webrtc.PeerConnectionStateDisconnected {
 			pumpCancel()
+			// Release UDP sockets / DTLS state. Same FD-creep
+			// concern as the WHEP path.
+			_ = peerConnection.Close()
 		}
 	})
 	go wm.streamToTrack(pumpCtx, peerConnection, audioTrack, stream)
@@ -203,6 +206,10 @@ func (wm *WebRTCManager) HandleSourceOffer(mount string, offer webrtc.SessionDes
 				delete(wm.sourceDone, mount)
 			}
 			wm.mu.Unlock()
+			// Release UDP sockets / DTLS state on terminal states.
+			// pion's PC keeps internal goroutines alive until Close;
+			// without this the FD count creeps up across reconnects.
+			_ = peerConnection.Close()
 		}
 	})
 
@@ -330,9 +337,12 @@ func (wm *WebRTCManager) streamToTrack(ctx context.Context, pc *webrtc.PeerConne
 
 	// We wrap the reader to prepend the OggHead if available.
 	// This ensures NewOpusReader always sees the ID/Tag headers.
+	// Use GetOggHead to read under the stream mutex — direct field
+	// access races with StoreOggHead's locked write and could yield
+	// a torn slice header.
 	var finalReader io.Reader = reader
-	if stream.OggHead != nil {
-		finalReader = io.MultiReader(bytes.NewReader(stream.OggHead), reader)
+	if oggHead := stream.GetOggHead(); oggHead != nil {
+		finalReader = io.MultiReader(bytes.NewReader(oggHead), reader)
 	}
 
 	opusReader, err := ogg.NewOpusReader(finalReader)
@@ -464,6 +474,11 @@ func (wm *WebRTCManager) HandleWHEPOffer(mount, sdpOffer string) (string, error)
 			state == webrtc.PeerConnectionStateFailed ||
 			state == webrtc.PeerConnectionStateDisconnected {
 			pumpCancel()
+			// Explicitly close the PC so pion releases its UDP
+			// sockets / DTLS state machine. Without this, the FD
+			// count creeps up over the course of many WHEP
+			// listener disconnects.
+			_ = pc.Close()
 		}
 	})
 
