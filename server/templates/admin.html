@@ -1039,6 +1039,14 @@
                                 </div>
                                 <div class="form-group"><label>Bitrate (kbps)</label><input type="number" name="bitrate"
                                         value="128" required></div>
+                                <div class="form-group">
+                                    <label>Visibility</label>
+                                    <select name="visibility">
+                                        <option value="">Follow input</option>
+                                        <option value="public">Public (listed)</option>
+                                        <option value="unlisted">Unlisted (hidden, still streamable)</option>
+                                    </select>
+                                </div>
                                 <button type="submit" class="btn btn-primary" style="width: 100%;">Start
                                     Transcoder</button>
                             </form>

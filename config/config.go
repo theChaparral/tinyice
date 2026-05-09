@@ -115,6 +115,14 @@ type TranscoderConfig struct {
 	Bitrate     int    `json:"bitrate"`
 	Enabled     bool   `json:"enabled"`
 
+	// Visibility controls whether the transcoded output appears in public
+	// stream listings. Independent of access — an "unlisted" transcoded
+	// mount is still streamable by URL, it just isn't advertised. Values:
+	//   ""         — follow input mount visibility (default, legacy)
+	//   "public"   — always listed
+	//   "unlisted" — hidden from listings, still streamable
+	Visibility string `json:"visibility,omitempty"`
+
 	// Encoder tuning. Zero/empty values fall back to defaults so existing
 	// configs continue to work without migration.
 	SampleRate      int    `json:"sample_rate,omitempty"`        // Hz. 0 = follow input (MP3) / 48000 (Opus)
@@ -123,6 +131,19 @@ type TranscoderConfig struct {
 	OpusVBR         *bool  `json:"opus_vbr,omitempty"`           // nil = VBR on (default)
 	OpusComplexity  int    `json:"opus_complexity,omitempty"`    // 0-10, 0 = encoder default
 	OpusFrameSizeMS int    `json:"opus_frame_size_ms,omitempty"` // 2.5/5/10/20/40/60, 0 = 20
+}
+
+// ResolveVisibility returns the explicit visibility for a transcoder
+// output (true=public, false=unlisted) or false+false when the operator
+// hasn't picked one and the runtime should keep following the input.
+func (t *TranscoderConfig) ResolveVisibility() (visible bool, explicit bool) {
+	switch t.Visibility {
+	case "public":
+		return true, true
+	case "unlisted":
+		return false, true
+	}
+	return false, false
 }
 
 // WebhookConfig describes one outbound HTTP webhook subscription.

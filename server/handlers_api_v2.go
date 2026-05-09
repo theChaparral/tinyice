@@ -1564,6 +1564,7 @@ func (s *Server) apiGetTranscoders(w http.ResponseWriter, r *http.Request) {
 		FramesProcessed int64  `json:"frames_processed"`
 		BytesEncoded    int64  `json:"bytes_encoded"`
 		Uptime          string `json:"uptime"`
+		Visibility      string `json:"visibility,omitempty"`
 		SampleRate      int    `json:"sample_rate,omitempty"`
 		Channels        int    `json:"channels,omitempty"`
 		OpusApplication string `json:"opus_application,omitempty"`
@@ -1595,6 +1596,7 @@ func (s *Server) apiGetTranscoders(w http.ResponseWriter, r *http.Request) {
 			FramesProcessed: frames,
 			BytesEncoded:    bytes,
 			Uptime:          uptime,
+			Visibility:      tc.Visibility,
 			SampleRate:      tc.SampleRate,
 			Channels:        tc.Channels,
 			OpusApplication: tc.OpusApplication,
@@ -1607,18 +1609,19 @@ func (s *Server) apiGetTranscoders(w http.ResponseWriter, r *http.Request) {
 }
 
 type transcoderBody struct {
-	Name            string `json:"name"`
-	InputMount      string `json:"input_mount"`
-	OutputMount     string `json:"output_mount"`
-	Format          string `json:"format"`
-	Bitrate         int    `json:"bitrate"`
-	Enabled         *bool  `json:"enabled,omitempty"`
-	SampleRate      int    `json:"sample_rate,omitempty"`
-	Channels        int    `json:"channels,omitempty"`
-	OpusApplication string `json:"opus_application,omitempty"`
-	OpusVBR         *bool  `json:"opus_vbr,omitempty"`
-	OpusComplexity  int    `json:"opus_complexity,omitempty"`
-	OpusFrameSizeMS int    `json:"opus_frame_size_ms,omitempty"`
+	Name            string  `json:"name"`
+	InputMount      string  `json:"input_mount"`
+	OutputMount     string  `json:"output_mount"`
+	Format          string  `json:"format"`
+	Bitrate         int     `json:"bitrate"`
+	Enabled         *bool   `json:"enabled,omitempty"`
+	Visibility      *string `json:"visibility,omitempty"`
+	SampleRate      int     `json:"sample_rate,omitempty"`
+	Channels        int     `json:"channels,omitempty"`
+	OpusApplication string  `json:"opus_application,omitempty"`
+	OpusVBR         *bool   `json:"opus_vbr,omitempty"`
+	OpusComplexity  int     `json:"opus_complexity,omitempty"`
+	OpusFrameSizeMS int     `json:"opus_frame_size_ms,omitempty"`
 }
 
 func (s *Server) apiCreateTranscoder(w http.ResponseWriter, r *http.Request) {
@@ -1650,6 +1653,10 @@ func (s *Server) apiCreateTranscoder(w http.ResponseWriter, r *http.Request) {
 	if body.Enabled != nil {
 		enabled = *body.Enabled
 	}
+	visibility := ""
+	if body.Visibility != nil {
+		visibility = normalizeTranscoderVisibility(*body.Visibility)
+	}
 	tc := &config.TranscoderConfig{
 		Name:            body.Name,
 		InputMount:      body.InputMount,
@@ -1657,6 +1664,7 @@ func (s *Server) apiCreateTranscoder(w http.ResponseWriter, r *http.Request) {
 		Format:          body.Format,
 		Bitrate:         body.Bitrate,
 		Enabled:         enabled,
+		Visibility:      visibility,
 		SampleRate:      body.SampleRate,
 		Channels:        body.Channels,
 		OpusApplication: body.OpusApplication,
@@ -1665,6 +1673,7 @@ func (s *Server) apiCreateTranscoder(w http.ResponseWriter, r *http.Request) {
 		OpusFrameSizeMS: body.OpusFrameSizeMS,
 	}
 	s.Config.Transcoders = append(s.Config.Transcoders, tc)
+	s.applyTranscoderVisibilityToMap(tc)
 	s.Config.SaveConfig()
 	if tc.Enabled {
 		s.TranscoderM.StartTranscoder(tc)
@@ -1737,6 +1746,9 @@ func (s *Server) apiUpdateTranscoder(w http.ResponseWriter, r *http.Request) {
 	if body.Enabled != nil {
 		target.Enabled = *body.Enabled
 	}
+	if body.Visibility != nil {
+		target.Visibility = normalizeTranscoderVisibility(*body.Visibility)
+	}
 	target.SampleRate = body.SampleRate
 	target.Channels = body.Channels
 	target.OpusApplication = body.OpusApplication
@@ -1744,6 +1756,7 @@ func (s *Server) apiUpdateTranscoder(w http.ResponseWriter, r *http.Request) {
 	target.OpusComplexity = body.OpusComplexity
 	target.OpusFrameSizeMS = body.OpusFrameSizeMS
 
+	s.applyTranscoderVisibilityToMap(target)
 	s.Config.SaveConfig()
 	if target.Enabled {
 		s.TranscoderM.StartTranscoder(target)
@@ -1780,6 +1793,9 @@ func (s *Server) apiDeleteTranscoder(w http.ResponseWriter, r *http.Request) {
 			newTCs = append(newTCs, tc)
 		} else {
 			s.TranscoderM.StopTranscoder(tc.OutputMount)
+			if tc.Visibility != "" {
+				delete(s.Config.VisibleMounts, tc.OutputMount)
+			}
 			found = true
 		}
 	}

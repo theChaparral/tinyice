@@ -171,6 +171,15 @@ func (tm *TranscoderManager) performTranscode(ctx context.Context, inst *Transco
 	}
 
 	output := tm.relay.GetOrCreateStream(inst.Config.OutputMount)
+	// Resolve visibility BEFORE taking output.mu. Holding a stream's
+	// mutex while taking relay.mu is an ABBA setup against
+	// Relay.Snapshot / RemoveStream (which take relay.mu first, then a
+	// stream's mu). Combined with Go's writer-preferring RWMutex this
+	// deadlocked production transcoder restarts.
+	visible, explicit := inst.Config.ResolveVisibility()
+	if !explicit {
+		visible = tm.relay.GetStreamVisibility(inst.Config.InputMount)
+	}
 	output.mu.Lock()
 	if inputName != "" {
 		output.Name = fmt.Sprintf("%s (%s %dK)", inputName, inst.Config.Format, inst.Config.Bitrate)
@@ -179,7 +188,7 @@ func (tm *TranscoderManager) performTranscode(ctx context.Context, inst *Transco
 	}
 	output.Bitrate = fmt.Sprintf("%d", inst.Config.Bitrate)
 	output.IsTranscoded = true
-	output.Visible = tm.relay.GetStreamVisibility(inst.Config.InputMount) // Follow input visibility
+	output.Visible = visible
 	output.mu.Unlock()
 
 	if input != nil {

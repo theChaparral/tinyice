@@ -126,6 +126,7 @@ func (s *Server) handleAddTranscoder(w http.ResponseWriter, r *http.Request) {
 	input := r.FormValue("input")
 	output := r.FormValue("output")
 	format := r.FormValue("format")
+	visibility := normalizeTranscoderVisibility(r.FormValue("visibility"))
 	var bitrate int
 	fmt.Sscanf(r.FormValue("bitrate"), "%d", &bitrate)
 
@@ -136,13 +137,48 @@ func (s *Server) handleAddTranscoder(w http.ResponseWriter, r *http.Request) {
 		Format:      format,
 		Bitrate:     bitrate,
 		Enabled:     true,
+		Visibility:  visibility,
 	}
 
 	s.Config.Transcoders = append(s.Config.Transcoders, tc)
+	s.applyTranscoderVisibilityToMap(tc)
 	s.Config.SaveConfig()
 	s.TranscoderM.StartTranscoder(tc)
 
 	http.Redirect(w, r, "/admin#tab-transcoding", http.StatusSeeOther)
+}
+
+// normalizeTranscoderVisibility coerces user input to one of the three
+// supported values, defaulting unknown / empty input to "" (follow input).
+func normalizeTranscoderVisibility(v string) string {
+	switch v {
+	case "public", "unlisted":
+		return v
+	default:
+		return ""
+	}
+}
+
+// applyTranscoderVisibilityToMap mirrors a transcoder's explicit visibility
+// choice into Config.VisibleMounts so the admin toggle button, public
+// listings and source-metadata path all see the same state. When the
+// transcoder is set to follow the input, we drop the override so the input
+// remains authoritative.
+func (s *Server) applyTranscoderVisibilityToMap(tc *config.TranscoderConfig) {
+	if tc == nil || tc.OutputMount == "" {
+		return
+	}
+	if s.Config.VisibleMounts == nil {
+		s.Config.VisibleMounts = make(map[string]bool)
+	}
+	switch tc.Visibility {
+	case "public":
+		s.Config.VisibleMounts[tc.OutputMount] = true
+	case "unlisted":
+		s.Config.VisibleMounts[tc.OutputMount] = false
+	default:
+		delete(s.Config.VisibleMounts, tc.OutputMount)
+	}
 }
 
 func (s *Server) handleToggleTranscoder(w http.ResponseWriter, r *http.Request) {
@@ -188,6 +224,9 @@ func (s *Server) handleDeleteTranscoder(w http.ResponseWriter, r *http.Request) 
 			newTCs = append(newTCs, tc)
 		} else {
 			s.TranscoderM.StopTranscoder(tc.OutputMount)
+			if tc.Visibility != "" {
+				delete(s.Config.VisibleMounts, tc.OutputMount)
+			}
 		}
 	}
 	s.Config.Transcoders = newTCs
