@@ -189,7 +189,13 @@ func (h *DecoderHub) runPump(inputMount string, ps *pcmStream) {
 	//    subscribers retry instead of hanging.
 	var input *Stream
 	{
-		deadline := contextDeadline(30)
+		// time.After is fine here even though it can leak the timer
+		// briefly on early exit — pumpCtx.Done() and the success path
+		// both let us drop our reference, and the runtime collects
+		// the timer once nothing references its channel. The previous
+		// helper spawned a dedicated goroutine that ALWAYS ran for
+		// 30 s regardless, which was a small but unbounded drip.
+		deadline := time.After(30 * time.Second)
 		tick := time.NewTicker(500 * time.Millisecond)
 		defer tick.Stop()
 	wait:
@@ -293,15 +299,3 @@ func (h *DecoderHub) runPump(inputMount string, ps *pcmStream) {
 	}
 }
 
-// contextDeadline returns a channel that fires after the given number
-// of seconds; small wrapper so the runPump retry loop reads cleanly.
-func contextDeadline(seconds int) <-chan struct{} {
-	ch := make(chan struct{})
-	go func() {
-		t := time.NewTimer(time.Duration(seconds) * time.Second)
-		defer t.Stop()
-		<-t.C
-		close(ch)
-	}()
-	return ch
-}
