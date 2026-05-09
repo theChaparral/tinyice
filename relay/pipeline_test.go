@@ -38,6 +38,26 @@ func TestPipelineAddTrackAndCount(t *testing.T) {
 	}
 }
 
+func TestResolveCodecNilSafe(t *testing.T) {
+	// ResolveCodec's "nil-receiver" branch tried to return t.Codec on a
+	// nil t — i.e. dereferenced the nil pointer. Calling on a nil
+	// receiver should return "" rather than panicking.
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("ResolveCodec panicked on nil receiver: %v", r)
+		}
+	}()
+	var t1 *Track
+	if got := t1.ResolveCodec(); got != "" {
+		t.Fatalf("expected empty codec for nil receiver, got %q", got)
+	}
+	// Stream-nil but track-non-nil should return the cached codec.
+	t2 := &Track{Codec: "opus"}
+	if got := t2.ResolveCodec(); got != "opus" {
+		t.Fatalf("expected cached codec opus, got %q", got)
+	}
+}
+
 func TestPipelineStats(t *testing.T) {
 	r := NewRelay(false, nil)
 	s := r.GetOrCreateStream("/test")

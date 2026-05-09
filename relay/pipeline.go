@@ -47,7 +47,13 @@ type Track struct {
 // producing data — the codec hint captured at track creation may be wrong,
 // because Stream metadata isn't populated until the first bytes arrive.
 func (t *Track) ResolveCodec() string {
-	if t == nil || t.Stream == nil {
+	if t == nil {
+		// Defensive: callers may hold a Track pointer that has since
+		// been zeroed (e.g. a stale snapshot). Return empty rather
+		// than dereferencing nil — `t.Codec` on a nil t panics.
+		return ""
+	}
+	if t.Stream == nil {
 		return t.Codec
 	}
 	if t.Stream.IsOgg() {
