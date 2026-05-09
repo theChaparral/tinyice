@@ -10,11 +10,10 @@
   "dependencies": {
     "@preact/signals": "^2.8.2",
     "@simplewebauthn/browser": "^11.0.0",
-    "@types/dompurify": "^3.0.5",
     "dompurify": "^3.4.0",
     "highlight.js": "^11.11.1",
     "hls.js": "^1.6.16",
-    "leaflet": "^1.9.4",
+    "maplibre-gl": "^5.24.0",
     "marked": "^17.0.4",
     "preact": "^10.29.0",
     "preact-router": "^4.1.2"
@@ -22,6 +21,7 @@
   "devDependencies": {
     "@preact/preset-vite": "^2.10.3",
     "@tailwindcss/vite": "^4.2.1",
+    "@types/dompurify": "^3.0.5",
     "tailwindcss": "^4.2.1",
     "typescript": "^5.9.3",
     "vite": "^7.3.1"

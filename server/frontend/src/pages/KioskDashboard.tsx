@@ -1,8 +1,7 @@
-import { useEffect, useRef } from 'preact/hooks'
+import { useEffect } from 'preact/hooks'
 import { signal } from '@preact/signals'
-import L from 'leaflet'
-import 'leaflet/dist/leaflet.css'
 import { createSSE } from '../lib/sse'
+import { LiveGeoMap, type GeoCity } from '../components/LiveGeoMap'
 
 // KioskDashboard — full-screen status wall for studio / NOC display.
 // Designed for a TV mounted in the control room: no nav, no chrome,
@@ -47,15 +46,6 @@ type StreamEv = {
   source_type?: string
   source_bitrate?: string
 }
-type GeoCity = {
-  iso: string
-  country?: string
-  city?: string
-  lat: number
-  lon: number
-  listeners: number
-}
-
 const stats = signal<StatsEv>({})
 const streams = signal<Record<string, StreamEv>>({})
 const geo = signal<GeoCity[]>([])
@@ -109,20 +99,9 @@ function useLtcDisplay() {
   }
 }
 
-// Marker radius in pixels: sqrt scaling so a 100-listener city
-// isn't 100x the area of a 1-listener city.
-function radiusFor(n: number): number {
-  if (n <= 0) return 0
-  return Math.max(4, Math.round(4 + Math.sqrt(n) * 3))
-}
-
 // ── component ────────────────────────────────────────────────────────────
 
 export function KioskDashboard() {
-  const mapEl = useRef<HTMLDivElement>(null)
-  const mapRef = useRef<L.Map | null>(null)
-  const layerRef = useRef<L.LayerGroup | null>(null)
-
   // SSE wiring — single source of truth for everything live on the page.
   useEffect(() => {
     const sse = createSSE('/admin/events')
@@ -153,117 +132,6 @@ export function KioskDashboard() {
     }, 40)
     return () => window.clearInterval(id)
   }, [])
-
-  // Map init + live geo. Leaflet computes lat/lon → pixel from the
-  // container size at render time; if the container resizes (kiosk
-  // mounts, container starts at 0×0 before flexbox layout settles,
-  // viewport rotates, etc.) the projection goes stale and
-  // flyToBounds picks a target against the wrong viewport — markers
-  // land in the wrong place and the fly zoom is off. Hooking a
-  // ResizeObserver fires invalidateSize() on every container size
-  // change, which keeps the projection honest.
-  useEffect(() => {
-    const container = mapEl.current
-    if (!container || mapRef.current) return
-    const m = L.map(container, {
-      attributionControl: true,
-      zoomControl: false,
-      worldCopyJump: true,
-      minZoom: 1,
-      maxZoom: 8,
-    }).setView([20, 0], 2)
-    L.tileLayer(
-      'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-      {
-        subdomains: 'abcd',
-        maxZoom: 19,
-        attribution:
-          '&copy; OSM · CARTO · GeoIP db-ip.com CC-BY-4.0',
-      },
-    ).addTo(m)
-    layerRef.current = L.layerGroup().addTo(m)
-    mapRef.current = m
-
-    // Initial nudge: in case the container started at 0×0 (flexbox
-    // hadn't laid out yet) re-validate after one paint.
-    requestAnimationFrame(() => m.invalidateSize())
-
-    const ro = new ResizeObserver(() => {
-      m.invalidateSize()
-    })
-    ro.observe(container)
-
-    return () => {
-      ro.disconnect()
-      m.remove()
-      mapRef.current = null
-      layerRef.current = null
-    }
-  }, [])
-
-  // Map markers + autozoom. Smart-fit:
-  //   - 0 listeners: world view centred at (20, 0), zoom 2.
-  //   - 1 city: fly to that point at zoom 5 (city-wide).
-  //   - many cities, all within ~one continent (bounds < ~60° in
-  //     either lat or lon): fly to bounds with maxZoom 5.
-  //   - many cities spread worldwide: world view at zoom 2 — no
-  //     wandering camera centred on mid-ocean.
-  useEffect(() => {
-    const map = mapRef.current
-    const layer = layerRef.current
-    if (!map || !layer) return
-    // Re-validate the projection before computing fly targets — if a
-    // resize raced with this update the bounds math would otherwise
-    // be against a stale viewport.
-    map.invalidateSize()
-    layer.clearLayers()
-    const d = geo.value
-    const points: L.LatLngExpression[] = []
-    for (const c of d) {
-      if (!c.lat && !c.lon) continue
-      const marker = L.circleMarker([c.lat, c.lon], {
-        radius: radiusFor(c.listeners),
-        color: '#ff8a3d',
-        weight: 1.5,
-        fillColor: '#ff8a3d',
-        fillOpacity: 0.6,
-      })
-      const label = c.city
-        ? `${c.city}${c.country ? ' · ' + c.country : ''}`
-        : c.country || c.iso
-      marker.bindTooltip(
-        `<strong>${label}</strong><br/>${c.listeners} listener${c.listeners === 1 ? '' : 's'}`,
-        { direction: 'top' },
-      )
-      marker.addTo(layer)
-      points.push([c.lat, c.lon])
-    }
-    if (points.length === 0) {
-      map.flyTo([20, 0], 2, { animate: true, duration: 1.0 })
-      return
-    }
-    if (points.length === 1) {
-      map.flyTo(points[0], 5, { animate: true, duration: 1.0 })
-      return
-    }
-    const bounds = L.latLngBounds(points)
-    const sw = bounds.getSouthWest()
-    const ne = bounds.getNorthEast()
-    const latSpan = Math.abs(ne.lat - sw.lat)
-    const lonSpan = Math.abs(ne.lng - sw.lng)
-    if (latSpan > 60 || lonSpan > 100) {
-      // Worldwide spread — fitBounds would centre on a meaningless
-      // mid-ocean point. Show the world instead.
-      map.flyTo([20, 0], 2, { animate: true, duration: 1.0 })
-      return
-    }
-    map.flyToBounds(bounds, {
-      padding: [60, 60],
-      maxZoom: 5,
-      animate: true,
-      duration: 1.0,
-    })
-  }, [geo.value])
 
   const ltc = useLtcDisplay()
   const streamList = Object.values(streams.value).sort((a, b) => a.mount.localeCompare(b.mount))
@@ -330,7 +198,7 @@ export function KioskDashboard() {
               {geo.value.length} {geo.value.length === 1 ? 'city' : 'cities'} · {totalListeners} {totalListeners === 1 ? 'listener' : 'listeners'}
             </span>
           </div>
-          <div ref={mapEl} class="flex-1 min-h-0" />
+          <LiveGeoMap data={geo.value} className="flex-1 min-h-0" worldFallback={true} />
         </div>
 
         <div class="w-[320px] shrink-0 flex flex-col min-h-0 gap-2">
