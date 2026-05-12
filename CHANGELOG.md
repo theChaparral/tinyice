@@ -62,7 +62,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
-- **CVE-PENDING (GHSA-xxxx-xxxx-xxxx)** — Missing authentication on
+- **[CVE-2026-45327](https://github.com/DatanoiseTV/tinyice/security/advisories/GHSA-p7c4-8x34-8j8f)** ([GHSA-p7c4-8x34-8j8f](https://github.com/DatanoiseTV/tinyice/security/advisories/GHSA-p7c4-8x34-8j8f)) — Missing authentication on
   the WebRTC source-ingest endpoint. `POST /webrtc/source-offer`
   accepted any inbound SDP offer with no source-password check;
   any internet user able to reach the server could hijack any
