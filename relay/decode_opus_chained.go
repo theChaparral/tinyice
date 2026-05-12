@@ -7,7 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync/atomic"
+	"time"
 
+	"github.com/DatanoiseTV/tinyice/logger"
 	pionopus "github.com/pion/opus"
 )
 
@@ -136,6 +139,12 @@ type chainedOpusDecoder struct {
 	// PCM output staging.
 	pcm []int16 // scratch decode buffer, sized for 120 ms @ 48 kHz * 2 ch
 	out []byte  // ready-to-Read S16LE stereo bytes
+
+	// Telemetry. Counters surface decoder health without spamming logs on
+	// every per-packet glitch — we log a summary at most once every 5 s.
+	decodeErrors  atomic.Uint64
+	chainRotates  atomic.Uint64
+	lastReport    time.Time
 }
 
 func newChainedOpusDecoder(r io.Reader) (PCMDecoder, error) {
@@ -181,6 +190,9 @@ func (d *chainedOpusDecoder) readOnePage() error {
 	if page.bos() {
 		if err := d.parseOpusHead(page); err != nil {
 			return err
+		}
+		if d.haveSerial && page.serial != d.currentSerial {
+			d.chainRotates.Add(1)
 		}
 		d.currentSerial = page.serial
 		d.haveSerial = true
@@ -288,7 +300,10 @@ func (d *chainedOpusDecoder) decodeAudio(pkt []byte) error {
 	if err != nil {
 		// Skip a single bad packet instead of tearing down the stream
 		// — chained-stream transitions sometimes leave one ragged
-		// packet at the edge.
+		// packet at the edge. Track the rate so a real decoder problem
+		// shows up in logs.
+		d.decodeErrors.Add(1)
+		d.maybeReport(err)
 		return nil
 	}
 	if n <= 0 {
@@ -311,4 +326,22 @@ func (d *chainedOpusDecoder) decodeAudio(pkt []byte) error {
 	}
 	d.out = int16ToStereoS16LE(d.pcm[:n*d.channels], d.channels, n, d.out)
 	return nil
+}
+
+// maybeReport emits a single warn line at most once per 5 seconds, so a
+// burst of decode errors at a chain boundary surfaces in logs without
+// drowning everything else. The most recent error message is included
+// so an operator can tell whether pion/opus is rejecting a specific
+// packet shape vs. random byte-level corruption.
+func (d *chainedOpusDecoder) maybeReport(lastErr error) {
+	now := time.Now()
+	if !d.lastReport.IsZero() && now.Sub(d.lastReport) < 5*time.Second {
+		return
+	}
+	d.lastReport = now
+	logger.L.Warnw("decode opus: packet errors",
+		"errors", d.decodeErrors.Load(),
+		"chain_rotations", d.chainRotates.Load(),
+		"last_err", lastErr.Error(),
+	)
 }
