@@ -552,6 +552,14 @@ func (s *Server) serveStreamData(w http.ResponseWriter, r *http.Request, stream 
 	consecutiveSkips := 0
 	maxConsecutiveSkips := 5
 
+	// Flush-generation tracker. If the stream owner bumps the flush
+	// generation (e.g. transcoder encoder restart after a source
+	// flap), we snap our offset forward to MinListenerOffset so the
+	// listener doesn't replay the stale buffer contents from before
+	// the gap. Read once at subscribe time so we only react to bumps
+	// that happen AFTER we started reading.
+	lastFlushGen := stream.FlushGen()
+
 	for {
 		select {
 		case <-s.done:
@@ -567,6 +575,16 @@ func (s *Server) serveStreamData(w http.ResponseWriter, r *http.Request, stream 
 		case _, ok := <-signal:
 			if !ok {
 				return true
+			}
+			if g := stream.FlushGen(); g != lastFlushGen {
+				lastFlushGen = g
+				if min := stream.GetMinListenerOffset(); min > offset {
+					offset = min
+					// Reset the ICY meta-interval counter so the
+					// 16000-byte boundary stays aligned to the new
+					// post-flush byte stream.
+					bytesSentSinceMeta = 0
+				}
 			}
 			for {
 				readLimit := len(buf)

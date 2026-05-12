@@ -205,6 +205,13 @@ func (tm *TranscoderManager) performTranscode(ctx context.Context, inst *Transco
 	output.Visible = visible
 	output.mu.Unlock()
 
+	// Mark the live edge of the output buffer so any listeners that
+	// stayed connected through the previous performTranscode iteration
+	// snap forward to the new encoder's output instead of replaying
+	// the stale buffer contents from before the source flap. On the
+	// very first iteration the buffer is empty so this is a no-op.
+	output.FlushAtHead()
+
 	if input != nil {
 		go mirrorTranscodeMetadata(runCtx, input, output)
 	}

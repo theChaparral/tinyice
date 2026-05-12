@@ -98,6 +98,14 @@ type Stream struct {
 	PageOffsets     []int64 // Circular list of last ~100 page starts
 	PageIndex       int     // Index for managing PageOffsets circular list
 
+	// FlushGen is incremented every time something invalidates the
+	// in-buffer audio for currently-subscribed listeners (e.g. a
+	// transcoder encoder restart after the upstream source flapped).
+	// Listeners observe the counter on every signal iteration and snap
+	// their offset to MinListenerOffset (set to the current Head at
+	// flush time) so they don't replay stale bytes from before the gap.
+	flushGen atomic.Uint64
+
 	// Core streaming infrastructure
 	Buffer    *CircularBuffer          // Audio data buffer (typically 2MB)
 	listeners         map[string]chan struct{} // Signal channels for connected listeners
@@ -187,6 +195,50 @@ func (s *Stream) CheckpointAtHead() {
 	s.MinListenerOffset = head
 	s.mu.Unlock()
 	s.Buffer.ResetKeyframes()
+}
+
+// FlushAtHead behaves like CheckpointAtHead but also bumps the flush
+// generation and wakes every subscribed listener so they observe the
+// new minimum offset on their next read iteration. Use when the bytes
+// already in the buffer are no longer relevant to listeners and we
+// want them to jump forward to the live edge — e.g. the upstream
+// source flapped and the encoder is about to resume writing a fresh
+// run of audio after a multi-second gap.
+func (s *Stream) FlushAtHead() {
+	if s.Buffer == nil {
+		return
+	}
+	head := s.Buffer.HeadOffset()
+	s.mu.Lock()
+	s.MinListenerOffset = head
+	chans := make([]chan struct{}, 0, len(s.listeners))
+	for _, ch := range s.listeners {
+		chans = append(chans, ch)
+	}
+	s.mu.Unlock()
+	s.Buffer.ResetKeyframes()
+	s.flushGen.Add(1)
+	// Non-blocking wake of every listener so they observe the bump
+	// without waiting for the next Broadcast. recover() inside the
+	// closure contains a send-on-closed panic if a listener tears
+	// down at exactly this instant.
+	for _, ch := range chans {
+		func(ch chan struct{}) {
+			defer func() { _ = recover() }()
+			select {
+			case ch <- struct{}{}:
+			default:
+			}
+		}(ch)
+	}
+}
+
+// FlushGen returns the current flush generation counter. Listener
+// handlers read this once at subscribe time and re-read on every
+// signal iteration; a change means FlushAtHead was called and the
+// listener should snap to MinListenerOffset.
+func (s *Stream) FlushGen() uint64 {
+	return s.flushGen.Load()
 }
 
 // VideoInfo returns the flags that the HTTP listener path needs to

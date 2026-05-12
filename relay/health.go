@@ -144,6 +144,23 @@ func (hm *HealthMonitor) check() {
 		if hm.autoRemoveDead && newStatus == StatusDead {
 			silence := time.Since(checkTime)
 			if silence > hm.deadTimeout {
+				// Transcoded outputs are tied to a configured input
+				// mount and an encoder goroutine that re-attaches on
+				// every source flap. Removing them while the source
+				// is briefly down forces listeners to 404 and turns a
+				// 10-30 s source hiccup into an end-to-end outage:
+				// the player reconnects, hits 404, gives up, and the
+				// user hears "stream dead" until they manually retry.
+				// Keep the mount registered; the encoder's
+				// FlushAtHead on resume snaps listeners to the live
+				// edge so they don't replay buffered audio from
+				// before the gap.
+				stream.mu.RLock()
+				isTranscoded := stream.IsTranscoded
+				stream.mu.RUnlock()
+				if isTranscoded {
+					continue
+				}
 				logger.L.Warnw("Auto-removing dead stream", "mount", ss.MountName, "silence", silence)
 				hm.relay.RemoveStream(ss.MountName)
 				delete(hm.lastStatus, ss.MountName)
