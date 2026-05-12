@@ -7,6 +7,7 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/DatanoiseTV/tinyice/logger"
@@ -299,7 +300,49 @@ func (h *DecoderHub) runPump(inputMount string, ps *pcmStream) {
 
 	// 5. Pump loop. ReadFull a chunk of PCM, broadcast to the PCM
 	//    stream. Block on EOF / errors and exit cleanly.
-	const chunkBytes = 8192 // 2048 stereo s16 samples = ~21ms @ 48kHz / ~23ms @ 44.1kHz
+	//
+	//    Stalled-pump watchdog: kazzmir/opus-go's Ogg parser
+	//    silently drops pages whose bitstream serial doesn't match
+	//    the one it was initialised with — so when a source like
+	//    robodj chains a new logical Ogg stream (BOS with a fresh
+	//    serial, normal Ogg behaviour) the decoder keeps consuming
+	//    source bytes and emits zero PCM. io.ReadFull then blocks
+	//    forever; the encoders we feed go silent; the
+	//    HealthMonitor auto-removes their output streams after
+	//    120 s; runTranscoder's retry never fires because the
+	//    pump goroutine is still alive.
+	//
+	//    Watchdog: a separate goroutine watches a `lastWrite`
+	//    timestamp updated on every successful Broadcast. If
+	//    we go `pumpStallTimeout` without writing PCM, the
+	//    watchdog cancels pumpCtx, which closes the source
+	//    StreamReader from underneath the decoder; io.ReadFull
+	//    then returns the read error, the deferred pcmS removal
+	//    fires, and runTranscoder retries in ~5 s with a fresh
+	//    decoder initialised against the source's current
+	//    bitstream.
+	const chunkBytes = 8192        // 2048 stereo s16 samples = ~21ms @ 48kHz / ~23ms @ 44.1kHz
+	const pumpStallTimeout = 8 * time.Second
+	var lastWrite atomic.Int64
+	lastWrite.Store(time.Now().UnixNano())
+	go func() {
+		t := time.NewTicker(2 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-pumpCtx.Done():
+				return
+			case now := <-t.C:
+				if now.UnixNano()-lastWrite.Load() > int64(pumpStallTimeout) {
+					logger.L.Warnw("decoder hub: pump stalled, forcing restart",
+						"input", inputMount, "idle", pumpStallTimeout.String())
+					cancel()
+					return
+				}
+			}
+		}
+	}()
+
 	buf := make([]byte, chunkBytes)
 	for {
 		select {
@@ -314,6 +357,7 @@ func (h *DecoderHub) runPump(inputMount string, ps *pcmStream) {
 			return
 		}
 		pcmS.Broadcast(buf[:n], h.relay)
+		lastWrite.Store(time.Now().UnixNano())
 	}
 }
 
