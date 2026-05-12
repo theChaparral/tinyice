@@ -5,6 +5,59 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.0] - 2026-05-12
+
+### Fixed
+
+- **Goroutine leak in transcoder retry loop.** `performTranscode`
+  spawned `mirrorTranscodeMetadata` with the outer transcoder
+  context, which only cancels on full transcoder stop. Every
+  source disconnect/reconnect cycle (~1/min on a typical
+  long-running deployment) entered the retry loop and spawned a
+  fresh mirror goroutine; the old ones kept ticking forever.
+  Production showed 1052 leaked goroutines and RSS of 777 MB
+  (baseline 44 MB) after ~73 hours uptime. Fix: per-invocation
+  child context inside performTranscode, defer-cancel; passed to
+  mirrorTranscodeMetadata + EncodeMP3 + EncodeOpus + the decoder
+  hub Acquire call. Goroutines that belong to one retry cycle now
+  exit when that cycle returns.
+- **Transcoder auto-restart gap reduced from ~2 min to ~5 s.**
+  When the decoder hub's pump exited (source EOF / disconnect),
+  nothing closed the orphaned PCM-fanout stream — transcoders
+  subscribed to it stayed blocked on its dead signal channel and
+  only recovered when HealthMonitor's 2-minute auto-remove
+  finally swept the stale stream. Fix: the pump's defer now
+  RemoveStream's the PCM mount, so subscribers see EOF
+  immediately and the retry loop produces a fresh pump within
+  the standard 5-second tick.
+
+### Changed
+
+- **Map rewrite: MapLibre GL + OpenFreeMap, fixes zoom/marker/
+  autofit thrash.** The previous Leaflet + CARTO dashboard map
+  re-ran `flyToBounds` and `clearLayers` on every SSE 'geo' tick
+  (~500 ms when listeners are active). Each fly is an 800 ms
+  animation; ticks at 0.5 s stack on each other — the camera
+  never settled, markers flickered as they were torn down and
+  re-created. New shared `<LiveGeoMap>` component (used by both
+  GeoMapCard and KioskDashboard):
+  - Camera refits only when the SET of cities changes
+    (signature of iso/city/lat/lon tuples). Listener-count
+    changes update marker sizes in place — no fly.
+  - Markers diff in place via a Map keyed by city signature.
+    New cities added; gone cities removed; existing cities
+    update radius with a 200 ms animation. No clearLayers
+    churn.
+  - Provider switch from CARTO basemaps to openfreemap.org —
+    no signup, no API key, explicit free-for-any-use policy.
+    Tile and OSM attribution wired into the MapLibre default
+    AttributionControl plus a footer line.
+  - `leaflet` removed from frontend deps; `maplibre-gl` added
+    (~285 KB gzipped, in a route-lazy chunk so the landing
+    page is unaffected).
+
+[2.6.0]: https://github.com/DatanoiseTV/tinyice/releases/tag/v2.6.0
+
 ## [2.5.0] - 2026-05-09
 
 ### Security
