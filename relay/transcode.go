@@ -140,13 +140,27 @@ func (tm *TranscoderManager) safePerformTranscode(ctx context.Context, inst *Tra
 }
 
 func (tm *TranscoderManager) performTranscode(ctx context.Context, inst *TranscoderInstance) {
+	// Per-invocation child context. Cancelled when this function
+	// returns so any goroutine we spawn (mirrorTranscodeMetadata
+	// most notably) exits along with the encode loop instead of
+	// leaking until the parent transcoder is torn down.
+	//
+	// Production goroutine dump showed >1000 mirrorTranscodeMetadata
+	// goroutines accumulated because each source disconnect /
+	// reconnect cycle spawned a fresh one tied to the outer ctx
+	// (which only cancels on Stop, not on encode-loop return).
+	// With ~600 reconnect cycles × N transcoders, the leak filled
+	// the goroutine table and pushed RSS from ~44 MB to >800 MB.
+	runCtx, runCancel := context.WithCancel(ctx)
+	defer runCancel()
+
 	// 1. Acquire a shared decoder for this input. The first
 	//    transcoder per input mount kicks off the underlying
 	//    decoder + PCM fanout pump; subsequent transcoders attach
 	//    to the existing PCM stream. Same-input encoders therefore
 	//    share one decode pass instead of running N redundantly.
 	subID := fmt.Sprintf("transcoder-%s", inst.Config.Name)
-	pcmReader, decoderRate, releaseDecoder, err := tm.hub.Acquire(ctx, inst.Config.InputMount, subID)
+	pcmReader, decoderRate, releaseDecoder, err := tm.hub.Acquire(runCtx, inst.Config.InputMount, subID)
 	if err != nil {
 		logger.L.Errorw("Transcoder: failed to acquire shared decoder",
 			"name", inst.Config.Name, "input", inst.Config.InputMount, "error", err)
@@ -192,7 +206,7 @@ func (tm *TranscoderManager) performTranscode(ctx context.Context, inst *Transco
 	output.mu.Unlock()
 
 	if input != nil {
-		go mirrorTranscodeMetadata(ctx, input, output)
+		go mirrorTranscodeMetadata(runCtx, input, output)
 	}
 
 	// pcmReader is an io.Reader producing S16LE stereo PCM at
@@ -216,7 +230,7 @@ func (tm *TranscoderManager) performTranscode(ctx context.Context, inst *Transco
 		if sr != decoder.SampleRate() {
 			pcm = NewLinearResampler(decoder, decoder.SampleRate(), sr)
 		}
-		EncodeMP3(ctx, tm.relay, output, pcm, inst.Config.Bitrate, &inst.BytesEncoded, false, sr)
+		EncodeMP3(runCtx, tm.relay, output, pcm, inst.Config.Bitrate, &inst.BytesEncoded, false, sr)
 	} else if inst.Config.Format == "opus" {
 		output.mu.Lock()
 		output.ContentType = "audio/ogg"
@@ -233,7 +247,7 @@ func (tm *TranscoderManager) performTranscode(ctx context.Context, inst *Transco
 				"to", 48000,
 			)
 		}
-		EncodeOpus(ctx, tm.relay, output, pcm, inst.Config.Bitrate, &inst.BytesEncoded, false,
+		EncodeOpus(runCtx, tm.relay, output, pcm, inst.Config.Bitrate, &inst.BytesEncoded, false,
 			OpusEncoderSettings{
 				Application: inst.Config.OpusApplication,
 				VBR:         inst.Config.OpusVBR,
