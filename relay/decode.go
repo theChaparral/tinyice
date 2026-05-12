@@ -10,7 +10,6 @@ import (
 
 	"github.com/jfreymuth/oggvorbis"
 	"github.com/kazzmir/opus-go/ogg"
-	"github.com/kazzmir/opus-go/opus"
 	"github.com/mewkiz/flac"
 	"github.com/mewkiz/flac/frame"
 	"github.com/hajimehoshi/go-mp3"
@@ -182,61 +181,13 @@ func (v *vorbisDecoder) Read(p []byte) (int, error) {
 }
 
 // --- Ogg Opus ---------------------------------------------------------------
-
-type opusDecoder struct {
-	reader   *ogg.OpusReader
-	dec      *opus.Decoder
-	pcm      []int16
-	pending  []byte
-	channels int
-}
+//
+// newOggOpusDecoder forwards to a chained-stream-aware decoder that uses
+// pion/opus for the raw codec and a small Ogg page reader that does not
+// pin the bitstream serial. See decode_opus_chained.go.
 
 func newOggOpusDecoder(r io.Reader) (PCMDecoder, error) {
-	or, err := ogg.NewOpusReader(r)
-	if err != nil {
-		return nil, fmt.Errorf("decode opus: read header: %w", err)
-	}
-	dec, err := opus.NewDecoderFromHead(or.Head)
-	if err != nil {
-		return nil, fmt.Errorf("decode opus: init decoder: %w", err)
-	}
-	ch := dec.Channels()
-	if ch < 1 {
-		ch = 1
-	}
-	// Opus frames are at most 120 ms. At 48 kHz that's 5760 samples per channel.
-	return &opusDecoder{
-		reader:   or,
-		dec:      dec,
-		pcm:      make([]int16, 5760*ch),
-		channels: ch,
-	}, nil
-}
-
-func (o *opusDecoder) SampleRate() int { return o.dec.SampleRate() }
-
-func (o *opusDecoder) Read(p []byte) (int, error) {
-	for len(o.pending) == 0 {
-		pkt, err := o.reader.ReadAudioPacket()
-		if err != nil {
-			return 0, err
-		}
-		if pkt == nil {
-			return 0, io.EOF
-		}
-		samples, _, derr := o.dec.DecodePacket(pkt, o.pcm)
-		if derr != nil {
-			return 0, fmt.Errorf("decode opus: %w", derr)
-		}
-		if len(samples) == 0 {
-			continue
-		}
-		frames := len(samples) / o.channels
-		o.pending = int16ToStereoS16LE(samples, o.channels, frames, o.pending[:0])
-	}
-	n := copy(p, o.pending)
-	o.pending = o.pending[n:]
-	return n, nil
+	return newChainedOpusDecoder(r)
 }
 
 // --- FLAC -------------------------------------------------------------------
