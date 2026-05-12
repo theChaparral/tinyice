@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/DatanoiseTV/tinyice/logger"
-	pionopus "github.com/pion/opus"
+	kazzopus "github.com/kazzmir/opus-go/opus"
 )
 
 // Pure-Go Ogg+Opus decoder that tolerates RFC 3533 chained logical
@@ -123,7 +123,7 @@ func (pr *oggPageReader) sync() error {
 
 type chainedOpusDecoder struct {
 	pr  *oggPageReader
-	dec pionopus.Decoder
+	dec *kazzopus.Decoder
 
 	// Per-logical-stream state.
 	currentSerial uint32
@@ -265,12 +265,17 @@ func (d *chainedOpusDecoder) parseOpusHead(page *oggPage) error {
 	}
 	preSkip := int(binary.LittleEndian.Uint16(page.body[10:12]))
 
-	// pion/opus only supports mono or stereo output; mismatch between
-	// successive logical streams (mono → stereo) is handled by
-	// re-initialising. Output sample rate is always 48 kHz so the
-	// transcoder downstream sees a continuous PCM rate across chain
-	// rotations.
-	dec, err := pionopus.NewDecoderWithOutput(48000, ch)
+	// kazzmir/opus-go is libopus transpiled to pure Go via ccgo. The
+	// codec is the RFC 6716 reference, which is far more lenient with
+	// real-world Opus packets than hand-written reimplementations and
+	// produces sample-accurate output. We discard kazzmir's PacketReader
+	// (which has the chained-stream bug that motivated this file) and
+	// drive the codec directly with the packets our oggPageReader
+	// produces.
+	if d.dec != nil {
+		_ = d.dec.Close()
+	}
+	dec, err := kazzopus.NewDecoder(48000, ch)
 	if err != nil {
 		return fmt.Errorf("opus: init decoder: %w", err)
 	}
@@ -293,10 +298,12 @@ func (d *chainedOpusDecoder) handlePacket(pkt []byte) error {
 }
 
 func (d *chainedOpusDecoder) decodeAudio(pkt []byte) error {
-	if len(pkt) == 0 {
+	if len(pkt) == 0 || d.dec == nil {
 		return nil
 	}
-	n, err := d.dec.DecodeToInt16(pkt, d.pcm)
+	// frameSize is the max per-channel samples we want; 5760 == 120 ms
+	// at 48 kHz, the Opus packet duration upper bound (RFC 6716).
+	n, err := d.dec.Decode(pkt, d.pcm, 5760, false)
 	if err != nil {
 		// Skip a single bad packet instead of tearing down the stream
 		// — chained-stream transitions sometimes leave one ragged

@@ -16,7 +16,6 @@ require (
 	github.com/kazzmir/opus-go v1.3.0
 	github.com/mewkiz/flac v1.0.13
 	github.com/oschwald/maxminddb-golang v1.13.1
-	github.com/pion/opus v0.0.0-20260504155822-67f6be33ea99
 	github.com/pion/webrtc/v4 v4.2.12
 	github.com/wneessen/go-mail v0.7.3
 	github.com/yutopp/go-flv v0.3.1
