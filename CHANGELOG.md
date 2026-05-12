@@ -5,6 +5,65 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.1] - 2026-05-12
+
+### Fixed
+
+- **Auto-transcoded MP3 mounts dying on chained Ogg-Opus sources.**
+  `kazzmir/opus-go`'s `PacketReader` pins the bitstream serial of
+  the first page it sees and returns `ErrSerialMismatch` on the
+  next BOS, which fires every time the upstream Ogg producer
+  rotates its logical stream (entirely normal per RFC 3533 —
+  robodj and similar sources do this between tracks). The pump
+  goroutine exited cleanly on each rotation, the retry loop
+  respawned, but never sustained PCM long enough for the
+  downstream encoders to keep their output mounts above the
+  HealthMonitor's 120 s silence threshold; the listener saw 404
+  every couple of minutes. Fix: a small pure-Go Ogg page reader
+  that does NOT enforce a single serial, driving the codec
+  directly. Each BOS resets the per-stream state (channels,
+  preskip) and re-initialises the decoder; audio decoding is
+  continuous across rotations.
+
+- **Strict-decoder rejection of real-world Opus packets.** Initial
+  cut of the chain-aware decoder used `pion/opus` for the codec.
+  That decoder enforces RFC 6716 packet validation strictly —
+  code-1 even-payload, ≤120 ms duration, VBR overrun checks, CBR
+  divisibility — and rejected several packets per minute on the
+  production stream. Each reject was a silent ~20 ms gap, audible
+  as a skip. Switched to `kazzmir/opus-go`'s codec, which is
+  libopus transpiled to pure Go via `ccgo` (no cgo) and matches
+  the reference C implementation's tolerance for real-world
+  encoder output. `pion/opus` dropped from `go.mod`.
+
+- **Transcoded outputs removed during transient source flaps.**
+  When the upstream source briefly disconnected (8-36 s gaps are
+  routine for robodj), the HealthMonitor reaped every transcoded
+  output mount after 120 s of silence. Player saw 404, gave up,
+  and on auto-reconnect got a burst of stale MP3 from the
+  pre-flap buffer ("playing, silence, loading, old fragments,
+  jumps"). Fix: HealthMonitor.check skips auto-remove for streams
+  flagged `IsTranscoded`. They're tied to a configured encoder
+  goroutine that re-attaches on every source resume; the mount
+  stays at 200 throughout the gap.
+
+- **Stale audio burst replayed after source flap recovery.** New
+  `Stream.FlushAtHead` bumps a per-stream flush generation, signals
+  every listener, and snaps `MinListenerOffset` to the current
+  buffer head. The listener handler observes the generation on
+  every signal iteration and jumps its offset forward, so listeners
+  who survived the gap (and any auto-reconnecting subscribers) hear
+  the encoder's fresh output, not stale buffered MP3 from before.
+  `performTranscode` calls `FlushAtHead` before each encode loop,
+  making the source-resume path the only place this fires in
+  practice.
+
+- **Stalled-pump watchdog (now a safety net, not the primary fix).**
+  Per-pump 30 s no-write watchdog cancels the pump context if the
+  decoder genuinely stops producing PCM (kept from `2.6.0`'s
+  initial 8 s window, extended to 30 s since the chain-rotation
+  case is now handled by the parser itself).
+
 ## [2.6.0] - 2026-05-12
 
 ### Fixed
