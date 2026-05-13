@@ -1,0 +1,41 @@
+[Unit]
+Description=TinyIce streaming server
+Documentation=https://github.com/DatanoiseTV/tinyice
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tinyice
+Group=tinyice
+WorkingDirectory=/var/lib/tinyice
+ExecStart=/usr/bin/tinyice -config /etc/tinyice/tinyice.json
+Restart=on-failure
+RestartSec=5
+Nice=5
+
+# Hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/tinyice /etc/tinyice
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictRealtime=yes
+SystemCallArchitectures=native
+
+# Bind 80/443 without root via the file-capability set by the postinst
+# script. If the operator changes the bind ports to >=1024 these caps
+# are simply unused.
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target

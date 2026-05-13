@@ -1,0 +1,73 @@
+# nFPM config for tinyice — builds .deb and .rpm from a pre-compiled
+# Linux binary. Version + arch come from the environment so the same
+# config drives every matrix cell in CI:
+#
+#   cp dist/tinyice-linux-amd64 packaging/_staged/tinyice
+#   NFPM_VERSION=2.6.1 NFPM_ARCH=amd64 \
+#     nfpm package --config packaging/nfpm.yaml --packager deb
+#
+# The binary MUST be staged at packaging/_staged/tinyice — nFPM
+# expands env vars in scalar fields like `version` and `arch`, but
+# NOT inside contents.src globs, so we route the per-arch binary
+# through a fixed staging path instead. NFPM_ARCH uses nFPM's
+# canonical arch labels (amd64, arm64, …); nFPM maps those to deb's
+# (amd64/arm64) and rpm's (x86_64/aarch64).
+
+name: tinyice
+version: ${NFPM_VERSION}
+arch: ${NFPM_ARCH}
+platform: linux
+
+section: net
+priority: optional
+maintainer: DatanoiseTV <sylwester@teile-elektronik.com>
+description: |
+  Modern, all-in-one Icecast-compatible audio/video streaming server.
+  TinyIce mounts MP3, AAC, Ogg-Opus, Ogg-Vorbis, FLAC, and HLS streams,
+  transcodes between formats on the fly, ingests sources via Icecast
+  SOURCE / WebRTC / SRT / RTMP, and ships with a built-in admin UI,
+  listener map, and history database.
+
+vendor: DatanoiseTV
+homepage: https://github.com/DatanoiseTV/tinyice
+license: Apache-2.0
+
+contents:
+  - src: packaging/_staged/tinyice
+    dst: /usr/bin/tinyice
+    file_info:
+      mode: 0755
+
+  - src: packaging/tinyice.service
+    dst: /lib/systemd/system/tinyice.service
+    file_info:
+      mode: 0644
+
+  - dst: /etc/tinyice
+    type: dir
+    file_info:
+      mode: 0750
+
+  - dst: /var/lib/tinyice
+    type: dir
+    file_info:
+      mode: 0750
+
+scripts:
+  preinstall: packaging/preinstall.sh
+  postinstall: packaging/postinstall.sh
+  preremove: packaging/preremove.sh
+  postremove: packaging/postremove.sh
+
+# deb-specific bits (lintian-friendly defaults). nFPM ignores these
+# when packager is rpm.
+deb:
+  fields:
+    Vcs-Browser: https://github.com/DatanoiseTV/tinyice
+    Vcs-Git: https://github.com/DatanoiseTV/tinyice.git
+
+rpm:
+  # Group and summary keep rpmlint quieter.
+  group: Applications/Multimedia
+  summary: All-in-one Icecast-compatible streaming server
+  compression: zstd

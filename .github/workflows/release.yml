@@ -115,9 +115,97 @@ jobs:
             exit 1 # Fail
           fi
 
+  package_linux:
+    name: Package (${{ matrix.arch }} deb+rpm)
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Download Linux binary
+        uses: actions/download-artifact@v8
+        with:
+          name: tinyice-linux-${{ matrix.arch }}
+          path: dist
+
+      - name: Install nFPM
+        run: |
+          NFPM_TOOL_VERSION=2.46.3
+          curl -sSL "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_TOOL_VERSION}/nfpm_${NFPM_TOOL_VERSION}_Linux_x86_64.tar.gz" \
+            | sudo tar -xz -C /usr/local/bin nfpm
+          nfpm --version
+
+      - name: Build deb + rpm
+        env:
+          # nFPM expects bare X.Y.Z; strip the leading "v" from the tag.
+          NFPM_VERSION: ${{ github.ref_name }}
+          NFPM_ARCH: ${{ matrix.arch }}
+        run: |
+          NFPM_VERSION="${NFPM_VERSION#v}"
+          export NFPM_VERSION
+          # Stage the per-arch binary at the fixed path nfpm.yaml
+          # references; env vars don't expand inside contents.src.
+          mkdir -p packaging/_staged
+          cp "dist/tinyice-linux-${NFPM_ARCH}" packaging/_staged/tinyice
+          chmod +x packaging/_staged/tinyice
+          mkdir -p packages
+          nfpm package --config packaging/nfpm.yaml --packager deb --target packages/
+          nfpm package --config packaging/nfpm.yaml --packager rpm --target packages/
+          ls -la packages/
+
+      - name: Smoke-test deb install + uninstall (amd64 only)
+        if: matrix.arch == 'amd64'
+        run: |
+          DEB=$(ls packages/*.deb | head -1)
+          echo "Installing $DEB"
+          sudo dpkg -i "$DEB"
+          # Files in place
+          test -x /usr/bin/tinyice
+          test -f /lib/systemd/system/tinyice.service
+          test -d /etc/tinyice
+          test -d /var/lib/tinyice
+          # System user created by preinstall
+          getent passwd tinyice >/dev/null
+          # Binary execves and reads its flags (exits 2 on --help, which
+          # is fine — we just want to confirm it didn't segfault on a
+          # missing shared library).
+          /usr/bin/tinyice --help >/dev/null 2>&1 ; rc=$?
+          [ $rc -eq 0 ] || [ $rc -eq 2 ] || { echo "tinyice --help crashed: rc=$rc" ; exit 1 ; }
+          # Capability set so the unprivileged user can bind to 80/443
+          getcap /usr/bin/tinyice | grep -q cap_net_bind_service || \
+            echo "warn: setcap unavailable on runner — production install will get the cap"
+          # Unit should be MASKED out of the gate — operator must
+          # explicitly unmask before enable+start. Verify both that
+          # systemctl reports it masked AND that a stray `start`
+          # refuses to bring it up.
+          if [ -d /run/systemd/system ]; then
+            state=$(systemctl is-enabled tinyice 2>&1 || true)
+            echo "systemctl is-enabled: $state"
+            echo "$state" | grep -q masked || { echo "expected unit to be masked"; exit 1; }
+            if sudo systemctl start tinyice 2>/dev/null; then
+              echo "BUG: masked unit accepted a start request"
+              exit 1
+            fi
+            echo "mask blocks accidental start — OK"
+          fi
+          sudo dpkg -r tinyice
+          test ! -f /lib/systemd/system/tinyice.service
+          echo "deb install/remove cycle OK"
+
+      - name: Upload Linux packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: tinyice-packages-${{ matrix.arch }}
+          path: packages/*
+
   release:
     name: Create Release
-    needs: [build, test_startup]
+    needs: [build, test_startup, package_linux]
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
@@ -128,8 +216,10 @@ jobs:
       - name: Generate Checksums
         run: |
           cd artifacts
-          # Generate checksums for all binaries in subdirectories
-          sha256sum tinyice-*/* | sed 's|tinyice-[^/]*/||' > ../checksums.txt
+          # Generate checksums for binaries + Linux packages. nFPM
+          # writes deb/rpm into tinyice-packages-<arch>/ artifact dirs.
+          sha256sum tinyice-*/tinyice-* tinyice-packages-*/*.deb tinyice-packages-*/*.rpm 2>/dev/null \
+            | sed -E 's|tinyice-[^/]*/||' > ../checksums.txt
           cd ..
 
       - name: Release
@@ -138,6 +228,8 @@ jobs:
         with:
           files: |
             artifacts/**/tinyice*
+            artifacts/tinyice-packages-*/*.deb
+            artifacts/tinyice-packages-*/*.rpm
             checksums.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
