@@ -46,17 +46,25 @@ func (s *Stream) Snapshot() StreamStats {
 		health = (float64(bi) / float64(total)) * 100.0
 	}
 
-	// 2. Source Stall Penalty (User Request)
-	// If we haven't received data for more than 5 seconds, health starts dropping
-	if !s.LastDataReceived.IsZero() {
-		silence := time.Since(s.LastDataReceived)
-		if silence > 5*time.Second {
-			penalty := float64(silence/time.Second) * 2.0 // 2% per second of silence
-			health -= penalty
+	// 2. Source Stall Penalty.
+	// Skipped for transcoded outputs: their encoder is gated on
+	// listener count (transcode.go EncodeMP3/EncodeOpus return early
+	// when ListenersCount()==0) so LastDataReceived doesn't tick
+	// while the mount is idle. Applying the silence penalty there
+	// would surface as 50-60% health on perfectly healthy mounts
+	// nobody happens to be listening to. The upstream source mount
+	// has its own health metric that reflects real-source stalls.
+	if !s.IsTranscoded {
+		if !s.LastDataReceived.IsZero() {
+			silence := time.Since(s.LastDataReceived)
+			if silence > 5*time.Second {
+				penalty := float64(silence/time.Second) * 2.0 // 2% per second of silence
+				health -= penalty
+			}
+		} else if time.Since(s.Started) > 10*time.Second {
+			// Never received data and stream started > 10s ago
+			health = 0
 		}
-	} else if time.Since(s.Started) > 10*time.Second {
-		// Never received data and stream started > 10s ago
-		health = 0
 	}
 
 	if health < 0 {
