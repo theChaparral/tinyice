@@ -5,6 +5,29 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.2] - 2026-05-13
+
+### Added
+
+- **Debian + RPM packages on every release.** Per-arch `.deb` (amd64,
+  arm64) and `.rpm` (x86_64, aarch64) packages are now built via nFPM
+  and attached to the GitHub release alongside the raw binaries. The
+  package installs the binary at `/usr/bin/tinyice` with
+  `cap_net_bind_service=+ep`, creates a dedicated `tinyice` system
+  user, ships a hardened systemd unit at
+  `/lib/systemd/system/tinyice.service`, and lays down `/etc/tinyice`
+  + `/var/lib/tinyice` for config and state.
+
+  The unit is **masked** on install so a stray `systemctl start
+  tinyice` or distro auto-enable hook can't bring up an unconfigured
+  daemon. The post-install message walks the operator through unmask
+  → `enable --now` → reading the auto-generated admin password from
+  the journal.
+
+  CI smoke-tests the amd64 deb on every tag (`dpkg -i` → file/user
+  presence → `--help` execve → verifies the unit is masked →
+  `dpkg -r`).
+
 ## [2.6.1] - 2026-05-12
 
 ### Fixed
