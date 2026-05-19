@@ -347,45 +347,63 @@ async function pickAudioSource(mountPath: string): Promise<string> {
   return mountPath
 }
 
+  // Track whether we've already attached the HLS / WHEP source to the
+  // video element. For video mounts we attach on mount (no user gesture
+  // required — the video element accepts a src whenever) so the OS
+  // native play button works on mobile too; the custom overlay button
+  // simply calls .play(). For audio mounts we still defer src
+  // assignment to handlePlay because we want to create the AudioContext
+  // and resume it inside the user-gesture call frame for the visualiser.
+  const srcAttachedRef = useRef(false)
+
+  const attachVideoSource = useCallback(async () => {
+    const el = audioRef.current
+    if (!el || srcAttachedRef.current) return
+    srcAttachedRef.current = true
+    const mountPath = data.mount!.startsWith('/') ? data.mount! : `/${data.mount}`
+    const wantsWebRTC = new URLSearchParams(window.location.search).get('webrtc') === '1'
+    if (wantsWebRTC) {
+      const whep = await attachWHEP(mountPath, el)
+      if (whep) {
+        whepCleanup.current = whep
+        return
+      }
+    }
+    const hlsUrl = await resolveHLSUrl(mountPath)
+    hlsRef.current = await attachHLS(hlsUrl, el)
+  }, [])
+
+  // Attach the HLS / WHEP source on mount for video mounts. Without
+  // this, mobile browsers that render the OS-level video controls
+  // (Android Chrome, iOS Safari) end up with a play button that does
+  // nothing because no src is set — and the custom overlay button can
+  // be hard to tap when the native UI takes over the touch layer.
+  // Attaching on mount means both buttons just need to call .play().
+  useEffect(() => {
+    if (!data.hasVideo) return
+    void attachVideoSource()
+  }, [attachVideoSource])
+
   const handlePlay = useCallback(async () => {
     const el = audioRef.current
     if (!el) return
-    // The AudioContext has to exist (connectAudio creates it) AND be
-    // resumed within the user-gesture call frame. Resuming first does
-    // nothing if there is no context yet, then connectAudio creates a
-    // fresh suspended one and the gesture is already consumed — net
-    // result is silent playback until the user clicks a second time.
-    // Order must be: connect -> resume -> play.
-    if (!analyserRef.current) {
-      analyserRef.current = connectAudio(el)
-    }
-    await resumeAudio()
-    // When the mount advertises a video track we play the HLS playlist —
-    // the segments muxed by the server interleave audio and video, so a
-    // single <video> element covers both. Safari/iOS play HLS natively;
-    // on Firefox/Chromium attachHLS dynamically loads hls.js and drives
-    // the element via Media Source Extensions. Audio-only mounts keep
-    // using the raw Icecast stream URL.
     const mountPath = data.mount!.startsWith('/') ? data.mount! : `/${data.mount}`
     if (data.hasVideo) {
-      // HLS is the default for video — robust against B-frames and
-      // network jitter. WHEP gives sub-second latency but currently
-      // requires the source to publish without B-frames; opt in via
-      // the ?webrtc=1 query string while we improve the egress path.
-      const wantsWebRTC = new URLSearchParams(window.location.search).get('webrtc') === '1'
-      let attached = false
-      if (wantsWebRTC) {
-        const whep = await attachWHEP(mountPath, el)
-        if (whep) {
-          whepCleanup.current = whep
-          attached = true
-        }
-      }
-      if (!attached) {
-        const hlsUrl = await resolveHLSUrl(mountPath)
-        hlsRef.current = await attachHLS(hlsUrl, el)
-      }
+      // Source was attached on mount; just kick off playback. No
+      // AudioContext routing for video mounts — the visualiser uses
+      // the album-art column instead, and routing a video element's
+      // audio through createMediaElementSource on iOS Safari makes
+      // the device output silent until the page is reloaded.
+      await attachVideoSource()
     } else {
+      // Audio-only path: AudioContext must be created + resumed in the
+      // user-gesture call frame, before .play(), otherwise iOS leaves
+      // it suspended and playback is silent until the user clicks
+      // again. Order: connect -> resume -> set src -> play.
+      if (!analyserRef.current) {
+        analyserRef.current = connectAudio(el)
+      }
+      await resumeAudio()
       el.src = await pickAudioSource(mountPath)
     }
     try {
@@ -398,7 +416,7 @@ async function pickAudioSource(mountPath: string): Promise<string> {
       console.warn('play() failed:', err)
     }
     playing.value = true
-  }, [])
+  }, [attachVideoSource])
 
   const handlePause = useCallback(() => {
     const el = audioRef.current
@@ -569,6 +587,12 @@ async function pickAudioSource(mountPath: string): Promise<string> {
               preload="none"
               playsInline
               controls
+              onPlay={() => { playing.value = true }}
+              onPause={() => { playing.value = false }}
+              onError={(e) => {
+                // eslint-disable-next-line no-console
+                console.warn('video element error', (e.currentTarget as HTMLVideoElement).error)
+              }}
               class="absolute inset-0 w-full h-full rounded-xl bg-black shadow-2xl"
             />
             {!playing.value && (
