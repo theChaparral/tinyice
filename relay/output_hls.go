@@ -431,16 +431,39 @@ func pesBatchRange(videoBatch, audioBatch []pesUnit) (first, end int64) {
 
 // buildAVSegment muxes a list of audio + video access units into a single
 // MPEG-TS segment. Each frame becomes its own PES packet with its own
-// PTS.
+// PTS, and the two batches are interleaved by DTS so audio and video
+// packets travel close together on the wire.
+//
+// Apple's HLS Authoring Specification §4.4.5 says audio packets MUST
+// NOT be separated from the corresponding video packets by more than
+// 100 ms. Dumping the entire video batch before the entire audio
+// batch (the previous behaviour) made a 6 s segment carry ~6000 ms of
+// video before any audio — iOS Safari refused to play such streams
+// and the browser sat in a "stalled" state forever with no
+// MediaError. Interleaving by DTS keeps audio≤100 ms behind video at
+// the natural frame cadence of the source.
 func (h *HLSOutput) buildAVSegment(audioBatch, videoBatch []pesUnit, audioStreamType byte) []byte {
 	var buf bytes.Buffer
 	h.muxer.writePAT(&buf)
 	h.muxer.writePMTAV(&buf, audioStreamType)
-	for _, v := range videoBatch {
-		h.muxer.writeVideoPES(&buf, v.data, v.pts, v.dts)
+	// Merge-sort by DTS. Audio frames have dts == pts. Video frames
+	// with B-frames have dts < pts; sorting by dts produces the right
+	// on-wire ordering for the decoder buffer.
+	vi, ai := 0, 0
+	for vi < len(videoBatch) && ai < len(audioBatch) {
+		if videoBatch[vi].dts <= audioBatch[ai].dts {
+			h.muxer.writeVideoPES(&buf, videoBatch[vi].data, videoBatch[vi].pts, videoBatch[vi].dts)
+			vi++
+		} else {
+			h.muxer.writeAudioPES(&buf, audioBatch[ai].data, audioBatch[ai].pts)
+			ai++
+		}
 	}
-	for _, a := range audioBatch {
-		h.muxer.writeAudioPES(&buf, a.data, a.pts)
+	for ; vi < len(videoBatch); vi++ {
+		h.muxer.writeVideoPES(&buf, videoBatch[vi].data, videoBatch[vi].pts, videoBatch[vi].dts)
+	}
+	for ; ai < len(audioBatch); ai++ {
+		h.muxer.writeAudioPES(&buf, audioBatch[ai].data, audioBatch[ai].pts)
 	}
 	return buf.Bytes()
 }
