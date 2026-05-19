@@ -166,7 +166,12 @@ func (r *SegmentRing) GenerateM3U8(mountPath string, windowSize int) string {
 	// short-segment streams (~2 s) that's a 6 s blank-screen startup
 	// that some users perceive as "video doesn't load".
 	playlist += "#EXT-X-INDEPENDENT-SEGMENTS\n"
-	playlist += "\n"
+	// No blank separator line between headers and segment list. RFC
+	// 8216 §4.1 explicitly forbids blank lines in HLS playlists, and
+	// while hls.js / VLC / ffmpeg tolerate them, iOS Safari treats a
+	// blank line as a parse error and stalls without surfacing a
+	// MediaError (Buffer 0.0 s, Frames 0, ticking timer, eventual
+	// "stalled" event). Concatenate the segment list directly.
 
 	for _, s := range segments {
 		if s.Discontinuity {
