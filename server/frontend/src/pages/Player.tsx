@@ -372,6 +372,15 @@ async function pickAudioSource(mountPath: string): Promise<string> {
     }
     const hlsUrl = await resolveHLSUrl(mountPath)
     hlsRef.current = await attachHLS(hlsUrl, el)
+    // iOS Safari with preload="none" sometimes ignores a freshly-set
+    // src and leaves the video element in an idle "no segment loaded"
+    // state forever — the play() call later then fires onPlay because
+    // the element transitions out of HAVE_NOTHING, but nothing is
+    // actually buffered (Buffer: 0.0s, Frames: 0 in the stats panel).
+    // An explicit .load() kicks the network stack into fetching the
+    // playlist immediately, which makes the playback start when the
+    // user taps play.
+    try { el.load() } catch { /* some browsers throw if no src */ }
   }, [])
 
   // Attach the HLS / WHEP source on mount for video mounts. Without
@@ -585,11 +594,25 @@ async function pickAudioSource(mountPath: string): Promise<string> {
             <video
               ref={audioRef as any}
               crossOrigin="anonymous"
-              preload="none"
+              preload="metadata"
               playsInline
               controls
               onPlay={() => { playing.value = true; playbackError.value = '' }}
               onPause={() => { playing.value = false }}
+              onStalled={() => {
+                playbackError.value = 'STALLED (video element waiting for data)'
+              }}
+              onSuspend={() => {
+                // suspend fires when the browser stops fetching for
+                // any reason — including "I have enough data" so we
+                // don't surface this unconditionally. Only flag it
+                // when nothing has been buffered yet, which is the
+                // iOS Safari "silently refused the playlist" symptom.
+                const el = audioRef.current
+                if (el && el.readyState === 0 && el.networkState === 3 /* NETWORK_NO_SOURCE */) {
+                  playbackError.value = 'NO_SOURCE (browser rejected the playlist)'
+                }
+              }}
               onError={(e) => {
                 const err = (e.currentTarget as HTMLVideoElement).error
                 const codes: Record<number, string> = {

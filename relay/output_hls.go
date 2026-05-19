@@ -289,7 +289,6 @@ func (h *HLSOutput) runFramedSession(ctx context.Context, audio, video *Track) {
 		videoBatch []pesUnit
 		segStart   = time.Now()
 		segHasIDR  bool
-		emittedOne bool
 	)
 
 	flush := func() {
@@ -336,7 +335,6 @@ func (h *HLSOutput) runFramedSession(ctx context.Context, audio, video *Track) {
 		audioBatch = audioBatch[:0]
 		videoBatch = videoBatch[:0]
 		segHasIDR = false
-		emittedOne = true
 		segStart = time.Now()
 	}
 
@@ -367,11 +365,17 @@ func (h *HLSOutput) runFramedSession(ctx context.Context, audio, video *Track) {
 			if !ok {
 				return
 			}
-			// Prefer to start segments on keyframes: if we've already
-			// emitted one segment, any subsequent keyframe closes the
-			// current one and starts the new segment at the IDR.
+			// Prefer to start segments on keyframes, but respect the
+			// configured SegmentDuration as a TARGET (not a minimum):
+			// flush at the first keyframe at-or-after SegmentDuration
+			// elapsed. Previously the condition was "emittedOne ||
+			// time.Since >= SegmentDuration" which collapsed to
+			// flushing on every GOP after the first segment — so a
+			// source with a 2 s GOP locked us to 2 s segments
+			// regardless of the configured 4 s target, and mobile
+			// HLS players that need ≥4 s segments couldn't play.
 			if f.Keyframe {
-				if emittedOne || time.Since(segStart) >= h.config.SegmentDuration {
+				if time.Since(segStart) >= h.config.SegmentDuration {
 					if segHasIDR || len(videoBatch) > 0 || len(audioBatch) > 0 {
 						flush()
 					}
