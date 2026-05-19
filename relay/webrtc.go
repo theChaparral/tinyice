@@ -220,16 +220,15 @@ func (wm *WebRTCManager) HandleSourceOffer(mount string, offer webrtc.SessionDes
 		defer close(doneCh)
 
 		stream := wm.relay.GetOrCreateStream(mount)
-		headOffset := stream.Buffer.HeadOffset()
 		stream.mu.Lock()
 		stream.ContentType = "audio/ogg"
 		stream.IsOggStream = true
 		stream.SourceIP = "webrtc-source"
-		// Reset page offsets so we don't sync to old pages from a previous session
-		stream.PageOffsets = make([]int64, 2048)
-		stream.PageIndex = 0
-		stream.OggHeaderOffset = headOffset
 		stream.mu.Unlock()
+		// Fresh producer session: wipes Ogg page-tracking state from any
+		// previous source on this mount and snaps existing listeners to
+		// the live edge.
+		stream.BeginSession()
 
 		// Capture headers written by oggwriter.NewWith
 		var headerBuf bytes.Buffer

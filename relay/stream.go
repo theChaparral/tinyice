@@ -241,6 +241,54 @@ func (s *Stream) FlushGen() uint64 {
 	return s.flushGen.Load()
 }
 
+// BeginSession marks the start of a fresh producer session on this stream
+// (transcoder restart after a source flap, WebRTC source reconnect, AutoDJ
+// re-arming after a stop, ...). It is the Ogg-aware superset of FlushAtHead:
+//
+//   - bytes already in the buffer are declared stale (MinListenerOffset
+//     snaps to Buffer.Head, flushGen bumps, every listener is woken so
+//     they jump to the live edge);
+//   - the Ogg page-tracking state is wiped (PageOffsets, LastPageOffset,
+//     PageIndex, OggHead, OggHeaderOffset all reset). Without this wipe a
+//     new subscriber that arrived between the restart and the next
+//     StoreOggHead would align to a tracked page offset from the previous
+//     Ogg serial and decode garbage; with it, Subscribe falls through to
+//     the live edge and the listener picks up the next BOS page cleanly.
+//
+// Producers that re-initialise their encoder (new Ogg serial, new ID/Tag
+// headers) should call this once, before writing the new run.
+func (s *Stream) BeginSession() {
+	if s.Buffer == nil {
+		return
+	}
+	head := s.Buffer.HeadOffset()
+	s.mu.Lock()
+	s.MinListenerOffset = head
+	s.OggHead = nil
+	s.OggHeaderOffset = head
+	s.LastPageOffset = 0
+	s.PageIndex = 0
+	for i := range s.PageOffsets {
+		s.PageOffsets[i] = 0
+	}
+	chans := make([]chan struct{}, 0, len(s.listeners))
+	for _, ch := range s.listeners {
+		chans = append(chans, ch)
+	}
+	s.mu.Unlock()
+	s.Buffer.ResetKeyframes()
+	s.flushGen.Add(1)
+	for _, ch := range chans {
+		func(ch chan struct{}) {
+			defer func() { _ = recover() }()
+			select {
+			case ch <- struct{}{}:
+			default:
+			}
+		}(ch)
+	}
+}
+
 // VideoInfo returns the flags that the HTTP listener path needs to
 // decide whether a stream is video and what headers to prepend, under
 // the stream mutex. Callers outside the relay package can't read the
@@ -534,19 +582,30 @@ func (s *Stream) Broadcast(data []byte, relay *Relay) {
 		// skips ahead between candidate 'O' bytes — for a 4-8 KiB
 		// Broadcast call with few O bytes (Opus payload) this is
 		// ~16x fewer comparisons than a byte-by-byte scan.
+		//
+		// We MUST validate the byte that follows "OggS" (the Ogg
+		// stream-structure version) before recording an offset.
+		// 0x4F 0x67 0x67 0x53 also occurs inside Opus packet
+		// payloads — without the version-byte check those false
+		// positives end up in PageOffsets and cause new listeners
+		// to align mid-packet, which manifests as glitched /
+		// "shuffled" audio. Real Ogg pages always have version 0
+		// at byte+4. If the magic lands in the last 4 bytes of
+		// this chunk we can't peek at the version yet; skip it,
+		// the next Broadcast call will see the full header.
 		i := 0
-		for i <= len(data)-4 {
-			j := bytes.IndexByte(data[i:len(data)-3], 'O')
+		for i <= len(data)-5 {
+			j := bytes.IndexByte(data[i:len(data)-4], 'O')
 			if j < 0 {
 				break
 			}
 			i += j
-			if data[i+1] == 'g' && data[i+2] == 'g' && data[i+3] == 'S' {
+			if data[i+1] == 'g' && data[i+2] == 'g' && data[i+3] == 'S' && data[i+4] == 0 {
 				offset := s.Buffer.Head + int64(i)
 				s.LastPageOffset = offset
 				s.PageOffsets[s.PageIndex%len(s.PageOffsets)] = offset
 				s.PageIndex++
-				i += 4
+				i += 5
 			} else {
 				i++
 			}
@@ -645,6 +704,18 @@ func (s *Stream) Subscribe(id string, burstSize int) (int64, chan struct{}) {
 	// Create buffered signal channel for this listener
 	ch := make(chan struct{}, 1)
 	s.listeners[id] = ch
+
+	// Freshness gate: if the producer has been silent for >2s, the bytes
+	// currently in the buffer are stale (from a previous song / a prior
+	// source / a flap). Starting the listener at Head-burstSize would
+	// replay several seconds of that old audio before the source resumed.
+	// Start at the live edge instead; the listener gets immediate audio
+	// as soon as the next Broadcast lands. 2s is large enough to cover
+	// normal between-frame jitter but small enough that pauses between
+	// songs / brief flaps don't replay.
+	if !s.LastDataReceived.IsZero() && time.Since(s.LastDataReceived) > 2*time.Second {
+		return s.Buffer.Head, ch
+	}
 
 	// Start at current head minus burst size for instant playback
 	// This gives the listener immediate audio data instead of waiting for new data

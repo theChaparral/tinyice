@@ -205,12 +205,14 @@ func (tm *TranscoderManager) performTranscode(ctx context.Context, inst *Transco
 	output.Visible = visible
 	output.mu.Unlock()
 
-	// Mark the live edge of the output buffer so any listeners that
-	// stayed connected through the previous performTranscode iteration
-	// snap forward to the new encoder's output instead of replaying
-	// the stale buffer contents from before the source flap. On the
-	// very first iteration the buffer is empty so this is a no-op.
-	output.FlushAtHead()
+	// New producer session: snap listeners to the live edge AND wipe
+	// the Ogg page-tracking state. The previous encoder run used a
+	// different Ogg serial, so any tracked PageOffsets / OggHead from
+	// it now point at bytes that don't belong to this serial — a new
+	// subscriber that aligned to one of them would decode garbage.
+	// On the very first iteration the buffer is empty so the byte-
+	// level state is a no-op; the field clears are cheap.
+	output.BeginSession()
 
 	if input != nil {
 		go mirrorTranscodeMetadata(runCtx, input, output)
