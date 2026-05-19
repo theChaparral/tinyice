@@ -411,7 +411,14 @@ func (h *rtmpHandler) OnVideo(timestamp uint32, payload io.Reader) error {
 			// delivers AVCDecoderConfigurationRecord once, at stream
 			// start) and can't decode until the publisher reconnects.
 			isKeyframe := ContainsKeyframe(annexB)
-			if isKeyframe {
+			if isKeyframe && !HasInlineParameterSets(annexB) {
+				// Only prepend cached SPS/PPS when the encoder didn't
+				// already include them with the IDR. Sources like OBS
+				// and ffmpeg with -bsf:v dump_extra ship parameter sets
+				// inline at every keyframe; duplicating them confuses
+				// iOS Safari's hardware decoder (frozen video, audio
+				// keeps playing) and adds ~50-100 bytes per keyframe
+				// to every other consumer.
 				annexB = h.prependParameterSets(annexB)
 				// HeadOffset takes the buffer mutex; Buffer.Head directly
 				// is racy under the race detector. The value we want is

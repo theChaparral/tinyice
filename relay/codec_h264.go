@@ -83,6 +83,22 @@ func ParseNALUs(data []byte) []NALUnit {
 	return units
 }
 
+// HasInlineParameterSets returns true if the Annex-B byte stream
+// already contains an SPS (NALU type 7) or PPS (NALU type 8). Used
+// by ingest paths to decide whether to additionally prepend the
+// cached parameter sets to a keyframe — some encoders (OBS / ffmpeg
+// with -bsf:v dump_extra) already inline SPS+PPS at every IDR, and
+// adding a second copy makes iOS Safari's hardware H.264 decoder
+// silently freeze on the first frame ("audio plays, video blank").
+func HasInlineParameterSets(data []byte) bool {
+	for _, u := range ParseNALUs(data) {
+		if u.Type == 7 || u.Type == 8 {
+			return true
+		}
+	}
+	return false
+}
+
 // ContainsKeyframe returns true if the data contains an IDR NALU.
 func ContainsKeyframe(data []byte) bool {
 	units := ParseNALUs(data)
