@@ -158,10 +158,52 @@ func (s *Stream) IsOgg() bool {
 
 // SetSourceIP records the source address under the stream mutex so readers
 // (Snapshot, listener handlers, status handlers) see a consistent value.
+// Use TryClaimSource for the Icecast SOURCE / RTMP / SRT paths where two
+// concurrent clients could race for the same mount; SetSourceIP is fine
+// for paths that own their stream by construction (relay pull, WebRTC
+// ingest, web-audio publisher) and just want a label for the dashboard.
 func (s *Stream) SetSourceIP(ip string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.SourceIP = ip
+}
+
+// TryClaimSource atomically takes source ownership of this stream if it
+// has none, returning true. If the mount already has an active source
+// (SourceIP non-empty) it returns false WITHOUT changing state — the
+// caller MUST reject the new connection. Pair with ReleaseSource in a
+// defer.
+//
+// Without this, two concurrent SOURCE clients hitting the same mount
+// both pass auth, both call SetSourceIP, and both spawn read loops that
+// interleave bytes into the same ring buffer. Listeners then see two
+// MP3 / Ogg streams shredded together byte-by-byte and every decoder
+// errors out on missing frame headers. Observed in production with
+// robodj retrying a connect 3× within 25 ms on every restart.
+func (s *Stream) TryClaimSource(ip string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.SourceIP != "" {
+		return false
+	}
+	s.SourceIP = ip
+	return true
+}
+
+// ReleaseSource clears the source claim so the next TryClaimSource on
+// this stream succeeds. Idempotent.
+func (s *Stream) ReleaseSource() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.SourceIP = ""
+}
+
+// GetSourceIP returns the current source's address under the stream
+// mutex, mirroring SetSourceIP. Empty string means no live source.
+func (s *Stream) GetSourceIP() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.SourceIP
 }
 
 // StoreVideoHeaders records the Annex-B SPS and PPS bytes for an H.264

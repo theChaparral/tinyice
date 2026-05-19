@@ -141,6 +141,24 @@ func (s *Server) handleSource(w http.ResponseWriter, r *http.Request) {
 		s.Relay.History.RecordUA(r.Header.Get("User-Agent"), "source")
 	}
 
+	// Single-source enforcement. Without this, robodj-class clients
+	// that retry on connect (we've observed 3 SOURCE attempts within
+	// 25 ms after a restart) all get accepted concurrently. Two write
+	// loops then interleave bytes into the same ring buffer and every
+	// downstream MP3 / Ogg decoder errors out on missing frame
+	// headers. Claim BEFORE the hijack so we can return a clean 403
+	// for the loser; release in defer so the next reconnect (after
+	// the current source drops) succeeds.
+	stream := s.Relay.GetOrCreateStream(mount)
+	if !stream.TryClaimSource(r.RemoteAddr) {
+		existing := stream.GetSourceIP()
+		logger.L.Warnw("Source rejected: mount already has an active source",
+			"mount", mount, "new_ip", r.RemoteAddr, "existing_ip", existing)
+		http.Error(w, "Mount already has an active source", http.StatusForbidden)
+		return
+	}
+	defer stream.ReleaseSource()
+
 	hj, ok := w.(http.Hijacker)
 	if !ok {
 		http.Error(w, "Hijacking unsupported", http.StatusInternalServerError)
@@ -172,9 +190,6 @@ func (s *Server) handleSource(w http.ResponseWriter, r *http.Request) {
 		"ua":    r.Header.Get("User-Agent"),
 		"name":  r.Header.Get("Ice-Name"),
 	})
-
-	stream := s.Relay.GetOrCreateStream(mount)
-	stream.SetSourceIP(r.RemoteAddr)
 
 	s.updateSourceMetadata(stream, mount, r)
 
