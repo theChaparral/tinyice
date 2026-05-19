@@ -232,7 +232,17 @@ func BuildH264SPS(info *SPSInfo, fpsHint uint32) []byte {
 	bw.u(8, uint32(0x67))             // nal_unit_type=7, nal_ref_idc=3
 	bw.u(8, uint32(info.ProfileIDC))
 	bw.u(8, uint32(info.ConstraintFlags))
-	bw.u(8, uint32(info.LevelIDC))
+	// Apple's HLS player rejects 1080p streams declared at Level 4.0
+	// (the per-second macroblock budget at 1080p30 lands EXACTLY at
+	// the Level 4.0 limit and iOS treats borderline as malformed).
+	// Bump any 1080p source to at least Level 4.1, which iOS accepts
+	// without complaint and is functionally identical for our
+	// bitstreams (same MaxMBPS, larger max bitrate envelope).
+	level := info.LevelIDC
+	if (info.PicWidthInMBsM1+1)*16 >= 1920 && level < 41 {
+		level = 41
+	}
+	bw.u(8, uint32(level))
 
 	bw.ue(info.SeqParameterSetID)
 	switch info.ProfileIDC {
@@ -287,11 +297,14 @@ func BuildH264SPS(info *SPSInfo, fpsHint uint32) []byte {
 	bw.u(1, 0)      // chroma_loc_info_present_flag
 
 	bw.u(1, 1)                  // timing_info_present_flag
+	// Match x264's canonical timing-info shape: time_scale=60,
+	// num_units_in_tick=1 → declared 30 fps. Mobile players (iOS
+	// Safari especially) treat the timing_info as a coarse hint;
+	// any value here that doesn't match the actual frame cadence
+	// implicitly inflates buffer estimates. Sticking to x264's
+	// known-good shape avoids surprising the demuxer.
 	bw.u(32, 1)                 // num_units_in_tick
-	if fpsHint == 0 {
-		fpsHint = 60
-	}
-	bw.u(32, 2*fpsHint)         // time_scale
+	bw.u(32, 60)                // time_scale (30 fps when num_units=1)
 	bw.u(1, 0)                  // fixed_frame_rate_flag = 0 (spec-consistent
 	                            // with no HRD params)
 	bw.u(1, 0)                  // nal_hrd_parameters_present_flag
@@ -302,10 +315,14 @@ func BuildH264SPS(info *SPSInfo, fpsHint uint32) []byte {
 
 	bw.u(1, 1)                  // bitstream_restriction_flag
 	bw.u(1, 1)                  // motion_vectors_over_pic_boundaries_flag
-	bw.ue(2)                    // max_bytes_per_pic_denom
-	bw.ue(1)                    // max_bits_per_mb_denom
-	bw.ue(16)                   // log2_max_mv_length_horizontal
-	bw.ue(16)                   // log2_max_mv_length_vertical
+	// Match x264's bitstream_restriction values byte-for-byte. iOS
+	// accepts these without question; other values (we previously
+	// emitted 2/1/16/16) read as overly-permissive and made iOS
+	// reject the SPS even after we fixed the HRD inconsistency.
+	bw.ue(0)                    // max_bytes_per_pic_denom
+	bw.ue(0)                    // max_bits_per_mb_denom
+	bw.ue(11)                   // log2_max_mv_length_horizontal
+	bw.ue(11)                   // log2_max_mv_length_vertical
 	bw.ue(2)                    // max_num_reorder_frames
 	mdfb := info.MaxNumRefFrames
 	if mdfb < 2 {

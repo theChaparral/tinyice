@@ -56,13 +56,18 @@ func TestIOSifyH264SPS_ProductionRTMPSource(t *testing.T) {
 		t.Fatalf("rewritten parse: %v", err)
 	}
 	if info2.ProfileIDC != info.ProfileIDC ||
-		info2.LevelIDC != info.LevelIDC ||
 		info2.PicWidthInMBsM1 != info.PicWidthInMBsM1 ||
 		info2.PicHeightInMapUnitsM1 != info.PicHeightInMapUnitsM1 ||
 		info2.FrameCropBottomOffset != info.FrameCropBottomOffset ||
 		info2.MaxNumRefFrames != info.MaxNumRefFrames ||
 		info2.ChromaFormatIDC != info.ChromaFormatIDC {
 		t.Errorf("structural fields changed across rewrite: %+v vs %+v", info, info2)
+	}
+	// Level is intentionally bumped 40 -> 41 for 1080p sources;
+	// iOS Safari rejects 1080p declared at exactly Level 4.0
+	// because the per-second-macroblock budget lands at the limit.
+	if info.LevelIDC == 40 && info2.LevelIDC != 41 {
+		t.Errorf("level not bumped 40 -> 41 for 1080p source (got %d)", info2.LevelIDC)
 	}
 }
 
