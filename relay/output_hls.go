@@ -163,10 +163,25 @@ func (h *HLSOutput) segmentLoopFramed(ctx context.Context, audio, video *Track) 
 	audioFrames := audio.Stream.Frames.Subscribe(ctx)
 	videoFrames := video.Stream.Frames.Subscribe(ctx)
 
-	audioStreamType := audioStreamTypeMP3
-	if ct := strings.ToLower(audio.Stream.ContentType); strings.Contains(ct, "aac") {
-		audioStreamType = audioStreamTypeAAC
+	// audioStreamType is sampled at flush time, not registration time.
+	// RTMP ingest defaults the input stream's ContentType to
+	// "audio/mpeg" and only flips it to "audio/aac" after the first
+	// AAC SequenceHeader (AudioSpecificConfig) arrives. If a viewer
+	// requests the HLS playlist in that ~700 ms window, RegisterHLS
+	// starts this loop with ContentType still defaulted; sampling
+	// once at the top would lock the PMT to MP3 forever and every
+	// segment would advertise MP3 audio while carrying AAC bytes
+	// (mpv / ffmpeg report it as "mp3float: Header missing" on every
+	// frame). Re-sampling each flush + emitting a discontinuity when
+	// the codec changes makes the player resync cleanly.
+	currentAudioStreamType := func() byte {
+		t := audioStreamTypeMP3
+		if ct := strings.ToLower(audio.Stream.ContentType); strings.Contains(ct, "aac") {
+			t = audioStreamTypeAAC
+		}
+		return t
 	}
+	prevAudioStreamType := currentAudioStreamType()
 
 	var (
 		audioBatch []pesUnit
@@ -180,6 +195,14 @@ func (h *HLSOutput) segmentLoopFramed(ctx context.Context, audio, video *Track) 
 		if len(audioBatch) == 0 && len(videoBatch) == 0 {
 			return
 		}
+		audioStreamType := currentAudioStreamType()
+		// PMT changes are a hard discontinuity for HLS players —
+		// without the #EXT-X-DISCONTINUITY marker hls.js / Safari
+		// keep trying to decode AAC bytes as MP3 across the boundary
+		// and stutter for a few segments before giving up.
+		discontinuity := audioStreamType != prevAudioStreamType
+		prevAudioStreamType = audioStreamType
+
 		tsData := h.buildAVSegment(audioBatch, videoBatch, audioStreamType)
 		// Use the first PTS as the segment's nominal start, and derive
 		// the segment duration from the actual span of PTS values we
@@ -194,7 +217,7 @@ func (h *HLSOutput) segmentLoopFramed(ctx context.Context, audio, video *Track) 
 		if lastEndPTS > firstPTS {
 			segDur = time.Duration(lastEndPTS-firstPTS) * time.Second / 90000
 		}
-		h.ring.Push(tsData, segDur, startPTS, false)
+		h.ring.Push(tsData, segDur, startPTS, discontinuity)
 		logger.L.Debugw("HLS: framed segment",
 			"mount", h.mount,
 			"bytes", len(tsData),
@@ -202,6 +225,8 @@ func (h *HLSOutput) segmentLoopFramed(ctx context.Context, audio, video *Track) 
 			"audio_frames", len(audioBatch),
 			"video_frames", len(videoBatch),
 			"sequence", h.ring.Sequence()-1,
+			"audio_st", audioStreamType,
+			"discontinuity", discontinuity,
 		)
 		audioBatch = audioBatch[:0]
 		videoBatch = videoBatch[:0]
@@ -338,24 +363,34 @@ func (h *HLSOutput) segmentLoopByteBuffer(ctx context.Context, audio *Track, vid
 	segStart := time.Now()
 	var audioPTS, videoPTS int64
 
-	// Pick the PMT stream_type for the audio track. Anything the client
-	// has said is AAC (RTMP ingest, or a Content-Type advertised as
-	// such) goes out as ADTS — the RTMP path prepends the ADTS header
-	// to the payload before broadcast so the bytes are already in the
-	// right shape.
-	audioStreamType := audioStreamTypeMP3
-	if audio != nil && audio.Stream != nil {
-		ct := strings.ToLower(audio.Stream.ContentType)
-		if strings.Contains(ct, "aac") {
-			audioStreamType = audioStreamTypeAAC
+	// Pick the PMT stream_type for the audio track. Sampled per-flush
+	// rather than once at loop start: RTMP ingest defaults its
+	// ContentType to "audio/mpeg" until the first AAC SequenceHeader
+	// arrives, and the framed loop above had the same one-shot bug
+	// that locked HLS to MP3 even on AAC sources whenever a viewer
+	// hit the playlist in the first ~700 ms. Re-sampling + flagging
+	// the segment as a discontinuity on change makes hls.js / Safari
+	// resync cleanly.
+	currentAudioStreamType := func() byte {
+		t := audioStreamTypeMP3
+		if audio != nil && audio.Stream != nil {
+			ct := strings.ToLower(audio.Stream.ContentType)
+			if strings.Contains(ct, "aac") {
+				t = audioStreamTypeAAC
+			}
 		}
+		return t
 	}
+	prevAudioStreamType := currentAudioStreamType()
 
 	flushIfReady := func(force bool) {
 		elapsed := time.Since(segStart)
 		if (!force && elapsed < h.config.SegmentDuration) || len(audioBuf) == 0 {
 			return
 		}
+		audioStreamType := currentAudioStreamType()
+		discontinuity := audioStreamType != prevAudioStreamType
+		prevAudioStreamType = audioStreamType
 		segDur := h.config.SegmentDuration
 		var tsData []byte
 		if videoStream != nil && len(videoBuf) > 0 {
@@ -363,7 +398,7 @@ func (h *HLSOutput) segmentLoopByteBuffer(ctx context.Context, audio *Track, vid
 		} else {
 			tsData = h.muxer.MuxMP3Segment(audioBuf, audioPTS)
 		}
-		h.ring.Push(tsData, segDur, audioPTS, false)
+		h.ring.Push(tsData, segDur, audioPTS, discontinuity)
 		inc := int64(segDur.Seconds() * tsClockRate)
 		audioPTS += inc
 		videoPTS += inc
