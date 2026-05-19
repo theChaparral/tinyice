@@ -404,6 +404,14 @@ func (h *rtmpHandler) OnVideo(timestamp uint32, payload io.Reader) error {
 			if len(annexB) == 0 {
 				return nil
 			}
+			// If the source ships SPS inline at every IDR (OBS /
+			// ffmpeg -bsf:v dump_extra / libx264 -repeat-headers),
+			// replace those inline SPS NALUs with the iOS-friendly
+			// rewrite. Same rationale as the cached-SPS rewrite in
+			// parseAVCConfig: the source's fixed_frame_rate=1+no-HRD
+			// shape is a H.264 §E.2.1 spec violation that iOS Safari
+			// rejects per-sample.
+			annexB = rewriteInlineSPS(annexB, 60)
 
 			// For every IDR (keyframe) inject the cached SPS and PPS
 			// immediately before the IDR NALU — otherwise a new viewer
@@ -490,8 +498,24 @@ func (h *rtmpHandler) parseAVCConfig(data []byte) {
 		spsLen := int(data[offset])<<8 | int(data[offset+1])
 		offset += 2
 		if offset+spsLen <= len(data) {
-			h.sps = make([]byte, spsLen)
-			copy(h.sps, data[offset:offset+spsLen])
+			raw := make([]byte, spsLen)
+			copy(raw, data[offset:offset+spsLen])
+			// Rewrite the SPS to a spec-compliant shape before we
+			// cache + ship it downstream. Some sources (we observed
+			// an OBS/x264 build) emit a SPS with fixed_frame_rate=1
+			// but no HRD parameters — that combination implies
+			// low_delay_hrd_flag=0 per H.264 §E.2.1, which iOS
+			// Safari's AVFoundation HLS demuxer rejects with
+			// kCMFormatDescriptionError_InvalidParameter on every
+			// sample (loadedmetadata 0x0, no frames decoded).
+			// IOSifyH264SPS preserves dimensions / profile / level
+			// / ref counts / cropping while substituting a
+			// minimal-but-conformant VUI. If the source SPS uses a
+			// shape we don't parse (interlaced, separate-colour,
+			// custom scaling lists), the function returns the
+			// original bytes unchanged so we never make a stream
+			// worse.
+			h.sps = IOSifyH264SPS(raw, 60)
 			offset += spsLen
 		}
 	}
