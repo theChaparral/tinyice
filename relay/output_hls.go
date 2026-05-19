@@ -56,10 +56,27 @@ type HLSOutput struct {
 	cancel context.CancelFunc
 	mu     sync.RWMutex
 
+	// relay is needed for self-healing across source flaps. When the
+	// upstream RTMP source drops, the audio/video Stream objects are
+	// removed from the relay and their FrameHub channels close. The
+	// segment loop catches the channel close, looks up fresh Stream
+	// pointers via relay.GetStream(mount), and resubscribes. Without
+	// this the segment loop would exit on the first source drop and
+	// the player would see stale ring contents followed by nothing.
+	// nil is tolerated for backward compatibility with call sites
+	// that build a one-shot HLSOutput against tracks they own.
+	relay *Relay
+
 	// hasVideo is a cached flag so the HTTP layer / status API can tell
 	// clients whether this HLS mount is A/V without reaching into the
 	// pipeline state.
 	hasVideo bool
+
+	// videoSubMount is the relay mount where the video track lives —
+	// e.g. "/zonetv/video" for an RTMP mount at "/zonetv". Used by the
+	// self-healing path to look up the fresh video Stream after a
+	// source-side flap.
+	videoSubMount string
 }
 
 // NewHLSOutput creates a new HLS output for the given mount.
@@ -70,6 +87,13 @@ func NewHLSOutput(mount string, config HLSConfig) *HLSOutput {
 		ring:   NewSegmentRing(config.RingCapacity),
 		muxer:  NewTSMuxer(),
 	}
+}
+
+// WithRelay sets the relay reference so the segment loop can
+// self-heal after a source flap. Idempotent. Returns h for chaining.
+func (h *HLSOutput) WithRelay(r *Relay) *HLSOutput {
+	h.relay = r
+	return h
 }
 
 func (h *HLSOutput) Protocol() string { return "hls" }
@@ -115,6 +139,9 @@ func (h *HLSOutput) Start(ctx context.Context, tracks []*Track) error {
 
 	h.mu.Lock()
 	h.hasVideo = videoTrack != nil
+	if videoTrack != nil && videoTrack.Stream != nil {
+		h.videoSubMount = videoTrack.Stream.MountName
+	}
 	h.mu.Unlock()
 
 	segCtx, cancel := context.WithCancel(ctx)
@@ -154,14 +181,84 @@ func (h *HLSOutput) segmentLoop(ctx context.Context, audio *Track, video *Track)
 	h.segmentLoopByteBuffer(ctx, audio, video)
 }
 
-// segmentLoopFramed consumes per-frame records from the audio + video
-// FrameHubs and emits one PES per frame with the correct PTS. Flushes a
-// segment roughly every SegmentDuration, preferring keyframe boundaries
-// for the segment start so HLS clients that join mid-stream get a fresh
-// IDR at segment-0 of their window.
+// segmentLoopFramed wraps the per-session framed loop in a
+// resubscribe-on-source-flap retry. Each "session" is one continuous
+// run of frames from the upstream Stream's FrameHub. When the source
+// disconnects, both FrameHub channels close and the inner loop
+// returns. We then clear the segment ring (so viewers don't replay
+// pre-flap segments), wait for a fresh Stream to appear under the
+// same mount, and restart with the new Track pointers. The next
+// segment pushed after a resubscribe is flagged as a discontinuity.
 func (h *HLSOutput) segmentLoopFramed(ctx context.Context, audio, video *Track) {
+	for ctx.Err() == nil {
+		h.runFramedSession(ctx, audio, video)
+		if ctx.Err() != nil || h.relay == nil {
+			return
+		}
+		// Inner loop returned because both upstream FrameHubs closed
+		// (RemoveStream on source disconnect). Drop the ring so the
+		// player doesn't keep replaying segments from the previous
+		// connection while we wait for the new source — and then poll
+		// for fresh Stream pointers under the same mount.
+		h.ring.Clear()
+		newAudio, newVideo := h.waitForFreshStreams(ctx)
+		if newAudio == nil {
+			return
+		}
+		audio, video = newAudio, newVideo
+		logger.L.Infow("HLS: resubscribed after source flap",
+			"mount", h.mount, "has_video", video != nil)
+	}
+}
+
+// waitForFreshStreams polls the relay at 500 ms cadence until the
+// audio mount (and, if this output is A/V, the video sub-mount) both
+// exist and have a non-nil FrameHub. Returns nil on context cancel.
+func (h *HLSOutput) waitForFreshStreams(ctx context.Context) (*Track, *Track) {
+	tick := time.NewTicker(500 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		as, aok := h.relay.GetStream(h.mount)
+		var vs *Stream
+		vok := h.videoSubMount == ""
+		if !vok {
+			vs, vok = h.relay.GetStream(h.videoSubMount)
+		}
+		if aok && vok && as != nil && as.Frames != nil &&
+			(vs == nil || vs.Frames != nil) {
+			audioCodec := "mp3"
+			if as.IsOgg() {
+				audioCodec = "opus"
+			}
+			at := NewAudioTrack(as, audioCodec)
+			var vt *Track
+			if vs != nil {
+				vt = NewTrackFromStream(MediaVideo, "h264", vs)
+			}
+			return at, vt
+		}
+		select {
+		case <-ctx.Done():
+			return nil, nil
+		case <-tick.C:
+		}
+	}
+}
+
+// runFramedSession consumes per-frame records from the audio + video
+// FrameHubs and emits one PES per frame with the correct PTS. Flushes
+// a segment roughly every SegmentDuration, preferring keyframe
+// boundaries for the segment start so HLS clients that join mid-
+// stream get a fresh IDR at segment-0 of their window. Returns when
+// both FrameHub channels close (caller decides whether to restart
+// the session against a fresh Stream pair).
+func (h *HLSOutput) runFramedSession(ctx context.Context, audio, video *Track) {
 	audioFrames := audio.Stream.Frames.Subscribe(ctx)
 	videoFrames := video.Stream.Frames.Subscribe(ctx)
+	// Force a discontinuity marker on the first segment of every new
+	// session so the player rebuilds its demuxer instead of trying to
+	// bridge the PTS jump from the previous source's last segment.
+	firstSegOfSession := true
 
 	// audioStreamType is sampled at flush time, not registration time.
 	// RTMP ingest defaults the input stream's ContentType to
@@ -199,9 +296,13 @@ func (h *HLSOutput) segmentLoopFramed(ctx context.Context, audio, video *Track) 
 		// PMT changes are a hard discontinuity for HLS players —
 		// without the #EXT-X-DISCONTINUITY marker hls.js / Safari
 		// keep trying to decode AAC bytes as MP3 across the boundary
-		// and stutter for a few segments before giving up.
-		discontinuity := audioStreamType != prevAudioStreamType
+		// and stutter for a few segments before giving up. The first
+		// segment after a source-flap resubscribe is also a
+		// discontinuity (fresh PTS timeline + possibly different
+		// codec / resolution).
+		discontinuity := audioStreamType != prevAudioStreamType || firstSegOfSession
 		prevAudioStreamType = audioStreamType
+		firstSegOfSession = false
 
 		tsData := h.buildAVSegment(audioBatch, videoBatch, audioStreamType)
 		// Use the first PTS as the segment's nominal start, and derive

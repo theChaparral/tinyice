@@ -104,6 +104,23 @@ func (r *SegmentRing) Count() int {
 	return r.count
 }
 
+// Clear drops every segment currently in the ring but keeps the
+// monotonically-increasing sequence counter. Use when the upstream
+// source has disconnected and reconnected with a fresh PTS timeline:
+// the old segments are no longer valid (the player would replay
+// pre-flap footage before reaching the new content), but rewinding
+// the sequence number would confuse HLS clients that expect
+// EXT-X-MEDIA-SEQUENCE to never decrease.
+func (r *SegmentRing) Clear() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for i := range r.segments {
+		r.segments[i] = nil
+	}
+	r.head = 0
+	r.count = 0
+}
+
 // Sequence returns the next sequence number that will be assigned.
 func (r *SegmentRing) Sequence() int {
 	r.mu.RLock()

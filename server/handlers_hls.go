@@ -322,7 +322,7 @@ func (s *Server) RegisterHLS(mount string) *relay.HLSOutput {
 	}
 
 	config := relay.DefaultHLSConfig()
-	hls := relay.NewHLSOutput(mount, config)
+	hls := relay.NewHLSOutput(mount, config).WithRelay(s.Relay)
 
 	// Determine codec from content type
 	codec := "mp3"
