@@ -11,6 +11,7 @@ import type { PlayerData } from '@/types'
 const data = (window.__TINYICE__ ?? {}) as Partial<PlayerData>
 
 const playing = signal(false)
+const playbackError = signal('')
 const title = signal(data.title || 'Untitled')
 const artist = signal(data.artist || 'Unknown Artist')
 const mode = signal<'http' | 'webrtc'>('http')
@@ -587,11 +588,22 @@ async function pickAudioSource(mountPath: string): Promise<string> {
               preload="none"
               playsInline
               controls
-              onPlay={() => { playing.value = true }}
+              onPlay={() => { playing.value = true; playbackError.value = '' }}
               onPause={() => { playing.value = false }}
               onError={(e) => {
+                const err = (e.currentTarget as HTMLVideoElement).error
+                const codes: Record<number, string> = {
+                  1: 'MEDIA_ERR_ABORTED (user-initiated abort)',
+                  2: 'MEDIA_ERR_NETWORK (segment fetch failed)',
+                  3: 'MEDIA_ERR_DECODE (codec or bitstream rejected by decoder)',
+                  4: 'MEDIA_ERR_SRC_NOT_SUPPORTED (browser cannot play this format)',
+                }
+                const code = err?.code ?? 0
+                const label = codes[code] || `code=${code}`
+                const msg = err?.message ? `${label}: ${err.message}` : label
+                playbackError.value = msg
                 // eslint-disable-next-line no-console
-                console.warn('video element error', (e.currentTarget as HTMLVideoElement).error)
+                console.warn('video element error', err, msg)
               }}
               class="absolute inset-0 w-full h-full rounded-xl bg-black shadow-2xl"
             />
@@ -607,6 +619,11 @@ async function pickAudioSource(mountPath: string): Promise<string> {
                   </svg>
                 </span>
               </button>
+            )}
+            {playbackError.value && (
+              <div class="absolute left-2 right-2 bottom-2 px-3 py-2 rounded-md bg-red-900/80 border border-red-500/60 text-red-100 font-mono text-[11px] leading-tight pointer-events-none">
+                {playbackError.value}
+              </div>
             )}
           </div>
         </main>

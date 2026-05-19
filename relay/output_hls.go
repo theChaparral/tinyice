@@ -28,16 +28,20 @@ type HLSConfig struct {
 	RingCapacity    int           // max segments retained in the ring buffer
 }
 
-// DefaultHLSConfig returns sensible defaults tuned for low latency + a
-// 60 s DVR window. Shorter segments reduce glass-to-glass latency (the
-// player needs ~3 segments of buffer to start, so 1 s segments ≈ 3 s
-// startup vs. 12 s with the previous 4 s default); exposing 60 segments
-// in the playlist lets the player scrub back a minute without extra
-// wiring on our side.
+// DefaultHLSConfig returns sensible defaults tuned for compatibility
+// with mobile browsers. Apple's HLS Authoring Specification (the de-
+// facto baseline iOS Safari validates against) recommends a 6 s
+// segment target with a hard minimum of 4 s; segments shorter than
+// that without LL-HLS partial-segment tags cause iOS to over-buffer
+// or refuse playback outright. We use 4 s as a compromise that keeps
+// glass-to-glass latency around 10-12 s while staying within the
+// "regular HLS" envelope. WindowSize=15 exposes ~60 s of DVR; the
+// 90-segment ring keeps the maths spacious for the case where
+// upstream keyframe interval briefly drifts above the target.
 func DefaultHLSConfig() HLSConfig {
 	return HLSConfig{
-		SegmentDuration: 1 * time.Second,
-		WindowSize:      60,
+		SegmentDuration: 4 * time.Second,
+		WindowSize:      15,
 		RingCapacity:    90,
 	}
 }

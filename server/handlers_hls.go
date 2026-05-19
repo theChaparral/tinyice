@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"net"
@@ -99,10 +100,18 @@ func (s *Server) handleHLSSegment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "video/mp2t")
-	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(segment.Data)))
 	w.Header().Set("Cache-Control", "public, max-age=60")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Write(segment.Data)
+	w.Header().Set("Accept-Ranges", "bytes")
+	// Use http.ServeContent so partial-content (Range) requests get a
+	// proper 206 response with Content-Range. Mobile HLS players poke
+	// Range to test the server before doing real range fetches; if we
+	// return 200 with the whole body they assume range support is
+	// broken and fall back to less efficient strategies (or in iOS
+	// Safari's case, refuse to load the segment at all on some
+	// versions). Mod-time is segment creation time so caching
+	// behaviour is sensible.
+	http.ServeContent(w, r, "", segment.CreatedAt, bytes.NewReader(segment.Data))
 }
 
 // handleWHEP implements a minimal WHEP (WebRTC-HTTP Egress Protocol)

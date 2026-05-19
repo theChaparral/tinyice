@@ -157,6 +157,15 @@ func (r *SegmentRing) GenerateM3U8(mountPath string, windowSize int) string {
 	playlist += "#EXT-X-VERSION:3\n"
 	playlist += fmt.Sprintf("#EXT-X-TARGETDURATION:%d\n", targetDuration)
 	playlist += fmt.Sprintf("#EXT-X-MEDIA-SEQUENCE:%d\n", mediaSequence)
+	// Every segment we emit starts on an IDR (the framed segment loop
+	// flushes on keyframe boundaries). Declaring that explicitly lets
+	// players start decoding at the first segment of their window
+	// instead of buffering an extra two or three segments "in case
+	// random-access happens to be later". Without this tag iOS Safari
+	// in particular waits for ~3 segments before showing a frame; on
+	// short-segment streams (~2 s) that's a 6 s blank-screen startup
+	// that some users perceive as "video doesn't load".
+	playlist += "#EXT-X-INDEPENDENT-SEGMENTS\n"
 	playlist += "\n"
 
 	for _, s := range segments {
