@@ -130,10 +130,16 @@ func (r *SegmentRing) Sequence() int {
 
 // GenerateM3U8 generates a live HLS playlist from the current segments.
 // windowSize is the number of segments to include in the playlist.
+//
+// Protocol version is VERSION 6 to legitimately use
+// EXT-X-INDEPENDENT-SEGMENTS, which RFC 8216 §7 introduced at
+// version 6. Declaring this with VERSION:3 (which we used previously)
+// is a spec violation and iOS Safari rejects such playlists with
+// MEDIA_ERR_SRC_NOT_SUPPORTED.
 func (r *SegmentRing) GenerateM3U8(mountPath string, windowSize int) string {
 	segments := r.Latest(windowSize)
 	if len(segments) == 0 {
-		return "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:4\n#EXT-X-MEDIA-SEQUENCE:0\n"
+		return "#EXTM3U\n#EXT-X-VERSION:6\n#EXT-X-TARGETDURATION:4\n#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-INDEPENDENT-SEGMENTS\n"
 	}
 
 	// TARGETDURATION must be an integer that is >= ceil of every EXTINF in
@@ -154,7 +160,11 @@ func (r *SegmentRing) GenerateM3U8(mountPath string, windowSize int) string {
 	mediaSequence := segments[0].Index
 
 	playlist := "#EXTM3U\n"
-	playlist += "#EXT-X-VERSION:3\n"
+	// VERSION 6 is the minimum that allows EXT-X-INDEPENDENT-SEGMENTS
+	// per RFC 8216 §7. Declaring this with a lower version is a spec
+	// violation and iOS Safari rejects the playlist outright with
+	// MEDIA_ERR_SRC_NOT_SUPPORTED.
+	playlist += "#EXT-X-VERSION:6\n"
 	playlist += fmt.Sprintf("#EXT-X-TARGETDURATION:%d\n", targetDuration)
 	playlist += fmt.Sprintf("#EXT-X-MEDIA-SEQUENCE:%d\n", mediaSequence)
 	// Every segment we emit starts on an IDR (the framed segment loop

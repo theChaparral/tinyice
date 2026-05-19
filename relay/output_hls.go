@@ -289,6 +289,17 @@ func (h *HLSOutput) runFramedSession(ctx context.Context, audio, video *Track) {
 		videoBatch []pesUnit
 		segStart   = time.Now()
 		segHasIDR  bool
+		// ptsBase is subtracted from every audio + video frame's PTS
+		// and DTS before muxing. Apple's HLS Authoring Specification
+		// recommends the first segment of a stream start at PTS = 0
+		// or close to it; our RTMP source's FLV timestamps are
+		// wall-clock relative to the publisher's session start, which
+		// can be many hours into the future by the time HLS sees the
+		// first frame. Mobile HLS players (iOS Safari especially) have
+		// trouble starting playback when the initial PTS is far from
+		// zero, sometimes silently stalling. ptsBase is captured from
+		// the first frame of the session and zeroes the timeline.
+		ptsBase    int64 = -1
 	)
 
 	flush := func() {
@@ -360,10 +371,22 @@ func (h *HLSOutput) runFramedSession(ctx context.Context, audio, video *Track) {
 			if !ok {
 				return
 			}
-			audioBatch = append(audioBatch, pesUnit{pts: f.PTS, dts: f.DTS, data: f.Data})
+			if ptsBase < 0 {
+				ptsBase = f.DTS
+				if f.PTS < ptsBase {
+					ptsBase = f.PTS
+				}
+			}
+			audioBatch = append(audioBatch, pesUnit{pts: f.PTS - ptsBase, dts: f.DTS - ptsBase, data: f.Data})
 		case f, ok := <-videoFrames:
 			if !ok {
 				return
+			}
+			if ptsBase < 0 {
+				ptsBase = f.DTS
+				if f.PTS < ptsBase {
+					ptsBase = f.PTS
+				}
 			}
 			// Prefer to start segments on keyframes, but respect the
 			// configured SegmentDuration as a TARGET (not a minimum):
@@ -382,7 +405,7 @@ func (h *HLSOutput) runFramedSession(ctx context.Context, audio, video *Track) {
 				}
 				segHasIDR = true
 			}
-			videoBatch = append(videoBatch, pesUnit{pts: f.PTS, dts: f.DTS, data: f.Data})
+			videoBatch = append(videoBatch, pesUnit{pts: f.PTS - ptsBase, dts: f.DTS - ptsBase, data: f.Data})
 		case <-timer.C:
 			// Audio-only flush path: no video frames, so keyframes
 			// can never trigger. Flush on the advertised segment
