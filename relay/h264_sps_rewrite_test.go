@@ -80,29 +80,70 @@ func TestIOSifyH264SPS_UnparseableLeftAlone(t *testing.T) {
 	}
 }
 
-func TestRewriteInlineSPS_ReplacesInlineSPS(t *testing.T) {
+func TestH264NALUFilter_IDRAccessUnit(t *testing.T) {
 	src, _ := hex.DecodeString("67640028acd940780227e5c05a808080a0000003002000000791e30632c0")
-	// Build: start_code + SPS + start_code + dummy_PPS + start_code + dummy_IDR
+	// Source-style access unit: SPS + PPS + SEI + IDR, no AUD.
 	annexB := []byte{0x00, 0x00, 0x00, 0x01}
 	annexB = append(annexB, src...)
 	annexB = append(annexB, 0x00, 0x00, 0x00, 0x01, 0x68, 0xee, 0x3c, 0xb0) // PPS
+	annexB = append(annexB, 0x00, 0x00, 0x00, 0x01, 0x06, 0x05, 0x01, 0x00) // SEI (will be dropped)
 	annexB = append(annexB, 0x00, 0x00, 0x00, 0x01, 0x65, 0xb8, 0x20, 0x01) // IDR (truncated)
 
-	out := rewriteInlineSPS(annexB, 30)
+	out := h264NALUFilter(annexB, 30)
 	if len(out) <= 4 {
 		t.Fatalf("output too short: %d bytes", len(out))
 	}
-	// The rewritten output must NOT contain the original (invalid) SPS.
+	// AUD must be the very first NALU after the leading start code.
+	if !containsBytes(out[:8], []byte{0x00, 0x00, 0x00, 0x01, 0x09, 0x10}) {
+		t.Errorf("output does not start with IDR-AUD; got %x", out[:min(16, len(out))])
+	}
+	// Source SPS must have been replaced by the iOSified rewrite.
 	if containsBytes(out, src) {
 		t.Errorf("original (invalid) SPS still present in output")
 	}
-	// Should still contain the dummy PPS NALU header byte 0x68.
+	// PPS and IDR must survive.
 	if !containsBytes(out, []byte{0x00, 0x00, 0x00, 0x01, 0x68}) {
 		t.Errorf("PPS start code lost during rewrite")
 	}
-	// Should still contain the IDR NALU header byte 0x65.
 	if !containsBytes(out, []byte{0x00, 0x00, 0x00, 0x01, 0x65}) {
 		t.Errorf("IDR start code lost during rewrite")
+	}
+	// SEI (NAL type 6) must have been stripped.
+	if containsBytes(out, []byte{0x00, 0x00, 0x00, 0x01, 0x06, 0x05, 0x01, 0x00}) {
+		t.Errorf("SEI was not stripped")
+	}
+}
+
+func TestH264NALUFilter_NonIDRSlice(t *testing.T) {
+	// P-frame access unit: just a non-IDR slice.
+	annexB := []byte{0x00, 0x00, 0x00, 0x01, 0x41, 0xe0, 0x20, 0x80}
+
+	out := h264NALUFilter(annexB, 30)
+	// AUD must be P-AUD (0x09 0x30), not IDR-AUD.
+	if !containsBytes(out[:8], []byte{0x00, 0x00, 0x00, 0x01, 0x09, 0x30}) {
+		t.Errorf("output does not start with P-AUD; got %x", out[:min(16, len(out))])
+	}
+	// Original slice must still be there.
+	if !containsBytes(out, []byte{0x00, 0x00, 0x00, 0x01, 0x41}) {
+		t.Errorf("non-IDR slice lost")
+	}
+}
+
+func TestH264NALUFilter_DropsDuplicateAUD(t *testing.T) {
+	// Input already has an AUD up front (e.g. from a libx264-style
+	// encoder) — we drop it and emit our own based on the slice type.
+	annexB := []byte{0x00, 0x00, 0x00, 0x01, 0x09, 0x30} // existing AUD
+	annexB = append(annexB, 0x00, 0x00, 0x00, 0x01, 0x41, 0xe0) // P-slice
+	out := h264NALUFilter(annexB, 30)
+	// Should have exactly ONE AUD NALU in output.
+	auds := 0
+	for i := 0; i+5 < len(out); i++ {
+		if out[i] == 0 && out[i+1] == 0 && out[i+2] == 0 && out[i+3] == 1 && out[i+4]&0x1F == 9 {
+			auds++
+		}
+	}
+	if auds != 1 {
+		t.Errorf("expected exactly 1 AUD, got %d", auds)
 	}
 }
 

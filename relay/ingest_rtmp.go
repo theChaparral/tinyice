@@ -404,14 +404,16 @@ func (h *rtmpHandler) OnVideo(timestamp uint32, payload io.Reader) error {
 			if len(annexB) == 0 {
 				return nil
 			}
-			// If the source ships SPS inline at every IDR (OBS /
-			// ffmpeg -bsf:v dump_extra / libx264 -repeat-headers),
-			// replace those inline SPS NALUs with the iOS-friendly
-			// rewrite. Same rationale as the cached-SPS rewrite in
-			// parseAVCConfig: the source's fixed_frame_rate=1+no-HRD
-			// shape is a H.264 §E.2.1 spec violation that iOS Safari
-			// rejects per-sample.
-			annexB = rewriteInlineSPS(annexB, 60)
+			// Normalise every video access unit for iOS Safari's
+			// strict HLS demuxer: rewrite inline SPS NALUs, drop
+			// SEI NALUs (some sources embed unparseable user_data),
+			// drop any existing AUD, and prepend a single
+			// primary_pic_type-correct AUD. Without the AUD prepend
+			// iOS rejects every sample with
+			// kCMFormatDescriptionError_InvalidParameter even when
+			// the SPS / PPS / slice data are byte-equivalent to a
+			// known-good x264 output.
+			annexB = h264NALUFilter(annexB, 30)
 
 			// For every IDR (keyframe) inject the cached SPS and PPS
 			// immediately before the IDR NALU — otherwise a new viewer

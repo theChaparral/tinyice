@@ -357,11 +357,33 @@ func IOSifyH264SPS(sps []byte, fpsHint uint32) []byte {
 	return rewritten
 }
 
-// rewriteInlineSPS walks an Annex-B byte stream and replaces every
-// SPS NALU (nal_unit_type=7) it finds with the IOSifyH264SPS rewrite.
-// Other NALUs pass through verbatim. The returned slice may be a
-// different length from the input.
-func rewriteInlineSPS(annexB []byte, fpsHint uint32) []byte {
+// h264AUDForIDR is the canonical Access Unit Delimiter NAL unit for
+// an IDR access unit: nal_unit_type=9, primary_pic_type=0 (I-slice
+// only). x264 emits this as 0x09 0x10. iOS Safari's HLS demuxer
+// requires AUD NALs to delimit access units; without them every
+// sample append fails with kCMFormatDescriptionError_InvalidParameter
+// even when the SPS / PPS / slices are otherwise spec-clean.
+var h264AUDForIDR = []byte{0x09, 0x10}
+
+// h264AUDForP is the AUD for non-IDR access units: primary_pic_type=2
+// (I, P slices). x264 emits 0x09 0x30 for P-frames.
+var h264AUDForP = []byte{0x09, 0x30}
+
+// h264NALUFilter combines (a) replacing every SPS NALU with the
+// iOS-friendly rewrite from IOSifyH264SPS, (b) stripping every SEI
+// NALU (some sources embed encoder-specific user_data that iOS
+// either over-validates or treats as bitstream waste), and
+// (c) ensuring exactly one AUD NALU sits at the front of every
+// access unit, picking the right primary_pic_type byte for IDR vs
+// non-IDR pictures.
+//
+// Apple's HLS Authoring Specification doesn't explicitly call out
+// AUDs as required, but empirically every iOS Safari version we've
+// tested rejects access-units that don't have one. x264 emits AUDs
+// at every frame by default; the OBS/source-encoder build that
+// motivated this fix does not, and stripping nothing else away
+// from those frames was the missing piece after the SPS rewrite.
+func h264NALUFilter(annexB []byte, fpsHint uint32) []byte {
 	// Find NALU boundaries by scanning for start codes.
 	// We track every start-code position so we can carry each NALU's
 	// length-preserved start code (3- or 4-byte) along with its
@@ -427,36 +449,69 @@ func rewriteInlineSPS(annexB []byte, fpsHint uint32) []byte {
 		segs = append(segs, seg{startCodeLen: scLen, payload: payload})
 		i = end
 	}
-	// Rewrite SPS NALUs.
-	rewrote := false
+	// Process NALUs: rewrite SPS, drop SEI + existing AUD, detect
+	// access-unit type from the first slice NALU (IDR=5, non-IDR
+	// slice=1) so we can prepend the right AUD byte.
+	type op struct {
+		drop    bool
+		payload []byte
+	}
+	ops := make([]op, len(segs))
+	hasIDR := false
+	hasSlice := false
 	for k := range segs {
 		if len(segs[k].payload) == 0 {
+			ops[k].drop = true
 			continue
 		}
-		if segs[k].payload[0]&0x1F == 7 { // SPS
-			newSPS := IOSifyH264SPS(segs[k].payload, fpsHint)
-			if len(newSPS) > 0 {
-				segs[k].payload = newSPS
-				rewrote = true
-			}
+		t := segs[k].payload[0] & 0x1F
+		switch t {
+		case 7: // SPS — rewrite
+			ops[k].payload = IOSifyH264SPS(segs[k].payload, fpsHint)
+		case 6: // SEI — drop
+			ops[k].drop = true
+		case 9: // existing AUD — drop, we'll insert our own
+			ops[k].drop = true
+		case 5: // IDR slice
+			hasIDR = true
+			ops[k].payload = segs[k].payload
+		case 1: // non-IDR slice
+			hasSlice = true
+			ops[k].payload = segs[k].payload
+		default:
+			ops[k].payload = segs[k].payload
 		}
 	}
-	if !rewrote {
-		return annexB
+	// Emit: AUD (if access unit has a slice), then everything else
+	// in order. We only prepend an AUD when this batch actually
+	// carries a slice — pure-parameter-set deliveries (BOS-style
+	// SPS/PPS-only chunks the source may emit) don't get a
+	// synthetic AUD and pass through with the same shape they had.
+	out := make([]byte, 0, len(annexB)+16)
+	if hasIDR || hasSlice {
+		out = append(out, 0x00, 0x00, 0x00, 0x01)
+		if hasIDR {
+			out = append(out, h264AUDForIDR...)
+		} else {
+			out = append(out, h264AUDForP...)
+		}
 	}
-	// Stitch back together.
-	total := 0
-	for _, s := range segs {
-		total += s.startCodeLen + len(s.payload)
-	}
-	out := make([]byte, 0, total)
-	for _, s := range segs {
-		if s.startCodeLen == 4 {
+	for k := range segs {
+		if ops[k].drop {
+			continue
+		}
+		payload := ops[k].payload
+		if len(payload) == 0 {
+			continue
+		}
+		// Use the original NALU's start code length so we don't
+		// change byte alignment in a way the muxer is sensitive to.
+		if segs[k].startCodeLen == 4 {
 			out = append(out, 0x00, 0x00, 0x00, 0x01)
 		} else {
 			out = append(out, 0x00, 0x00, 0x01)
 		}
-		out = append(out, s.payload...)
+		out = append(out, payload...)
 	}
 	return out
 }
