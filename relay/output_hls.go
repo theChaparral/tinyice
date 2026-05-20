@@ -200,11 +200,19 @@ func (h *HLSOutput) segmentLoopFramed(ctx context.Context, audio, video *Track) 
 			return
 		}
 		// Inner loop returned because both upstream FrameHubs closed
-		// (RemoveStream on source disconnect). Drop the ring so the
-		// player doesn't keep replaying segments from the previous
-		// connection while we wait for the new source — and then poll
-		// for fresh Stream pointers under the same mount.
-		h.ring.Clear()
+		// (RemoveStream on source disconnect). Previously we called
+		// ring.Clear() here so the player wouldn't replay segments
+		// from the previous connection while we wait for the new
+		// source. That turned out to be the wrong tradeoff: with the
+		// segments cleared and the new source taking 5-15 s to
+		// reconnect, the player runs out of buffer before the next
+		// segment arrives and visibly stalls. Leaving the ring
+		// populated means the player has up to ~60 s of DVR to chew
+		// through while we wait, well past any normal flap window.
+		// The #EXT-X-DISCONTINUITY tag we emit on the first segment
+		// after resubscribe tells the player the new content has a
+		// fresh PTS axis, so old segments and new ones coexist in
+		// the playlist without confusing the demuxer.
 		newAudio, newVideo := h.waitForFreshStreams(ctx)
 		if newAudio == nil {
 			return
