@@ -365,9 +365,18 @@ func IOSifyH264SPS(sps []byte, fpsHint uint32) []byte {
 // even when the SPS / PPS / slices are otherwise spec-clean.
 var h264AUDForIDR = []byte{0x09, 0x10}
 
-// h264AUDForP is the AUD for non-IDR access units: primary_pic_type=2
-// (I, P slices). x264 emits 0x09 0x30 for P-frames.
-var h264AUDForP = []byte{0x09, 0x30}
+// h264AUDForNonIDR is the AUD for non-IDR access units. We use
+// primary_pic_type=2 (= "I, P, B slices may be present"), which is
+// the safe value for any source that ships B-frames. iOS Safari
+// DROPS access units whose AUD claims a more restrictive slice
+// set than the access unit actually carries: e.g. if the AUD says
+// primary_pic_type=1 (I,P only) but the slice is a B-slice, iOS
+// silently discards the whole picture. Symptom from the user:
+// "proper 30 fps playback then gets stuck for some sec" — that's
+// iOS keeping the IDR and any P-frames and dropping all the B-
+// frames between them. Always using type 2 covers I/P/B without
+// having to crack open the slice header to discriminate.
+var h264AUDForNonIDR = []byte{0x09, 0x50}
 
 // h264NALUFilter combines (a) replacing every SPS NALU with the
 // iOS-friendly rewrite from IOSifyH264SPS, (b) stripping every SEI
@@ -493,7 +502,7 @@ func h264NALUFilter(annexB []byte, fpsHint uint32) []byte {
 		if hasIDR {
 			out = append(out, h264AUDForIDR...)
 		} else {
-			out = append(out, h264AUDForP...)
+			out = append(out, h264AUDForNonIDR...)
 		}
 	}
 	for k := range segs {

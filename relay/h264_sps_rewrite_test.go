@@ -119,9 +119,12 @@ func TestH264NALUFilter_NonIDRSlice(t *testing.T) {
 	annexB := []byte{0x00, 0x00, 0x00, 0x01, 0x41, 0xe0, 0x20, 0x80}
 
 	out := h264NALUFilter(annexB, 30)
-	// AUD must be P-AUD (0x09 0x30), not IDR-AUD.
-	if !containsBytes(out[:8], []byte{0x00, 0x00, 0x00, 0x01, 0x09, 0x30}) {
-		t.Errorf("output does not start with P-AUD; got %x", out[:min(16, len(out))])
+	// AUD must be non-IDR-AUD with primary_pic_type=2 (0x09 0x50),
+	// which is the permissive setting that covers I/P/B slices. We
+	// can't tell P from B from the NAL header alone, so we use the
+	// inclusive value for every non-IDR access unit.
+	if !containsBytes(out[:8], []byte{0x00, 0x00, 0x00, 0x01, 0x09, 0x50}) {
+		t.Errorf("output does not start with non-IDR AUD; got %x", out[:min(16, len(out))])
 	}
 	// Original slice must still be there.
 	if !containsBytes(out, []byte{0x00, 0x00, 0x00, 0x01, 0x41}) {
