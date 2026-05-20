@@ -81,6 +81,20 @@ type HLSOutput struct {
 	// self-healing path to look up the fresh video Stream after a
 	// source-side flap.
 	videoSubMount string
+
+	// nextSessionStartPTS is the output-side PTS/DTS value at which
+	// the NEXT session's first frame should land. By forwarding this
+	// across the resubscribe boundary we keep the output timeline
+	// monotonically increasing through source flaps — the player
+	// sees one continuous PCR/PTS axis with a brief "no new frames"
+	// gap, which it can ride out without rebuilding its demuxer.
+	// Compare to the previous design where each new session reset
+	// PTS to 0 and forced an #EXT-X-DISCONTINUITY tag, which was
+	// visible to the user as a hard stall every time the RTMP
+	// source dropped (every 20-50 s on a flappy publisher).
+	// Read + written only from segmentLoopFramed (single goroutine);
+	// no synchronisation needed.
+	nextSessionStartPTS int64
 }
 
 // NewHLSOutput creates a new HLS output for the given mount.
@@ -259,10 +273,13 @@ func (h *HLSOutput) waitForFreshStreams(ctx context.Context) (*Track, *Track) {
 func (h *HLSOutput) runFramedSession(ctx context.Context, audio, video *Track) {
 	audioFrames := audio.Stream.Frames.Subscribe(ctx)
 	videoFrames := video.Stream.Frames.Subscribe(ctx)
-	// Force a discontinuity marker on the first segment of every new
-	// session so the player rebuilds its demuxer instead of trying to
-	// bridge the PTS jump from the previous source's last segment.
-	firstSegOfSession := true
+	// Discontinuity marker is now suppressed across normal source
+	// flaps because we forward the output PTS axis monotonically
+	// (see h.nextSessionStartPTS). We only emit a discontinuity when
+	// the AUDIO codec changes mid-stream (the AAC vs MP3 PMT swap
+	// path below), since that's a real demuxer-rebuild boundary that
+	// the player can't bridge without one.
+	_ = false // (kept for code-shape continuity)
 
 	// audioStreamType is sampled at flush time, not registration time.
 	// RTMP ingest defaults the input stream's ContentType to
@@ -289,17 +306,21 @@ func (h *HLSOutput) runFramedSession(ctx context.Context, audio, video *Track) {
 		videoBatch []pesUnit
 		segStart   = time.Now()
 		segHasIDR  bool
-		// ptsBase is subtracted from every audio + video frame's PTS
-		// and DTS before muxing. Apple's HLS Authoring Specification
-		// recommends the first segment of a stream start at PTS = 0
-		// or close to it; our RTMP source's FLV timestamps are
-		// wall-clock relative to the publisher's session start, which
-		// can be many hours into the future by the time HLS sees the
-		// first frame. Mobile HLS players (iOS Safari especially) have
-		// trouble starting playback when the initial PTS is far from
-		// zero, sometimes silently stalling. ptsBase is captured from
-		// the first frame of the session and zeroes the timeline.
-		ptsBase    int64 = -1
+		// ptsBase is subtracted from every audio + video frame's
+		// PTS and DTS before muxing. Within a session it normalises
+		// the source's FLV timestamps to start at h.nextSessionStartPTS
+		// (which is 0 on the very first session, and the
+		// end-of-previous-session output PTS for subsequent
+		// sessions). That keeps the output timeline monotonically
+		// increasing across source flaps, so the player can ride
+		// out a brief gap without rebuilding its demuxer (no
+		// #EXT-X-DISCONTINUITY needed).
+		ptsBase int64 = -1
+		// lastEmittedDTS tracks the last output DTS we put on the
+		// wire so we can advance h.nextSessionStartPTS at session
+		// end. Initialised to nextSessionStartPTS so a session that
+		// never gets a frame still leaves a sane value behind.
+		lastEmittedDTS int64 = h.nextSessionStartPTS
 	)
 
 	flush := func() {
@@ -314,9 +335,14 @@ func (h *HLSOutput) runFramedSession(ctx context.Context, audio, video *Track) {
 		// segment after a source-flap resubscribe is also a
 		// discontinuity (fresh PTS timeline + possibly different
 		// codec / resolution).
-		discontinuity := audioStreamType != prevAudioStreamType || firstSegOfSession
+		// Only the audio-codec-change case is a real demuxer-rebuild
+		// boundary (the player has to swap from MP3 to AAC parsing
+		// or vice versa). Source flaps no longer trigger a
+		// discontinuity because PTS continuity is preserved by
+		// h.nextSessionStartPTS forwarding the output timeline
+		// across sessions.
+		discontinuity := audioStreamType != prevAudioStreamType
 		prevAudioStreamType = audioStreamType
-		firstSegOfSession = false
 
 		tsData := h.buildAVSegment(audioBatch, videoBatch, audioStreamType)
 		// Use the first PTS as the segment's nominal start, and derive
@@ -369,24 +395,42 @@ func (h *HLSOutput) runFramedSession(ctx context.Context, audio, video *Track) {
 			return
 		case f, ok := <-audioFrames:
 			if !ok {
+				// Persist where the output timeline is now so the
+				// next session continues from here rather than
+				// snapping back to zero.
+				h.nextSessionStartPTS = lastEmittedDTS
 				return
 			}
 			if ptsBase < 0 {
-				ptsBase = f.DTS
-				if f.PTS < ptsBase {
-					ptsBase = f.PTS
+				// Map this session's first input PTS onto
+				// h.nextSessionStartPTS so the output timeline is
+				// continuous with the previous session.
+				ptsBase = f.DTS - h.nextSessionStartPTS
+				if f.PTS-ptsBase < h.nextSessionStartPTS {
+					ptsBase = f.PTS - h.nextSessionStartPTS
 				}
 			}
-			audioBatch = append(audioBatch, pesUnit{pts: f.PTS - ptsBase, dts: f.DTS - ptsBase, data: f.Data})
+			outDTS := f.DTS - ptsBase
+			outPTS := f.PTS - ptsBase
+			if outDTS > lastEmittedDTS {
+				lastEmittedDTS = outDTS
+			}
+			audioBatch = append(audioBatch, pesUnit{pts: outPTS, dts: outDTS, data: f.Data})
 		case f, ok := <-videoFrames:
 			if !ok {
+				h.nextSessionStartPTS = lastEmittedDTS
 				return
 			}
 			if ptsBase < 0 {
-				ptsBase = f.DTS
-				if f.PTS < ptsBase {
-					ptsBase = f.PTS
+				ptsBase = f.DTS - h.nextSessionStartPTS
+				if f.PTS-ptsBase < h.nextSessionStartPTS {
+					ptsBase = f.PTS - h.nextSessionStartPTS
 				}
+			}
+			outDTS := f.DTS - ptsBase
+			outPTS := f.PTS - ptsBase
+			if outDTS > lastEmittedDTS {
+				lastEmittedDTS = outDTS
 			}
 			// Prefer to start segments on keyframes, but respect the
 			// configured SegmentDuration as a TARGET (not a minimum):
@@ -405,7 +449,7 @@ func (h *HLSOutput) runFramedSession(ctx context.Context, audio, video *Track) {
 				}
 				segHasIDR = true
 			}
-			videoBatch = append(videoBatch, pesUnit{pts: f.PTS - ptsBase, dts: f.DTS - ptsBase, data: f.Data})
+			videoBatch = append(videoBatch, pesUnit{pts: outPTS, dts: outDTS, data: f.Data})
 		case <-timer.C:
 			// Audio-only flush path: no video frames, so keyframes
 			// can never trigger. Flush on the advertised segment
