@@ -6,9 +6,15 @@
   --color-surface-overlay: oklch(0.20 0 0);
   --color-surface-hover: oklch(0.14 0 0);
 
-  --color-text-primary: rgba(255, 255, 255, 0.87);
-  --color-text-secondary: rgba(255, 255, 255, 0.60);
-  --color-text-tertiary: rgba(255, 255, 255, 0.38);
+  /* Text opacities tuned for our very dark base (oklch 0.10, darker
+     than Material's #121212). The Material 87/60/38 ladder lands
+     below WCAG AA on this background — tertiary at 38% is only
+     ~3.6:1. Raised to keep the same visual hierarchy while bringing
+     secondary and tertiary up to AA (4.5:1+) so the Streams table
+     and other muted labels are legible. See issue #35. */
+  --color-text-primary: rgba(255, 255, 255, 0.92);
+  --color-text-secondary: rgba(255, 255, 255, 0.75);
+  --color-text-tertiary: rgba(255, 255, 255, 0.55);
 
   --color-accent: var(--accent-override, #ff6600);
   --color-accent-subtle: rgba(255, 102, 0, 0.08);
