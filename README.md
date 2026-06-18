@@ -95,7 +95,8 @@ curl -LJO "https://github.com/DatanoiseTV/tinyice/releases/latest/download/tinyi
 chmod +x tinyice-* && mv tinyice-* tinyice && ./tinyice
 
 # Or Docker — multi-arch images on GHCR (linux/amd64, linux/arm64)
-docker run --rm -p 8000:8000 -v tinyice-data:/data ghcr.io/datanoisetv/tinyice:latest
+# The image listens on 8080 and reads /data/config.json; reach it on :8000
+docker run --rm -p 8000:8080 -v tinyice-data:/data ghcr.io/datanoisetv/tinyice:latest
 
 # Or from source — Go 1.25+, Node 20+
 git clone https://github.com/DatanoiseTV/tinyice.git && cd tinyice && make build
